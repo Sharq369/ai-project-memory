@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { Lock, Mail, ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
@@ -19,10 +19,6 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
-    // We assume you have a basic supabase client set up. 
-    // If this fails, we can fix the import path later.
-    const supabase = createClient();
 
     try {
       if (isSignUp) {
