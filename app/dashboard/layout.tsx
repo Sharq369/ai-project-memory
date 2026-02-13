@@ -2,7 +2,8 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { supabase } from '../../lib/supabase';
 import { 
   LayoutDashboard, 
   BrainCircuit, 
@@ -14,6 +15,13 @@ import {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  // THIS IS THE LOG OUT LOGIC
+  const handleSignOut = async () => {
+    await supabase.auth.signOut(); // Ends the Supabase session
+    router.push('/login'); // Sends you back to the login page
+  };
 
   const navItems = [
     { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
@@ -28,11 +36,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Sidebar */}
       <aside className="w-64 border-r border-white/10 bg-black/50 backdrop-blur-xl flex flex-col">
         <div className="p-6">
-          <div className="flex items-center gap-3 px-2 mb-8">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <BrainCircuit size={20} />
-            </div>
-            <span className="font-bold tracking-tight text-xl">Memory AI</span>
+          <div className="flex items-center gap-3 px-2 mb-8 text-blue-500">
+            <BrainCircuit size={24} />
+            <span className="font-bold tracking-tight text-xl text-white">Memory AI</span>
           </div>
 
           <nav className="space-y-1">
@@ -57,16 +63,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </nav>
         </div>
 
+        {/* SIGN OUT BUTTON AT THE BOTTOM */}
         <div className="mt-auto p-6 border-t border-white/10">
-          <button className="flex items-center gap-3 px-3 py-2 w-full text-zinc-400 hover:text-red-400 transition-colors">
+          <button 
+            onClick={handleSignOut}
+            className="flex items-center gap-3 px-3 py-2 w-full text-zinc-400 hover:text-red-400 transition-colors"
+          >
             <LogOut size={18} />
             <span className="text-sm font-medium">Sign Out</span>
           </button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto bg-gradient-to-br from-black via-[#0d0d0d] to-[#121212]">
+      <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-8">
           {children}
         </div>
