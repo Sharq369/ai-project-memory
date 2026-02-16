@@ -1,65 +1,88 @@
-'use client';
+'use client'
 
-import React from 'react';
-import { Folder, Plus, MoreVertical, GitBranch, Clock } from 'lucide-react';
+import { useState, useEffect } from 'react'
+import { supabase } from '../../../lib/supabase' 
+import { Folder, Plus, Calendar, MoreVertical, Loader2 } from 'lucide-react'
 
 export default function ProjectsPage() {
-  const projects = [
-    { id: 1, name: "Website Redesign", status: "Active", memories: 12, lastActive: "2h ago" },
-    { id: 2, name: "Mobile App API", status: "In Progress", memories: 8, lastActive: "1d ago" },
-    { id: 3, name: "Marketing Campaign", status: "Planning", memories: 3, lastActive: "3d ago" },
-  ];
+  const [projects, setProjects] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [name, setName] = useState('')
+
+  useEffect(() => {
+    fetchProjects()
+  }, [])
+
+  async function fetchProjects() {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (!error) setProjects(data || [])
+    setLoading(false)
+  }
+
+  async function handleCreate() {
+    if (!name.trim()) return
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    const { error } = await supabase
+      .from('projects')
+      .insert([{ name, user_id: user?.id }])
+
+    if (!error) {
+      setName('')
+      setIsModalOpen(false)
+      fetchProjects()
+    }
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white">Projects</h1>
-          <p className="text-zinc-400">Organize your thoughts into actionable goals.</p>
-        </div>
-        <button className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-all">
-          <Plus size={18} />
-          New Project
+    <div className="p-6 max-w-5xl mx-auto">
+      <header className="flex justify-between items-center mb-8">
+        <h1 className="text-2xl font-bold text-white">Projects</h1>
+        <button 
+          onClick={() => setIsModalOpen(true)}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+        >
+          <Plus size={18} /> New Project
         </button>
-      </div>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {projects.map((project) => (
-          <div key={project.id} className="bg-white/5 border border-white/10 p-6 rounded-xl hover:border-blue-500/50 transition-all group">
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-blue-500/10 rounded-lg text-blue-400">
-                <Folder size={24} />
-              </div>
-              <button className="text-zinc-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                <MoreVertical size={18} />
-              </button>
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader2 className="animate-spin text-blue-500" /></div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {projects.map(project => (
+            <div key={project.id} className="bg-[#1e212b] border border-gray-800 p-5 rounded-2xl">
+              <Folder className="text-blue-400 mb-3" size={24} />
+              <h3 className="font-semibold text-white">{project.name}</h3>
+              <p className="text-xs text-gray-500 mt-1">{project.status}</p>
             </div>
-            
-            <h3 className="text-xl font-bold text-white mb-1">{project.name}</h3>
-            <div className="flex items-center gap-2 text-zinc-400 text-sm mb-6">
-              <span className="w-2 h-2 rounded-full bg-green-500"></span>
-              {project.status}
-            </div>
+          ))}
+        </div>
+      )}
 
-            <div className="flex items-center justify-between text-xs text-zinc-500 pt-4 border-t border-white/5">
-              <div className="flex items-center gap-1">
-                <GitBranch size={14} />
-                {project.memories} Memories
-              </div>
-              <div className="flex items-center gap-1">
-                <Clock size={14} />
-                {project.lastActive}
-              </div>
+      {/* Basic Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1e212b] p-6 rounded-2xl w-full max-w-md border border-gray-800">
+            <h2 className="text-xl font-bold mb-4">Create New Project</h2>
+            <input 
+              className="w-full bg-black/20 border border-gray-700 p-3 rounded-xl mb-4"
+              placeholder="Project Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <div className="flex gap-3">
+              <button onClick={() => setIsModalOpen(false)} className="flex-1 py-2 text-gray-400">Cancel</button>
+              <button onClick={handleCreate} className="flex-1 py-2 bg-blue-600 rounded-lg">Create</button>
             </div>
           </div>
-        ))}
-        
-        {/* "Create New" Placeholder Card */}
-        <button className="border border-dashed border-white/10 rounded-xl p-6 flex flex-col items-center justify-center text-zinc-500 hover:text-white hover:border-white/30 transition-all h-full min-h-[200px]">
-          <Plus size={32} className="mb-2" />
-          <span className="font-medium">Create New Project</span>
-        </button>
-      </div>
+        </div>
+      )}
     </div>
-  );
+  )
 }
