@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from ''../../lib/supabase'
+import { supabase } from '../../lib/supabase'
 import { Plus, Search, Folder, MoreVertical, Calendar } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
