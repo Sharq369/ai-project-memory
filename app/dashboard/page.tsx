@@ -1,135 +1,171 @@
 'use client'
 
-import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
+import { useState, useEffect } from 'react'
+import { supabase } from ''../../lib/supabase'
+import { Plus, Search, Folder, MoreVertical, Calendar } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
-export default function DashboardPage() {
-  const [content, setContent] = useState('')
-  const [tag, setTag] = useState('')
+export default function Dashboard() {
+  const [memories, setMemories] = useState<any[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
+  const [newMemory, setNewMemory] = useState('')
+  const [tags, setTags] = useState('')
+  const [loading, setLoading] = useState(true)
+  const router = useRouter()
 
-  const handleSave = async () => {
-    if (!content.trim()) {
-      alert('Please enter some content')
+  useEffect(() => {
+    fetchMemories()
+  }, [])
+
+  async function fetchMemories() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      router.push('/login')
       return
     }
 
-    setIsSaving(true)
+    const { data, error } = await supabase
+      .from('memories')
+      .select('*')
+      .order('created_at', { ascending: false })
 
-    try {
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (error) console.error('Error fetching memories:', error)
+    else setMemories(data || [])
+    setLoading(false)
+  }
 
-      if (userError || !user) {
-        alert('You must be logged in to save memories')
-        setIsSaving(false)
-        return
-      }
+  async function addMemory() {
+    if (!newMemory.trim()) return
 
-      // Insert memory into database
-      const { error: insertError } = await supabase
-        .from('memories')
-        .insert({
-          user_id: user.id,
-          content: content.trim(),
-          tag: tag.trim() || null,
-        })
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
 
-      if (insertError) {
-        console.error('Error saving memory:', insertError)
-        alert('Failed to save memory. Please try again.')
-        setIsSaving(false)
-        return
-      }
+    const { error } = await supabase
+      .from('memories')
+      .insert([
+        { 
+          user_id: user.id, 
+          content: newMemory, 
+          tag: tags 
+        }
+      ])
 
-      // Success
-      alert('Memory saved successfully! ✅')
-      setContent('')
-      setTag('')
+    if (error) {
+      alert('Error saving memory!')
+      console.error(error)
+    } else {
+      setNewMemory('')
+      setTags('')
       setIsModalOpen(false)
-    } catch (error) {
-      console.error('Unexpected error:', error)
-      alert('An error occurred. Please try again.')
-    } finally {
-      setIsSaving(false)
+      fetchMemories()
     }
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
-
-        {/* Add Memory Button */}
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition"
+    <div className="min-h-screen bg-[#0f1117] text-gray-300 font-sans">
+      {/* Top Navigation Bar */}
+      <header className="border-b border-gray-800 bg-[#0f1117] p-4 flex justify-between items-center sticky top-0 z-10">
+        <h1 className="text-xl font-semibold text-white">My Second Brain</h1>
+        <button 
+          onClick={() => alert("Projects feature coming soon!")}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
         >
-          + Add Memory
+          + New Project
         </button>
+      </header>
 
-        {/* Modal */}
-        {isModalOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg p-6 max-w-2xl w-full">
-              <h2 className="text-2xl font-bold mb-4">Save New Memory</h2>
+      <div className="p-6 max-w-7xl mx-auto">
+        {/* Search & Filter Section */}
+        <div className="mb-8 flex flex-col md:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-3 h-5 w-5 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search your memories..."
+              className="w-full bg-[#1e212b] border border-gray-800 text-white pl-10 pr-4 py-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-500"
+            />
+          </div>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20 transition-all"
+          >
+            <Plus className="h-5 w-5" />
+            Add Memory
+          </button>
+        </div>
 
-              {/* Tag Input */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-2">
-                  Tag (optional)
-                </label>
-                <input
-                  type="text"
-                  value={tag}
-                  onChange={(e) => setTag(e.target.value)}
-                  placeholder="e.g., work, personal, ideas..."
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={isSaving}
-                />
+        {/* Memories Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {loading ? (
+            <p className="text-gray-500">Loading your brain...</p>
+          ) : memories.length === 0 ? (
+            <div className="col-span-full text-center py-20 bg-[#1e212b] rounded-2xl border border-gray-800 border-dashed">
+              <p className="text-gray-400">No memories yet. Add your first one!</p>
+            </div>
+          ) : (
+            memories.map((memory) => (
+              <div key={memory.id} className="bg-[#1e212b] p-6 rounded-2xl border border-gray-800 hover:border-gray-700 transition-all hover:shadow-xl group">
+                <div className="flex justify-between items-start mb-4">
+                  <span className="bg-blue-500/10 text-blue-400 text-xs px-3 py-1 rounded-full font-medium border border-blue-500/20">
+                    {memory.tag || 'Idea'}
+                  </span>
+                  <span className="text-xs text-gray-500 flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    {new Date(memory.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <p className="text-gray-200 leading-relaxed mb-4 min-h-[60px]">
+                  {memory.content}
+                </p>
+                <div className="flex justify-between items-center pt-4 border-t border-gray-800/50">
+                  <button className="text-gray-500 hover:text-white transition-colors">
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
+            ))
+          )}
+        </div>
+      </div>
 
-              {/* Content Textarea */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium mb-2">
-                  Content
-                </label>
-                <textarea
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  placeholder="Enter your memory here..."
-                  rows={8}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  disabled={isSaving}
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-4 justify-end">
-                <button
-                  onClick={() => {
-                    setIsModalOpen(false)
-                    setContent('')
-                    setTag('')
-                  }}
-                  className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                  disabled={isSaving}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSaving ? 'Saving...' : 'Save Memory'}
-                </button>
-              </div>
+      {/* Add Memory Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1e212b] rounded-2xl p-6 w-full max-w-md border border-gray-700 shadow-2xl transform transition-all">
+            <h2 className="text-xl font-bold text-white mb-4">Store a New Memory</h2>
+            
+            <textarea
+              placeholder="What's on your mind?"
+              className="w-full h-32 bg-[#0f1117] border border-gray-700 rounded-xl p-4 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 outline-none resize-none mb-4"
+              value={newMemory}
+              onChange={(e) => setNewMemory(e.target.value)}
+            />
+            
+            <input
+              type="text"
+              placeholder="Tag (e.g., Work, Idea, Personal)"
+              className="w-full bg-[#0f1117] border border-gray-700 rounded-xl p-4 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 outline-none mb-6"
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+            />
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="flex-1 px-4 py-3 rounded-xl border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={addMemory}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-xl font-medium transition-colors"
+              >
+                Save Memory
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
