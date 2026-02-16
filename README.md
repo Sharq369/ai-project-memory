@@ -22,7 +22,7 @@ Simple Next.js app to save text memories to Supabase.
    npm run dev
    ```
 
-4. **Open** http://localhost:3000
+4. **Open** https://ai-project-memory.vercel.app
 
 ## Structure
 
