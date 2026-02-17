@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '../../../lib/supabase'
-import { Search, Sparkles, Send, Loader2, Folder, Clock } from 'lucide-react'
+import { Search, Sparkles, Send, Loader2 } from 'lucide-react'
 
 export default function AISearchPage() {
   const [query, setQuery] = useState('')
@@ -14,22 +14,28 @@ export default function AISearchPage() {
     if (e) e.preventDefault();
     if (!query.trim() || isSearching) return;
 
-    // DEBUG: Remove this once it works
-    console.log("Search triggered for:", query);
-
     setIsSearching(true);
     setHasSearched(true);
+    setResults([]);
 
-    const { data, error } = await supabase
-      .from('memories')
-      .select('*, projects(name)')
-      .ilike('content', `%${query}%`)
-      .order('created_at', { ascending: false });
+    try {
+      // DEBUG STEP: We are searching ONLY memories first to rule out Join errors
+      const { data, error } = await supabase
+        .from('memories')
+        .select('*') // Simplified: No project join yet
+        .ilike('content', `%${query}%`)
+        .order('created_at', { ascending: false });
 
-    if (error) console.error('Error:', error);
-    else setResults(data || []);
-    
-    setIsSearching(false);
+      if (error) {
+        alert("Supabase Error: " + error.message); // This will show on your phone
+      } else {
+        setResults(data || []);
+      }
+    } catch (err: any) {
+      alert("System Crash: " + err.message);
+    } finally {
+      setIsSearching(false); // This turns the button back to dark blue
+    }
   };
 
   return (
@@ -38,67 +44,42 @@ export default function AISearchPage() {
         
         <header className="text-center mb-8">
           <h1 className="text-2xl font-bold text-white flex items-center justify-center gap-2">
-            <Sparkles className="text-blue-400" /> AI Search
+            <Sparkles className="text-blue-400" /> AI Brain
           </h1>
         </header>
 
-        {/* THE FIXED SEARCH UNIT */}
-        <div className="flex flex-col gap-3 mb-10">
-          <form onSubmit={handleSearch} className="flex gap-2 h-14">
-            <div className="relative flex-1">
-              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                <Search size={18} className="text-gray-500" />
-              </div>
-              <input
-                type="text"
-                className="w-full h-full bg-[#1e212b] border border-gray-800 rounded-2xl pl-12 pr-4 text-white text-base outline-none focus:border-blue-500"
-                placeholder="Search memories..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </div>
+        <form onSubmit={handleSearch} className="flex gap-2 mb-10 h-14">
+          <input
+            type="search" // Use 'search' for better mobile keyboard support
+            inputMode="search"
+            className="flex-1 bg-[#1e212b] border border-gray-800 rounded-2xl px-6 text-white text-lg outline-none focus:border-blue-500"
+            placeholder="Search..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
 
-            <button 
-              type="submit"
-              // Explicit onClick for mobile browsers that fail form submission
-              onClick={() => handleSearch()}
-              disabled={isSearching || !query.trim()}
-              // p-4 and min-w-[60px] creates a massive, easy-to-tap hit area
-              className="h-14 min-w-[60px] bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg active:scale-90 active:bg-blue-700 transition-all z-50 pointer-events-auto"
-            >
-              {isSearching ? (
-                <Loader2 className="animate-spin h-5 w-5" />
-              ) : (
-                <Send size={20} />
-              )}
-            </button>
-          </form>
-          <p className="text-[10px] text-gray-600 px-2 uppercase tracking-widest">
-            {isSearching ? 'Analyzing neural patterns...' : 'Tap send to search'}
-          </p>
-        </div>
+          <button 
+            type="submit"
+            disabled={isSearching}
+            className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white active:scale-90 disabled:opacity-30"
+          >
+            {isSearching ? <Loader2 className="animate-spin" /> : <Send size={20} />}
+          </button>
+        </form>
 
-        {/* RESULTS AREA */}
         <div className="space-y-4">
-          {!isSearching && hasSearched && results.length === 0 && (
-            <div className="text-center py-10 text-gray-500 border border-dashed border-gray-800 rounded-2xl">
-              No results for "{query}"
-            </div>
-          )}
-
           {results.map((item) => (
-            <div key={item.id} className="bg-[#1e212b] border border-gray-800 p-5 rounded-2xl shadow-sm">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-[10px] font-bold text-blue-400 uppercase">{item.tag || 'Memory'}</span>
-                {item.projects?.name && (
-                  <span className="text-[10px] text-gray-500 flex items-center gap-1">
-                    <Folder size={10} /> {item.projects.name}
-                  </span>
-                )}
-              </div>
-              <p className="text-gray-200 leading-relaxed">{item.content}</p>
+            <div key={item.id} className="bg-[#1e212b] border border-gray-800 p-5 rounded-2xl">
+              <p className="text-gray-200">{item.content}</p>
+              <p className="text-[10px] text-gray-600 mt-2 uppercase tracking-widest">
+                {new Date(item.created_at).toLocaleDateString()}
+              </p>
             </div>
           ))}
+          
+          {hasSearched && results.length === 0 && !isSearching && (
+            <p className="text-center text-gray-600">No results for "{query}"</p>
+          )}
         </div>
       </div>
     </div>
