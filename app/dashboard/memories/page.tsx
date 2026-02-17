@@ -4,186 +4,134 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { 
   Database, Plus, Loader2, Trash2, 
-  Tag as TagIcon, Calendar, Hash, AlertCircle, Folder 
+  Image as ImageIcon, X, Folder, Hash, Calendar 
 } from 'lucide-react'
 
 export default function MemoriesPage() {
   const [content, setContent] = useState('')
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [selectedProject, setSelectedProject] = useState('none')
   const [projects, setProjects] = useState<any[]>([])
   const [memories, setMemories] = useState<any[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // 1. Fetch Memories AND Projects on load
-  useEffect(() => {
-    fetchData()
-  }, [])
+  useEffect(() => { fetchData() }, [])
 
   async function fetchData() {
-    // Run both fetches in parallel for speed
-    const [memoriesRes, projectsRes] = await Promise.all([
+    const [mRes, pRes] = await Promise.all([
       supabase.from('memories').select('*').order('created_at', { ascending: false }),
       supabase.from('projects').select('*').order('name')
     ])
-
-    if (memoriesRes.data) setMemories(memoriesRes.data)
-    if (projectsRes.data) setProjects(projectsRes.data)
+    if (mRes.data) setMemories(mRes.data)
+    if (pRes.data) setProjects(pRes.data)
     setLoading(false)
   }
 
-  const getAutoTag = (text: string) => {
-    const input = text.toLowerCase()
-    if (input.includes('api') || input.includes('code') || input.includes('fix')) return 'DEVELOPMENT'
-    if (input.includes('ui') || input.includes('design') || input.includes('color')) return 'DESIGN'
-    if (input.includes('saas') || input.includes('market') || input.includes('plan')) return 'BUSINESS'
-    return 'OBSERVATION'
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setImageFile(file)
+      setPreviewUrl(URL.createObjectURL(file))
+    }
   }
 
-  // 2. The FIXED Save Handler
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!content.trim() || isSaving) return
-
     setIsSaving(true)
 
     try {
-      // A. Get current user explicitly to prevent "Guest" errors
       const { data: { user } } = await supabase.auth.getUser()
-      
-      if (!user) {
-        alert("Error: You are not logged in.")
-        setIsSaving(false)
-        return
+      let uploadedImageUrl = null
+
+      if (imageFile) {
+        const fileExt = imageFile.name.split('.').pop()
+        const fileName = `${Math.random()}.${fileExt}`
+        const { error: uploadError } = await supabase.storage
+          .from('memory-images')
+          .upload(fileName, imageFile)
+        
+        if (uploadError) throw uploadError
+        const { data: { publicUrl } } = supabase.storage.from('memory-images').getPublicUrl(fileName)
+        uploadedImageUrl = publicUrl
       }
 
-      const tag = getAutoTag(content)
-
-      // B. Insert with explicit user_id and project_id
       const { data, error } = await supabase
         .from('memories')
         .insert([{ 
           content, 
-          tag,
-          user_id: user.id, // Explicitly linking the user fixes RLS errors
-          project_id: selectedProject === 'none' ? null : selectedProject
+          user_id: user?.id,
+          project_id: selectedProject === 'none' ? null : selectedProject,
+          image_url: uploadedImageUrl,
+          tag: 'OBSERVATION' 
         }])
         .select()
 
-      if (error) {
-        // C. If it fails, this alert will tell us EXACTLY why (e.g., "Violates foreign key...")
-        alert("Database Error: " + error.message)
-      } else if (data) {
+      if (!error && data) {
         setMemories([data[0], ...memories])
-        setContent('')
-        // Optional: Reset project selection after save? 
-        // setSelectedProject('none') 
+        setContent(''); setImageFile(null); setPreviewUrl(null)
       }
-    } catch (err: any) {
-      alert("System Error: " + err.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  const deleteMemory = async (id: string) => {
-    if (!confirm("Delete this memory?")) return
-    const { error } = await supabase.from('memories').delete().eq('id', id)
-    if (!error) setMemories(memories.filter(m => m.id !== id))
+    } catch (err: any) { alert(err.message) }
+    finally { setIsSaving(false) }
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in duration-500 pb-20">
-      
-      {/* Input Section */}
-      <section className="bg-[#16181e] border border-gray-800 rounded-3xl p-6 md:p-8 shadow-2xl">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-blue-600/10 rounded-lg">
-            <Database className="text-blue-400" size={20} />
-          </div>
-          <h2 className="text-xl font-bold text-white">Record Memory</h2>
-        </div>
-
+    <div className="max-w-4xl mx-auto space-y-8 pb-20">
+      <section className="bg-[#16181e] border border-gray-800 rounded-3xl p-6 shadow-2xl">
         <form onSubmit={handleSave} className="space-y-4">
           <textarea
-            className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl p-5 text-gray-200 outline-none focus:border-blue-500/50 transition-all min-h-[120px] resize-none text-lg placeholder:text-gray-600"
-            placeholder="What's on your mind? AI will auto-categorize your entry..."
+            className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl p-5 text-gray-200 outline-none focus:border-blue-500/50 min-h-[120px] resize-none"
+            placeholder="Capture a thought..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
           />
-          
-          <div className="flex flex-col md:flex-row justify-between gap-4">
-            
-            {/* Project Selector (New Feature) */}
-            <div className="flex items-center gap-2 bg-[#0f1117] px-3 py-2 rounded-xl border border-gray-800">
-              <Folder size={14} className="text-gray-500" />
+
+          {previewUrl && (
+            <div className="relative w-32 h-32 rounded-xl overflow-hidden border border-gray-700">
+              <img src={previewUrl} className="w-full h-full object-cover" />
+              <button onClick={() => {setPreviewUrl(null); setImageFile(null)}} className="absolute top-1 right-1 bg-black/50 p-1 rounded-full text-white"><X size={12} /></button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex gap-2">
+              <label className="cursor-pointer bg-[#0f1117] p-3 rounded-xl border border-gray-800 hover:border-blue-500/50 transition-colors">
+                <ImageIcon size={18} className="text-gray-400" />
+                <input type="file" className="hidden" accept="image/*" onChange={handleImageSelect} />
+              </label>
               <select 
                 value={selectedProject}
                 onChange={(e) => setSelectedProject(e.target.value)}
-                className="bg-transparent text-sm text-gray-300 outline-none w-full md:w-auto"
+                className="bg-[#0f1117] text-xs text-gray-400 px-4 rounded-xl border border-gray-800 outline-none"
               >
                 <option value="none">No Project</option>
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
-
-            <div className="flex items-center justify-between gap-4">
-              <p className="hidden md:flex text-[10px] text-gray-600 font-bold uppercase tracking-widest items-center gap-2">
-                <AlertCircle size={12} /> Auto-tagging active
-              </p>
-              <button
-                type="submit"
-                disabled={isSaving || !content.trim()}
-                className="w-full md:w-auto bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-8 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-900/20"
-              >
-                {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />}
-                SAVE ENTRY
-              </button>
-            </div>
+            <button disabled={isSaving} className="bg-blue-600 px-8 py-3 rounded-xl text-white font-bold flex items-center gap-2">
+              {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />} SAVE
+            </button>
           </div>
         </form>
       </section>
 
-      {/* List Section */}
-      <section className="space-y-4">
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-[0.2em] px-2">Recent Archives</h3>
-        
-        {loading ? (
-          <div className="flex justify-center py-20"><Loader2 className="animate-spin text-gray-700" /></div>
-        ) : (
-          <div className="grid gap-4">
-            {memories.map((m) => (
-              <div key={m.id} className="group bg-[#16181e] border border-gray-800 p-6 rounded-2xl hover:border-gray-700 transition-all flex justify-between items-start">
-                <div className="space-y-3">
-                  <div className="flex gap-3 items-center flex-wrap">
-                    <span className="text-[10px] font-bold bg-blue-500/10 text-blue-400 px-2.5 py-1 rounded border border-blue-500/20 flex items-center gap-1.5">
-                      <Hash size={10} /> {m.tag}
-                    </span>
-                    {/* Only show project badge if linked */}
-                    {projects.find(p => p.id === m.project_id) && (
-                      <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded border border-emerald-500/20 flex items-center gap-1.5">
-                        <Folder size={10} /> {projects.find(p => p.id === m.project_id)?.name}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-gray-600 flex items-center gap-1.5 font-medium uppercase">
-                      <Calendar size={12} /> {new Date(m.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <p className="text-gray-300 leading-relaxed">{m.content}</p>
-                </div>
-                <button 
-                  onClick={() => deleteMemory(m.id)}
-                  className="opacity-100 md:opacity-0 group-hover:opacity-100 p-2 text-gray-700 hover:text-red-500 transition-all"
-                >
-                  <Trash2 size={18} />
-                </button>
+      <div className="grid gap-4">
+        {memories.map((m) => (
+          <div key={m.id} className="bg-[#16181e] border border-gray-800 p-6 rounded-2xl flex flex-col md:flex-row gap-6">
+            <div className="flex-1 space-y-3">
+              <div className="flex gap-2 items-center text-[10px] font-bold text-gray-500 uppercase">
+                <Hash size={12} /> {m.tag} <Calendar size={12} className="ml-2" /> {new Date(m.created_at).toLocaleDateString()}
               </div>
-            ))}
+              <p className="text-gray-300">{m.content}</p>
+            </div>
+            {m.image_url && (
+              <img src={m.image_url} className="w-full md:w-32 h-32 object-cover rounded-xl border border-gray-800 shadow-lg" />
+            )}
           </div>
-        )}
-      </section>
+        ))}
+      </div>
     </div>
   )
 }
