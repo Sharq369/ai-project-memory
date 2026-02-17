@@ -2,25 +2,26 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
+import { syncGitHubRepo } from '../../../lib/github'
 import { 
   Folder, Plus, Loader2, Calendar, 
-  Trash2, Activity, Layers, ExternalLink 
+  Trash2, Activity, Layers, Github, RefreshCw, AlertCircle 
 } from 'lucide-react'
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [newProject, setNewProject] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  const [isSyncing, setIsSyncing] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // 1. Fetch Projects & Count linked memories
   useEffect(() => {
     fetchProjects()
   }, [])
 
   async function fetchProjects() {
-    // We fetch projects and the count of memories linked to each
-    const { data, error } = await supabase
+    // Fetch projects and count their related memories
+    const { data } = await supabase
       .from('projects')
       .select(`
         *,
@@ -35,17 +36,12 @@ export default function ProjectsPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newProject.trim() || isCreating) return
-
     setIsCreating(true)
-    const { data: { user } } = await supabase.auth.getUser()
 
+    const { data: { user } } = await supabase.auth.getUser()
     const { data, error } = await supabase
       .from('projects')
-      .insert([{ 
-        name: newProject, 
-        user_id: user?.id,
-        status: 'active' 
-      }])
+      .insert([{ name: newProject, user_id: user?.id, status: 'active' }])
       .select()
 
     if (!error && data) {
@@ -55,8 +51,24 @@ export default function ProjectsPage() {
     setIsCreating(false)
   }
 
+  const handleSync = async (projectId: string) => {
+    const url = prompt("Enter Public GitHub URL (e.g., https://github.com/user/repo):")
+    if (!url) return
+
+    setIsSyncing(projectId)
+    const result = await syncGitHubRepo(url, projectId)
+    
+    if (result.success) {
+      alert(`Success! Ingested ${result.count} files.`)
+      fetchProjects() 
+    } else {
+      alert("Sync Failed: " + result.error)
+    }
+    setIsSyncing(null)
+  }
+
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete project? Memories will remain but become unlinked.")) return
+    if (!confirm("Delete project? Linked memories will become unlinked.")) return
     const { error } = await supabase.from('projects').delete().eq('id', id)
     if (!error) setProjects(projects.filter(p => p.id !== id))
   }
@@ -68,13 +80,13 @@ export default function ProjectsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-[#16181e] p-8 rounded-3xl border border-gray-800 shadow-2xl">
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">Project Vault</h1>
-          <p className="text-gray-500 text-sm">Define the high-level contexts for your neural search.</p>
+          <p className="text-gray-500 text-sm">Organize your codebases and neural context.</p>
         </div>
 
         <form onSubmit={handleCreate} className="flex w-full md:w-auto gap-2">
           <input
             className="bg-[#0f1117] border border-gray-800 text-white px-4 py-3 rounded-xl outline-none focus:border-blue-500 w-full md:w-64 transition-all"
-            placeholder="Project Name (e.g. SaaS)"
+            placeholder="New Project Name..."
             value={newProject}
             onChange={(e) => setNewProject(e.target.value)}
           />
@@ -101,15 +113,16 @@ export default function ProjectsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Live</span>
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Active</span>
                 </div>
               </div>
 
               <h3 className="text-xl font-bold text-white mb-1">{project.name}</h3>
+              
               <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-800/50">
                 <div className="flex items-center gap-1.5 text-xs text-gray-500">
                   <Layers size={14} />
-                  <span>{project.memories?.[0]?.count || 0} Memories</span>
+                  <span>{project.memories?.[0]?.count || 0} Contexts</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-gray-500">
                   <Calendar size={14} />
@@ -117,15 +130,27 @@ export default function ProjectsPage() {
                 </div>
               </div>
 
-              {/* Hover Actions */}
-              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                <button 
-                  onClick={() => handleDelete(project.id)}
-                  className="p-2 text-gray-600 hover:text-red-500 transition-colors"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
+              {/* GitHub Sync Button */}
+              <button 
+                onClick={() => handleSync(project.id)}
+                disabled={isSyncing === project.id}
+                className="mt-6 w-full flex items-center justify-center gap-2 bg-[#0f1117] border border-gray-800 hover:border-blue-500/50 py-3 rounded-xl text-[10px] font-bold text-gray-400 hover:text-blue-400 transition-all uppercase tracking-widest disabled:opacity-50"
+              >
+                {isSyncing === project.id ? (
+                  <RefreshCw className="animate-spin" size={14} />
+                ) : (
+                  <Github size={14} />
+                )}
+                {isSyncing === project.id ? 'Analyzing Repo...' : 'Sync GitHub Repo'}
+              </button>
+
+              {/* Delete Hover Action */}
+              <button 
+                onClick={() => handleDelete(project.id)}
+                className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 p-2 text-gray-600 hover:text-red-500 transition-all"
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
           ))}
         </div>
