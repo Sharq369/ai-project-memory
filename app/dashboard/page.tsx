@@ -47,7 +47,7 @@ export default function Dashboard() {
         user_id: user?.id, 
         content: newMemory, 
         tag: tags,
-        project_id: selectedProjectId || null 
+        project_id: selectedProjectId || null // This links the memory to your "AI tooling" project
       }])
 
     if (!error) {
@@ -57,15 +57,8 @@ export default function Dashboard() {
     }
   }
 
-  async function deleteMemory(id: string) {
-    if (!confirm('Are you sure?')) return
-    const { error } = await supabase.from('memories').delete().eq('id', id)
-    if (!error) setMemories(memories.filter(m => m.id !== id))
-  }
-
   return (
     <div className="min-h-screen bg-[#0f1117] text-gray-300 p-6">
-      {/* HEADER SECTION */}
       <header className="max-w-7xl mx-auto flex justify-between items-center mb-8">
         <h1 className="text-xl font-bold text-white">Dashboard Overview</h1>
         <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 px-4 py-2 rounded-lg text-white flex items-center gap-2">
@@ -73,50 +66,46 @@ export default function Dashboard() {
         </button>
       </header>
 
-      {/* MEMORY GRID */}
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
         {loading ? <p>Syncing brain...</p> : memories.map((memory) => (
           <div key={memory.id} className="bg-[#1e212b] p-5 rounded-2xl border border-gray-800">
             <div className="flex justify-between mb-3">
               <span className="text-xs font-bold text-blue-400 uppercase">{memory.tag || 'General'}</span>
-              <button onClick={() => deleteMemory(memory.id)}><Trash2 size={14} className="text-gray-600 hover:text-red-400" /></button>
             </div>
             <p className="text-gray-200 mb-4">{memory.content}</p>
-            <div className="pt-3 border-t border-gray-800 text-[10px] text-gray-500 flex justify-between">
+            <div className="pt-3 border-t border-gray-800 text-[10px] text-gray-500 flex justify-between items-center">
                <span>{new Date(memory.created_at).toLocaleDateString()}</span>
-               {/* 📌 SPACE FOR CLAUDE: Logic to display linked project name here */}
+               {/* Show a small folder icon if the memory is linked to a project */}
+               {memory.project_id && (
+                 <span className="flex items-center gap-1 text-blue-400 font-medium">
+                   <Folder size={10} /> Linked
+                 </span>
+               )}
             </div>
           </div>
         ))}
       </div>
 
-      {/* ADD MEMORY MODAL */}
+      {/* MODAL WITH PROJECT SELECTOR */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-[#1e212b] border border-gray-800 rounded-2xl p-6 w-full max-w-md">
             <h2 className="text-xl font-bold text-white mb-4">New Memory</h2>
             
             <textarea 
-              className="w-full bg-[#0f1117] border border-gray-700 rounded-xl p-3 text-white mb-4 h-24"
+              className="w-full bg-[#0f1117] border border-gray-700 rounded-xl p-3 text-white mb-4 h-24 outline-none focus:ring-1 focus:ring-blue-500"
               placeholder="What did you learn?"
               value={newMemory}
               onChange={(e) => setNewMemory(e.target.value)}
             />
 
-            <input 
-              className="w-full bg-[#0f1117] border border-gray-700 rounded-xl p-3 text-white mb-4"
-              placeholder="Tag (e.g. Design, Code)"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-            />
-
-            <label className="text-xs text-gray-500 mb-2 block">Link to Project (Optional)</label>
+            <label className="text-xs text-gray-500 mb-2 block">Link to Project</label>
             <select 
-              className="w-full bg-[#0f1117] border border-gray-700 rounded-xl p-3 text-white mb-6 outline-none"
+              className="w-full bg-[#0f1117] border border-gray-700 rounded-xl p-3 text-white mb-6 outline-none focus:ring-1 focus:ring-blue-500"
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
             >
-              <option value="">No Project</option>
+              <option value="">General (No Project)</option>
               {projects.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
