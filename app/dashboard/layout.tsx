@@ -2,42 +2,84 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, Search, PlusCircle, Folder, Settings, LayoutDashboard, BrainCircuit } from 'lucide-react'
+import { 
+  LayoutDashboard, 
+  Folder, 
+  Search, 
+  Settings, 
+  Crown,
+  Zap
+} from 'lucide-react'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const navItems = [
+
+  const navigation = [
     { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Memories', href: '/dashboard/memories', icon: PlusCircle },
     { name: 'Projects', href: '/dashboard/projects', icon: Folder },
     { name: 'AI Search', href: '/dashboard/ai-search', icon: Search },
+    { name: 'Settings', href: '/dashboard/settings', icon: Settings }, // The restored button
   ]
 
   return (
-    <div className="flex flex-col md:flex-row min-h-screen bg-[#0f1117] text-gray-400">
-      <aside className="hidden md:flex w-64 flex-col border-r border-gray-800 p-6 bg-[#0f1117] sticky top-0 h-screen">
-        <div className="flex items-center gap-3 mb-10 px-2">
-          <div className="bg-blue-600 p-2 rounded-lg"><BrainCircuit className="text-white" size={20} /></div>
-          <span className="text-white font-bold tracking-tight text-lg">Memory AI</span>
+    <div className="flex min-h-screen bg-[#0f1117] text-white font-sans">
+      {/* Sidebar Navigation */}
+      <aside className="w-64 border-r border-gray-800/50 flex flex-col fixed inset-y-0 bg-[#0f1117] z-50">
+        <div className="p-8">
+          <div className="flex items-center gap-3 font-black tracking-tighter text-xl italic">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center not-italic">M</div>
+            MEMORY AI
+          </div>
         </div>
-        <nav className="flex-1 space-y-2">
-          {navItems.map((item) => (
-            <Link key={item.name} href={item.href} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${pathname === item.href ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20' : 'hover:bg-gray-800/50'}`}>
-              <item.icon size={18} />
-              <span className="text-sm font-medium">{item.name}</span>
-            </Link>
-          ))}
+
+        <nav className="flex-1 px-4 space-y-2">
+          {navigation.map((item) => {
+            const isActive = pathname === item.href
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] transition-all duration-300 ${
+                  isActive 
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
+                    : 'text-gray-500 hover:text-white hover:bg-gray-800/30'
+                }`}
+              >
+                <item.icon size={16} strokeWidth={2.5} />
+                {item.name}
+              </Link>
+            )
+          })}
         </nav>
+
+        {/* Neural Capacity / Upgrade Card */}
+        <div className="p-4 mt-auto">
+          <div className="bg-[#16181e] border border-gray-800 rounded-[2rem] p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-500/10 rounded-xl text-blue-500">
+                <Crown size={18} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-white">Free Tier</p>
+                <p className="text-[9px] text-gray-500 font-medium">3 / 3 Nodes Active</p>
+              </div>
+            </div>
+            <Link 
+              href="/dashboard/settings" 
+              className="block w-full py-3 bg-white text-black hover:bg-blue-500 hover:text-white text-[9px] font-black text-center uppercase tracking-[0.2em] rounded-xl transition-all"
+            >
+              Upgrade Now
+            </Link>
+          </div>
+        </div>
       </aside>
-      <main className="flex-1 overflow-y-auto"><div className="p-4 md:p-8 pb-32 md:pb-8">{children}</div></main>
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#16181e]/90 backdrop-blur-xl border-t border-gray-800 px-6 py-4 flex justify-around items-center z-50">
-        {navItems.map((item) => (
-          <Link key={item.name} href={item.href} className="flex flex-col items-center gap-1">
-            <item.icon size={22} className={pathname === item.href ? 'text-blue-400' : 'text-gray-500'} />
-            <span className={`text-[10px] font-bold uppercase ${pathname === item.href ? 'text-blue-400' : 'text-gray-600'}`}>{item.name.split(' ')[0]}</span>
-          </Link>
-        ))}
-      </nav>
+
+      {/* Content Wrapper */}
+      <main className="flex-1 ml-64 min-h-screen bg-[#0a0c10]">
+        <div className="p-8 lg:p-12">
+          {children}
+        </div>
+      </main>
     </div>
   )
 }
