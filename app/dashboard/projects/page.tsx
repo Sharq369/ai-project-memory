@@ -1,86 +1,133 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '../../../lib/supabase' 
-import { Folder, Plus, Calendar, MoreVertical, Loader2 } from 'lucide-react'
+import { supabase } from '../../../lib/supabase'
+import { 
+  Folder, Plus, Loader2, Calendar, 
+  Trash2, Activity, Layers, ExternalLink 
+} from 'lucide-react'
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([])
+  const [newProject, setNewProject] = useState('')
+  const [isCreating, setIsCreating] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [name, setName] = useState('')
 
+  // 1. Fetch Projects & Count linked memories
   useEffect(() => {
     fetchProjects()
   }, [])
 
   async function fetchProjects() {
+    // We fetch projects and the count of memories linked to each
     const { data, error } = await supabase
       .from('projects')
-      .select('*')
+      .select(`
+        *,
+        memories:memories(count)
+      `)
       .order('created_at', { ascending: false })
-
-    if (!error) setProjects(data || [])
+    
+    if (data) setProjects(data)
     setLoading(false)
   }
 
-  async function handleCreate() {
-    if (!name.trim()) return
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    const { error } = await supabase
-      .from('projects')
-      .insert([{ name, user_id: user?.id }])
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newProject.trim() || isCreating) return
 
-    if (!error) {
-      setName('')
-      setIsModalOpen(false)
-      fetchProjects()
+    setIsCreating(true)
+    const { data: { user } } = await supabase.auth.getUser()
+
+    const { data, error } = await supabase
+      .from('projects')
+      .insert([{ 
+        name: newProject, 
+        user_id: user?.id,
+        status: 'active' 
+      }])
+      .select()
+
+    if (!error && data) {
+      setProjects([{ ...data[0], memories: [{ count: 0 }] }, ...projects])
+      setNewProject('')
     }
+    setIsCreating(false)
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete project? Memories will remain but become unlinked.")) return
+    const { error } = await supabase.from('projects').delete().eq('id', id)
+    if (!error) setProjects(projects.filter(p => p.id !== id))
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <header className="flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-bold text-white">Projects</h1>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-        >
-          <Plus size={18} /> New Project
-        </button>
-      </header>
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-700 pb-12">
+      
+      {/* Header & Quick Add */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-[#16181e] p-8 rounded-3xl border border-gray-800 shadow-2xl">
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2">Project Vault</h1>
+          <p className="text-gray-500 text-sm">Define the high-level contexts for your neural search.</p>
+        </div>
 
+        <form onSubmit={handleCreate} className="flex w-full md:w-auto gap-2">
+          <input
+            className="bg-[#0f1117] border border-gray-800 text-white px-4 py-3 rounded-xl outline-none focus:border-blue-500 w-full md:w-64 transition-all"
+            placeholder="Project Name (e.g. SaaS)"
+            value={newProject}
+            onChange={(e) => setNewProject(e.target.value)}
+          />
+          <button 
+            disabled={isCreating || !newProject}
+            className="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+          >
+            {isCreating ? <Loader2 className="animate-spin" /> : <Plus size={24} />}
+          </button>
+        </form>
+      </div>
+
+      {/* Project Grid */}
       {loading ? (
-        <div className="flex justify-center py-20"><Loader2 className="animate-spin text-blue-500" /></div>
+        <div className="flex justify-center py-20"><Loader2 className="animate-spin text-gray-700" /></div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {projects.map(project => (
-            <div key={project.id} className="bg-[#1e212b] border border-gray-800 p-5 rounded-2xl">
-              <Folder className="text-blue-400 mb-3" size={24} />
-              <h3 className="font-semibold text-white">{project.name}</h3>
-              <p className="text-xs text-gray-500 mt-1">{project.status}</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {projects.map((project) => (
+            <div key={project.id} className="group bg-[#16181e] border border-gray-800 p-6 rounded-2xl hover:border-blue-500/40 transition-all relative">
+              
+              <div className="flex justify-between items-start mb-6">
+                <div className="p-3 bg-blue-600/5 rounded-xl border border-blue-500/10">
+                  <Folder className="text-blue-400" size={24} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Live</span>
+                </div>
+              </div>
+
+              <h3 className="text-xl font-bold text-white mb-1">{project.name}</h3>
+              <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-800/50">
+                <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                  <Layers size={14} />
+                  <span>{project.memories?.[0]?.count || 0} Memories</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                  <Calendar size={14} />
+                  <span>{new Date(project.created_at).toLocaleDateString()}</span>
+                </div>
+              </div>
+
+              {/* Hover Actions */}
+              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                <button 
+                  onClick={() => handleDelete(project.id)}
+                  className="p-2 text-gray-600 hover:text-red-500 transition-colors"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Basic Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#1e212b] p-6 rounded-2xl w-full max-w-md border border-gray-800">
-            <h2 className="text-xl font-bold mb-4">Create New Project</h2>
-            <input 
-              className="w-full bg-black/20 border border-gray-700 p-3 rounded-xl mb-4"
-              placeholder="Project Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <div className="flex gap-3">
-              <button onClick={() => setIsModalOpen(false)} className="flex-1 py-2 text-gray-400">Cancel</button>
-              <button onClick={handleCreate} className="flex-1 py-2 bg-blue-600 rounded-lg">Create</button>
-            </div>
-          </div>
         </div>
       )}
     </div>
