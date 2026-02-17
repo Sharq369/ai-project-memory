@@ -1,109 +1,132 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '../../../lib/supabase' 
-import { Search, Filter, Calendar, Trash2, MoreVertical, Plus } from 'lucide-react'
+import { supabase } from '../../../lib/supabase'
+import { 
+  Database, Plus, Loader2, Trash2, 
+  Tag as TagIcon, Calendar, Hash, AlertCircle 
+} from 'lucide-react'
 
 export default function MemoriesPage() {
+  const [content, setContent] = useState('')
   const [memories, setMemories] = useState<any[]>([])
+  const [isSaving, setIsSaving] = useState(false)
   const [loading, setLoading] = useState(true)
 
+  // 1. Fetch existing memories
   useEffect(() => {
     fetchMemories()
   }, [])
 
   async function fetchMemories() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('memories')
       .select('*')
       .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('Error fetching:', error)
-    } else {
-      setMemories(data || [])
-    }
+    if (data) setMemories(data)
     setLoading(false)
   }
 
-  async function deleteMemory(id: string) {
-    if (!confirm('Delete this memory?')) return
+  // 2. The Auto-Tagger Logic (Professional Keyword Analysis)
+  const getAutoTag = (text: string) => {
+    const input = text.toLowerCase()
+    if (input.includes('api') || input.includes('code') || input.includes('fix')) return 'DEVELOPMENT'
+    if (input.includes('ui') || input.includes('design') || input.includes('color')) return 'DESIGN'
+    if (input.includes('saas') || input.includes('market') || input.includes('plan')) return 'BUSINESS'
+    return 'OBSERVATION'
+  }
+
+  // 3. Professional Save Handler
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!content.trim() || isSaving) return
+
+    setIsSaving(true)
+    const tag = getAutoTag(content)
+
+    const { data, error } = await supabase
+      .from('memories')
+      .insert([{ content, tag }])
+      .select()
+
+    if (!error && data) {
+      setMemories([data[0], ...memories])
+      setContent('')
+    }
+    setIsSaving(false)
+  }
+
+  const deleteMemory = async (id: string) => {
     const { error } = await supabase.from('memories').delete().eq('id', id)
     if (!error) setMemories(memories.filter(m => m.id !== id))
   }
 
   return (
-    <div className="min-h-screen bg-[#0f1117] text-gray-300 p-4 md:p-6">
-      <div className="max-w-4xl mx-auto">
-        <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-white">All Memories</h1>
-            <p className="text-sm text-gray-500">Your total external brain storage.</p>
+    <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in duration-500">
+      
+      {/* Input Section */}
+      <section className="bg-[#16181e] border border-gray-800 rounded-3xl p-8 shadow-2xl">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-blue-600/10 rounded-lg">
+            <Database className="text-blue-400" size={20} />
           </div>
-          
-          <div className="flex w-full sm:w-auto gap-2">
-            <div className="relative flex-1 sm:w-64">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-500" />
-              <input 
-                type="text" 
-                placeholder="Search..." 
-                className="w-full bg-[#1e212b] border border-gray-800 rounded-xl pl-9 pr-4 py-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none"
-              />
-            </div>
-            <button className="p-2.5 bg-[#1e212b] border border-gray-800 rounded-xl hover:bg-gray-800 active:scale-95 transition-all">
-              <Filter className="h-4 w-4" />
+          <h2 className="text-xl font-bold text-white">Record Memory</h2>
+        </div>
+
+        <form onSubmit={handleSave} className="space-y-4">
+          <textarea
+            className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl p-5 text-gray-200 outline-none focus:border-blue-500/50 transition-all min-h-[120px] resize-none text-lg"
+            placeholder="What's on your mind? AI will auto-categorize your entry..."
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+          />
+          <div className="flex justify-between items-center">
+            <p className="text-[10px] text-gray-600 font-bold uppercase tracking-widest flex items-center gap-2">
+              <AlertCircle size={12} /> Auto-tagging active
+            </p>
+            <button
+              disabled={isSaving || !content.trim()}
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-900/20"
+            >
+              {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />}
+              SAVE ENTRY
             </button>
           </div>
-        </header>
+        </form>
+      </section>
 
-        <div className="space-y-4">
-          {loading ? (
-             <div className="animate-pulse space-y-4">
-                {[1,2,3].map(i => <div key={i} className="h-24 bg-gray-800/50 rounded-xl" />)}
-             </div>
-          ) : memories.length === 0 ? (
-            <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-2xl">
-              <p className="text-gray-500">No memories found. Start adding some!</p>
-            </div>
-          ) : (
-            memories.map((memory) => (
-              <div key={memory.id} className="bg-[#1e212b] border border-gray-800 p-5 rounded-2xl hover:border-gray-700 transition-all group relative">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <span className="text-[10px] uppercase tracking-widest font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                      {memory.tag || 'General'}
+      {/* List Section */}
+      <section className="space-y-4">
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-[0.2em] px-2">Recent Archives</h3>
+        
+        {loading ? (
+          <div className="flex justify-center py-20"><Loader2 className="animate-spin text-gray-700" /></div>
+        ) : (
+          <div className="grid gap-4">
+            {memories.map((m) => (
+              <div key={m.id} className="group bg-[#16181e] border border-gray-800 p-6 rounded-2xl hover:border-gray-700 transition-all flex justify-between items-start">
+                <div className="space-y-3">
+                  <div className="flex gap-3 items-center">
+                    <span className="text-[10px] font-bold bg-blue-500/10 text-blue-400 px-2.5 py-1 rounded border border-blue-500/20 flex items-center gap-1.5">
+                      <Hash size={10} /> {m.tag}
                     </span>
-                    <p className="text-gray-200 mt-3 leading-relaxed pr-8">{memory.content}</p>
-                    
-                    <div className="flex items-center gap-4 mt-4 text-[11px] text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {new Date(memory.created_at).toLocaleDateString()}
-                      </span>
-                      
-                      {/* ---------------------------------------------------------
-                          CLAUDE BACKEND SPACE: AI Project linking logic 📌
-                          --------------------------------------------------------- */}
-                    </div>
+                    <span className="text-[10px] text-gray-600 flex items-center gap-1.5 font-medium uppercase">
+                      <Calendar size={12} /> {new Date(m.created_at).toLocaleDateString()}
+                    </span>
                   </div>
-                  
-                  <div className="flex flex-col gap-3">
-                    <button 
-                      onClick={() => deleteMemory(memory.id)}
-                      className="p-2 text-gray-600 hover:text-red-400 active:bg-red-400/10 rounded-lg transition-all"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                    <button className="p-2 text-gray-600 hover:text-white rounded-lg">
-                      <MoreVertical className="h-4 w-4" />
-                    </button>
-                  </div>
+                  <p className="text-gray-300 leading-relaxed">{m.content}</p>
                 </div>
+                <button 
+                  onClick={() => deleteMemory(m.id)}
+                  className="opacity-0 group-hover:opacity-100 p-2 text-gray-700 hover:text-red-500 transition-all"
+                >
+                  <Trash2 size={18} />
+                </button>
               </div>
-            ))
-          )}
-        </div>
-      </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   )
 }
