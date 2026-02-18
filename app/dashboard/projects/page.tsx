@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { syncRepo } from '../../../lib/github' 
 import { Folder, Plus, Loader2, X, Github, Gitlab, Database, Box } from 'lucide-react'
 
-// ─── UNIVERSAL SYNC MODAL COMPONENT ──────────────────────────────────────────
+// ─── UNIVERSAL SYNC MODAL ──────────────────────────────────────────────────
 function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   const [url, setUrl] = useState('')
   const [provider, setProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
@@ -70,7 +70,7 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   )
 }
 
-// ─── MAIN PAGE COMPONENT ─────────────────────────────────────────────────────
+// ─── MAIN PAGE ─────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [dailyCount, setDailyCount] = useState(0)
@@ -86,15 +86,8 @@ export default function ProjectsPage() {
   async function fetchProjects() {
     const { data: { user } } = await supabase.auth.getUser()
     const { data } = await supabase.from('projects').select(`*, memories:memories(count)`).order('created_at', { ascending: false })
-    
-    // Count projects created today for daily limit
     const today = new Date().toISOString().split('T')[0]
-    const { count } = await supabase
-      .from('projects')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user?.id)
-      .gte('created_at', today)
-
+    const { count } = await supabase.from('projects').select('*', { count: 'exact', head: true }).eq('user_id', user?.id).gte('created_at', today)
     if (data) setProjects(data)
     if (count !== null) setDailyCount(count)
     setLoading(false)
@@ -102,30 +95,21 @@ export default function ProjectsPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (dailyCount >= 3) {
-      alert("Daily Quota Reached. Resets at midnight.")
-      return
-    }
+    if (dailyCount >= 3) return alert("Daily Quota Reached.")
     if (!newProject) return
-
     setIsCreating(true)
     const { data: { user } } = await supabase.auth.getUser()
     await supabase.from('projects').insert([{ name: newProject, user_id: user?.id }])
     setNewProject(''); fetchProjects(); setIsCreating(false);
   }
 
+  // THIS IS THE UPDATED CALL
   const handleSync = async (url: string, provider: 'github' | 'gitlab' | 'bitbucket') => {
     if (!activeProjectId) return
     setIsSyncing(activeProjectId)
-    
     const res = await syncRepo(url, activeProjectId, provider) 
-    
-    if (res.success) { 
-      setModalOpen(false)
-      fetchProjects() 
-    } else { 
-      alert(`Sync Failed: ${res.error}`) 
-    }
+    if (res.success) { setModalOpen(false); fetchProjects(); } 
+    else { alert(`Sync Failed: ${res.error}`); }
     setIsSyncing(null)
   }
 
@@ -153,24 +137,14 @@ export default function ProjectsPage() {
             </div>
             <h3 className="text-lg font-bold text-white mb-8 italic uppercase tracking-tight">{p.name}</h3>
             <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={() => { setActiveProjectId(p.id); setModalOpen(true); }} 
-                className="bg-[#0f1117] border border-gray-800 py-3 rounded-2xl text-[9px] font-black uppercase text-gray-500 hover:text-white transition-all"
-              >
-                Sync
-              </button>
+              <button onClick={() => { setActiveProjectId(p.id); setModalOpen(true); }} className="bg-[#0f1117] border border-gray-800 py-3 rounded-2xl text-[9px] font-black uppercase text-gray-500 hover:text-white transition-all">Sync</button>
               <Link href={`/dashboard/projects/${p.id}/doc`} className="bg-blue-600/10 border border-blue-500/20 py-3 rounded-2xl text-[9px] font-black uppercase text-blue-400 text-center hover:bg-blue-600 hover:text-white transition-all">Docs</Link>
             </div>
           </div>
         ))}
       </div>
 
-      <SyncModal 
-        isOpen={modalOpen} 
-        onClose={() => setModalOpen(false)} 
-        onSync={handleSync} 
-        isSyncing={!!isSyncing} 
-      />
+      <SyncModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSync={handleSync} isSyncing={!!isSyncing} />
     </div>
   )
 }
