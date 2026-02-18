@@ -3,35 +3,67 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { supabase } from '../../../lib/supabase'
-import { syncGitHubRepo } from '../../../lib/github' // Ensure this file exists in your lib folder
-import { Folder, Plus, Loader2, X, Github, Database } from 'lucide-react'
+import { syncGitHubRepo } from '../../../lib/github' 
+import { Folder, Plus, Loader2, X, Github, Gitlab, Database, Box } from 'lucide-react'
 
-// 1. RE-ADD THE MODAL COMPONENT
+// 1. UPDATED: UNIVERSAL SYNC MODAL
 function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   const [url, setUrl] = useState('')
+  const [provider, setProvider] = useState('github') // Default to GitHub
+
   if (!isOpen) return null
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
       <div className="bg-[#16181e] border border-gray-800 w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl">
         <div className="flex justify-between items-center mb-8">
           <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">Neural Sync</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors"><X size={24} /></button>
+          <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={24} /></button>
         </div>
-        <p className="text-[10px] text-gray-500 uppercase font-bold tracking-[0.2em] mb-6">Enter GitHub Repository URL</p>
+
+        {/* NEW: Provider Selector */}
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          <button 
+            onClick={() => setProvider('github')}
+            className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${provider === 'github' ? 'bg-white text-black border-white' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'}`}
+          >
+            <Github size={20} />
+            <span className="text-[9px] font-black uppercase tracking-widest">GitHub</span>
+          </button>
+          
+          <button 
+            onClick={() => setProvider('gitlab')}
+            className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${provider === 'gitlab' ? 'bg-[#FC6D26] text-white border-[#FC6D26]' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'}`}
+          >
+            <Gitlab size={20} />
+            <span className="text-[9px] font-black uppercase tracking-widest">GitLab</span>
+          </button>
+
+          <button 
+            onClick={() => setProvider('bitbucket')}
+            className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${provider === 'bitbucket' ? 'bg-[#2684FF] text-white border-[#2684FF]' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'}`}
+          >
+            <Box size={20} />
+            <span className="text-[9px] font-black uppercase tracking-widest">Bitbucket</span>
+          </button>
+        </div>
+
+        <p className="text-[10px] text-gray-500 uppercase font-bold tracking-[0.2em] mb-4">Target Repository URL</p>
         <input 
           className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl px-6 py-4 text-white mb-8 outline-none focus:border-blue-500 transition-all font-mono text-xs" 
-          placeholder="https://github.com/username/repo" 
+          placeholder={`https://${provider}.com/username/repo`} // Dynamic placeholder
           value={url} 
           onChange={(e) => setUrl(e.target.value)} 
         />
+        
         <div className="flex gap-4">
-          <button onClick={onClose} className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest border border-gray-800 rounded-xl text-gray-500 hover:bg-gray-800 transition-all">Cancel</button>
+          <button onClick={onClose} className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest border border-gray-800 rounded-xl text-gray-500 hover:bg-gray-800">Cancel</button>
           <button 
-            onClick={() => onSync(url)} 
+            onClick={() => onSync(url, provider)} // Passing provider to handler
             disabled={isSyncing || !url} 
-            className="flex-[2] py-4 text-[10px] font-black uppercase tracking-widest bg-blue-600 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-500 transition-all disabled:opacity-30"
+            className="flex-[2] py-4 text-[10px] font-black uppercase tracking-widest bg-blue-600 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-500 disabled:opacity-50"
           >
-            {isSyncing ? <Loader2 className="animate-spin" size={16} /> : 'Establish Link'}
+            {isSyncing ? <Loader2 className="animate-spin" size={16} /> : `Sync from ${provider}`}
           </button>
         </div>
       </div>
@@ -39,12 +71,13 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   )
 }
 
+// 2. MAIN PAGE COMPONENT
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [dailyCount, setDailyCount] = useState(0)
   const [newProject, setNewProject] = useState('')
   const [isCreating, setIsCreating] = useState(false)
-  const [isSyncing, setIsSyncing] = useState<string | null>(null) // TRACKS SYNC STATE
+  const [isSyncing, setIsSyncing] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -71,11 +104,17 @@ export default function ProjectsPage() {
     setNewProject(''); fetchProjects(); setIsCreating(false);
   }
 
-  // 2. RE-ADD THE SYNC LOGIC
-  const handleSync = async (url: string) => {
+  // 3. UPDATED HANDLER TO ACCEPT PROVIDER
+  const handleSync = async (url: string, provider: string) => {
     if (!activeProjectId) return
     setIsSyncing(activeProjectId)
-    const res = await syncGitHubRepo(url, activeProjectId)
+    
+    console.log(`Syncing from ${provider}: ${url}`) // Debug log
+
+    // NOTE: Currently only GitHub logic is active in your backend. 
+    // You will need to update syncGitHubRepo to handle 'gitlab' cases later.
+    const res = await syncGitHubRepo(url, activeProjectId) 
+    
     if (res.success) { 
       setModalOpen(false)
       fetchProjects() 
@@ -110,7 +149,7 @@ export default function ProjectsPage() {
             <h3 className="text-lg font-bold text-white mb-8 italic uppercase tracking-tight">{p.name}</h3>
             <div className="grid grid-cols-2 gap-3">
               <button 
-                onClick={() => { setActiveProjectId(p.id); setModalOpen(true); }} // TRIGGER MODAL
+                onClick={() => { setActiveProjectId(p.id); setModalOpen(true); }} 
                 className="bg-[#0f1117] border border-gray-800 py-3 rounded-2xl text-[9px] font-black uppercase text-gray-500 hover:text-white transition-all"
               >
                 Sync
@@ -121,7 +160,6 @@ export default function ProjectsPage() {
         ))}
       </div>
 
-      {/* 3. INJECT THE MODAL INTO THE PAGE */}
       <SyncModal 
         isOpen={modalOpen} 
         onClose={() => setModalOpen(false)} 
