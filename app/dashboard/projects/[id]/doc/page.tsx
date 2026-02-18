@@ -2,9 +2,9 @@
 
 import { useParams } from 'next/navigation'
 import { useState, useEffect } from 'react'
-// Using @/ ensures the computer finds the root folder perfectly
-import { supabase } from '@/lib/supabase'
-import TaskSentinel from '@/components/TaskSentinel'
+// We step back 5 folders to reach the root where lib and components live
+import { supabase } from '../../../../../lib/supabase'
+import TaskSentinel from '../../../../../components/TaskSentinel'
 import { Terminal, Database, Search, Code, Cpu } from 'lucide-react'
 
 export default function ProjectMainView() {
