@@ -2,8 +2,9 @@
 
 import { useParams } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { supabase } from '../../../../lib/supabase'
-import TaskSentinel from '../../../../components/TaskSentinel'
+// Using @/ ensures the computer finds the root folder perfectly
+import { supabase } from '@/lib/supabase'
+import TaskSentinel from '@/components/TaskSentinel'
 import { Terminal, Database, Search, Code, Cpu } from 'lucide-react'
 
 export default function ProjectMainView() {
@@ -42,7 +43,7 @@ export default function ProjectMainView() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[8px] font-bold text-gray-500 uppercase tracking-widest bg-gray-900 px-3 py-1 rounded-full border border-gray-800">
-              Environment: Production
+              Link: {project?.id?.slice(0,8)}
             </span>
           </div>
         </header>
@@ -51,7 +52,7 @@ export default function ProjectMainView() {
         <main className="flex-1 overflow-y-auto p-6 lg:p-12">
           <div className="max-w-4xl mx-auto space-y-10">
             
-            {/* SEARCH / INTERFACE BLOCK */}
+            {/* SEARCH BLOCK */}
             <section className="bg-[#0f1117] border border-gray-800 p-10 lg:p-16 rounded-[2.5rem] relative overflow-hidden shadow-2xl">
               <div className="absolute top-0 right-0 p-8 opacity-5">
                 <Code size={120} />
@@ -64,7 +65,7 @@ export default function ProjectMainView() {
                 <h2 className="text-xl font-black text-white italic uppercase tracking-tighter">Neural Memory Access</h2>
                 <p className="text-gray-500 text-[10px] uppercase font-bold tracking-[0.2em] max-w-sm mx-auto">
                   Execute queries against the established project link. 
-                  Check the Sentinel for active task locks.
+                  Follow the Sentinel for active task locks.
                 </p>
 
                 <div className="relative mt-10 group max-w-xl mx-auto">
@@ -93,7 +94,7 @@ export default function ProjectMainView() {
                 <div className="w-2 h-2 bg-blue-500 rounded-full mb-6 shadow-[0_0_10px_#3b82f6]" />
                 <div>
                   <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Current Sync</p>
-                  <p className="text-xs text-white font-bold italic uppercase tracking-widest">Active Link Established</p>
+                  <p className="text-xs text-white font-bold italic uppercase tracking-widest">Protocol Active</p>
                 </div>
               </div>
             </div>
