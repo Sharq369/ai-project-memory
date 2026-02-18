@@ -1,95 +1,104 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { supabase } from '../../../../../lib/supabase' 
-import { 
-  BookOpen, Terminal, Sparkles, 
-  FileCode, Cpu, ArrowLeft, Loader2 
-} from 'lucide-react'
-import Link from 'next/link'
+import { useParams } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { supabase } from '../../../../lib/supabase'
+import TaskSentinel from '../../../../components/TaskSentinel'
+import { Terminal, Database, Search, Code, Cpu } from 'lucide-react'
 
-export default function ProjectDocPage({ params }: { params: { id: string } }) {
+export default function ProjectMainView() {
+  const params = useParams()
+  const projectId = params.id as string
   const [project, setProject] = useState<any>(null)
-  const [memories, setMemories] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    async function loadData() {
-      const [pRes, mRes] = await Promise.all([
-        supabase.from('projects').select('*').eq('id', params.id).single(),
-        supabase.from('memories')
-          .select('*')
-          .eq('project_id', params.id)
-          .order('created_at', { ascending: true })
-      ])
-      if (pRes.data) setProject(pRes.data)
-      if (mRes.data) setMemories(mRes.data)
-      setLoading(false)
+    async function fetchProject() {
+      const { data } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .single()
+      if (data) setProject(data)
     }
-    loadData()
-  }, [params.id])
-
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center min-h-screen space-y-4 bg-[#0f1117]">
-      <Loader2 className="animate-spin text-blue-500" size={32} />
-      <p className="text-gray-500 font-mono text-[10px] uppercase tracking-[0.3em]">Synthesizing Manuscript...</p>
-    </div>
-  )
+    fetchProject()
+  }, [projectId])
 
   return (
-    <div className="max-w-5xl mx-auto min-h-screen pb-40 px-6 animate-in fade-in duration-1000">
-      <nav className="py-8 flex items-center justify-between border-b border-gray-800/50 mb-16">
-        <Link href="/dashboard/projects" className="flex items-center gap-2 text-gray-500 hover:text-white transition-colors text-[10px] font-bold uppercase tracking-widest">
-          <ArrowLeft size={14} /> Back to Vault
-        </Link>
-        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[10px] font-bold text-blue-400 uppercase tracking-widest">
-          <Cpu size={10} /> AI Documentation Mode
-        </div>
-      </nav>
+    <div className="flex flex-col lg:flex-row h-screen bg-[#050505] overflow-hidden">
+      
+      {/* LEFT: THE SENTINEL (Context Guardian) */}
+      <TaskSentinel projectId={projectId} />
 
-      <div className="flex flex-col md:flex-row gap-16">
-        <aside className="md:w-64 shrink-0 hidden md:block text-white">
-          <div className="sticky top-12 space-y-10">
-            <div>
-              <h4 className="text-[10px] font-bold text-gray-600 uppercase tracking-[0.2em] mb-6">Contents</h4>
-              <ul className="space-y-4 text-xs font-bold uppercase tracking-tighter">
-                <li className="text-blue-400 flex items-center gap-2"><Sparkles size={12}/> 01. Executive Summary</li>
-                <li className="text-gray-700 flex items-center gap-2">02. Logic Architecture</li>
-                <li className="text-gray-700 flex items-center gap-2">03. Implementation</li>
-              </ul>
-            </div>
-          </div>
-        </aside>
-
-        <main className="flex-1 space-y-24">
-          <section className="space-y-6">
-            <h1 className="text-6xl font-extrabold text-white tracking-tighter leading-none">
-              {project?.name || 'Untitled Project'}
+      {/* RIGHT: THE WORKSPACE */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        
+        {/* HEADER */}
+        <header className="h-16 border-b border-gray-900 bg-[#0a0b0f] flex items-center justify-between px-6 lg:px-10">
+          <div className="flex items-center gap-3">
+            <Cpu className="text-blue-500" size={16} />
+            <h1 className="text-[10px] font-black text-white uppercase tracking-[0.4em] italic">
+              {project?.name || 'Loading Protocol...'}
             </h1>
-            <p className="text-xl text-gray-500 font-light leading-relaxed max-w-2xl border-l-2 border-blue-500/20 pl-6">
-              A professional technical manuscript synthesized from source intelligence.
-            </p>
-          </section>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[8px] font-bold text-gray-500 uppercase tracking-widest bg-gray-900 px-3 py-1 rounded-full border border-gray-800">
+              Environment: Production
+            </span>
+          </div>
+        </header>
 
-          <section className="space-y-12">
-            <div className="flex items-center gap-3 text-white font-bold text-xl tracking-tight">
-              <Terminal className="text-blue-500" size={24} />
-              <h2>System Implementation</h2>
-            </div>
-            <div className="space-y-16 text-white">
-              {memories.filter(m => m.tag === 'CODE').map((m, i) => (
-                <div key={m.id} className="group">
-                  <div className="bg-[#16181e] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl transition-all hover:border-blue-500/20">
-                    <pre className="p-8 overflow-x-auto text-white">
-                      <code className="text-xs font-mono leading-relaxed text-gray-400 block whitespace-pre">
-                        {m.content}
-                      </code>
-                    </pre>
-                  </div>
+        {/* MAIN INTERFACE */}
+        <main className="flex-1 overflow-y-auto p-6 lg:p-12">
+          <div className="max-w-4xl mx-auto space-y-10">
+            
+            {/* SEARCH / INTERFACE BLOCK */}
+            <section className="bg-[#0f1117] border border-gray-800 p-10 lg:p-16 rounded-[2.5rem] relative overflow-hidden shadow-2xl">
+              <div className="absolute top-0 right-0 p-8 opacity-5">
+                <Code size={120} />
+              </div>
+
+              <div className="relative z-10 text-center space-y-6">
+                <div className="inline-flex p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-500 mb-4">
+                  <Database size={32} />
                 </div>
-              ))}
+                <h2 className="text-xl font-black text-white italic uppercase tracking-tighter">Neural Memory Access</h2>
+                <p className="text-gray-500 text-[10px] uppercase font-bold tracking-[0.2em] max-w-sm mx-auto">
+                  Execute queries against the established project link. 
+                  Check the Sentinel for active task locks.
+                </p>
+
+                <div className="relative mt-10 group max-w-xl mx-auto">
+                  <input 
+                    className="w-full bg-black border border-gray-800 rounded-2xl px-6 py-5 text-white outline-none focus:border-blue-500 transition-all font-mono text-xs pr-16"
+                    placeholder="Ask about the implementation..."
+                  />
+                  <button className="absolute right-3 top-3 bg-white text-black p-2.5 rounded-xl hover:bg-gray-200 transition-colors">
+                    <Terminal size={18} />
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* STATUS CARDS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-[#0f1117] border border-gray-800 p-8 rounded-3xl flex flex-col justify-between">
+                <Search className="text-gray-600 mb-6" size={20} />
+                <div>
+                  <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Retrieval Engine</p>
+                  <p className="text-xs text-white font-bold italic uppercase tracking-widest underline decoration-blue-500 decoration-2">Standby Mode</p>
+                </div>
+              </div>
+
+              <div className="bg-[#0f1117] border border-gray-800 p-8 rounded-3xl flex flex-col justify-between">
+                <div className="w-2 h-2 bg-blue-500 rounded-full mb-6 shadow-[0_0_10px_#3b82f6]" />
+                <div>
+                  <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Current Sync</p>
+                  <p className="text-xs text-white font-bold italic uppercase tracking-widest">Active Link Established</p>
+                </div>
+              </div>
             </div>
-          </section>
+
+          </div>
         </main>
       </div>
     </div>
