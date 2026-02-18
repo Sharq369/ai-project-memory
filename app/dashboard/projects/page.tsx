@@ -3,13 +3,13 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { supabase } from '../../../lib/supabase'
-import { syncGitHubRepo } from '../../../lib/github' 
+import { syncRepo } from '../../../lib/github' 
 import { Folder, Plus, Loader2, X, Github, Gitlab, Database, Box } from 'lucide-react'
 
-// 1. UPDATED: UNIVERSAL SYNC MODAL
+// ─── UNIVERSAL SYNC MODAL COMPONENT ──────────────────────────────────────────
 function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   const [url, setUrl] = useState('')
-  const [provider, setProvider] = useState('github') // Default to GitHub
+  const [provider, setProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
 
   if (!isOpen) return null
 
@@ -21,7 +21,6 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
           <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={24} /></button>
         </div>
 
-        {/* NEW: Provider Selector */}
         <div className="grid grid-cols-3 gap-2 mb-6">
           <button 
             onClick={() => setProvider('github')}
@@ -51,19 +50,19 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
         <p className="text-[10px] text-gray-500 uppercase font-bold tracking-[0.2em] mb-4">Target Repository URL</p>
         <input 
           className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl px-6 py-4 text-white mb-8 outline-none focus:border-blue-500 transition-all font-mono text-xs" 
-          placeholder={`https://${provider}.com/username/repo`} // Dynamic placeholder
+          placeholder={`https://${provider}.com/username/repo`}
           value={url} 
           onChange={(e) => setUrl(e.target.value)} 
         />
         
         <div className="flex gap-4">
-          <button onClick={onClose} className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest border border-gray-800 rounded-xl text-gray-500 hover:bg-gray-800">Cancel</button>
+          <button onClick={onClose} className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest border border-gray-800 rounded-xl text-gray-500">Cancel</button>
           <button 
-            onClick={() => onSync(url, provider)} // Passing provider to handler
+            onClick={() => onSync(url, provider)} 
             disabled={isSyncing || !url} 
             className="flex-[2] py-4 text-[10px] font-black uppercase tracking-widest bg-blue-600 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-500 disabled:opacity-50"
           >
-            {isSyncing ? <Loader2 className="animate-spin" size={16} /> : `Sync from ${provider}`}
+            {isSyncing ? <Loader2 className="animate-spin" size={16} /> : `Establish Link`}
           </button>
         </div>
       </div>
@@ -71,7 +70,7 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   )
 }
 
-// 2. MAIN PAGE COMPONENT
+// ─── MAIN PAGE COMPONENT ─────────────────────────────────────────────────────
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [dailyCount, setDailyCount] = useState(0)
@@ -87,8 +86,14 @@ export default function ProjectsPage() {
   async function fetchProjects() {
     const { data: { user } } = await supabase.auth.getUser()
     const { data } = await supabase.from('projects').select(`*, memories:memories(count)`).order('created_at', { ascending: false })
+    
+    // Count projects created today for daily limit
     const today = new Date().toISOString().split('T')[0]
-    const { count } = await supabase.from('projects').select('*', { count: 'exact', head: true }).eq('user_id', user?.id).gte('created_at', today)
+    const { count } = await supabase
+      .from('projects')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user?.id)
+      .gte('created_at', today)
 
     if (data) setProjects(data)
     if (count !== null) setDailyCount(count)
@@ -97,23 +102,23 @@ export default function ProjectsPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (dailyCount >= 3 || !newProject) return
+    if (dailyCount >= 3) {
+      alert("Daily Quota Reached. Resets at midnight.")
+      return
+    }
+    if (!newProject) return
+
     setIsCreating(true)
     const { data: { user } } = await supabase.auth.getUser()
     await supabase.from('projects').insert([{ name: newProject, user_id: user?.id }])
     setNewProject(''); fetchProjects(); setIsCreating(false);
   }
 
-  // 3. UPDATED HANDLER TO ACCEPT PROVIDER
-  const handleSync = async (url: string, provider: string) => {
+  const handleSync = async (url: string, provider: 'github' | 'gitlab' | 'bitbucket') => {
     if (!activeProjectId) return
     setIsSyncing(activeProjectId)
     
-    console.log(`Syncing from ${provider}: ${url}`) // Debug log
-
-    // NOTE: Currently only GitHub logic is active in your backend. 
-    // You will need to update syncGitHubRepo to handle 'gitlab' cases later.
-    const res = await syncGitHubRepo(url, activeProjectId) 
+    const res = await syncRepo(url, activeProjectId, provider) 
     
     if (res.success) { 
       setModalOpen(false)
@@ -134,8 +139,8 @@ export default function ProjectsPage() {
           <p className="text-[10px] font-bold text-blue-500 uppercase tracking-[0.2em] mt-1">Daily Usage: {dailyCount} / 3 Nodes</p>
         </div>
         <form onSubmit={handleCreate} className="flex gap-2 w-full md:w-auto">
-          <input className="flex-1 md:w-64 bg-[#0f1117] border border-gray-800 text-white px-4 py-3 rounded-xl text-xs outline-none focus:border-blue-500 transition-all" placeholder="New Node..." value={newProject} onChange={(e) => setNewProject(e.target.value)} />
-          <button className="bg-blue-600 p-4 rounded-xl shadow-lg shadow-blue-900/20 hover:scale-105 transition-transform"><Plus size={20} /></button>
+          <input className="flex-1 md:w-64 bg-[#0f1117] border border-gray-800 text-white px-4 py-3 rounded-xl text-xs outline-none focus:border-blue-500" placeholder="New Node..." value={newProject} onChange={(e) => setNewProject(e.target.value)} />
+          <button className="bg-blue-600 p-4 rounded-xl shadow-lg hover:scale-105 transition-transform"><Plus size={20} /></button>
         </form>
       </div>
 
