@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-// CORRECTED: Fixed path to root directory (5 levels back)
-import { supabase } from '../../../../../lib/supabase'
+// CORRECTED: 4 levels back to reach Root from app/api/sync/trigger/
+import { supabase } from '../../../../lib/supabase'
 
 interface SyncRequest {
   projectId: string
@@ -38,7 +38,6 @@ async function fetchGitHubFiles(
   })
 
   if (!response.ok) return files
-
   const contents: GitHubContent[] = await response.json()
 
   for (const item of contents) {
@@ -64,7 +63,6 @@ async function fetchBitbucketFiles(
   path: string = ''
 ): Promise<Array<{ path: string; content: string }>> {
   const files: Array<{ path: string; content: string }> = []
-  // Standard Bitbucket API for source files
   const url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repoSlug}/src/main/${path}`
   const auth = Buffer.from(`${username}:${appPassword}`).toString('base64')
   
@@ -73,7 +71,6 @@ async function fetchBitbucketFiles(
   })
 
   if (!response.ok) return files
-
   const data = await response.json()
 
   if (data.values) {
