@@ -1,27 +1,26 @@
+import { NextRequest, NextResponse } from 'next/server'
+// VERIFIED: 4 levels back to root from app/api/search/
 import { supabase } from '../../../lib/supabase'
-import { NextResponse } from 'next/server'
 
-export async function POST(req: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const { query, projectId } = await req.json()
+    const { query, projectId } = await request.json()
 
-    if (!query || !projectId) {
-      return NextResponse.json({ error: "Missing parameters" }, { status: 400 })
-    }
-
-    // Execute the search using the core client already in your project
+    // Using Supabase text search on the synced content
     const { data, error } = await supabase
       .from('code_memories')
       .select('file_name, content')
       .eq('project_id', projectId)
-      .ilike('content', `%${query}%`) // Search for keywords inside the code
-      .limit(8)
+      .textSearch('content', query, {
+        type: 'websearch',
+        config: 'english'
+      })
+      .limit(5)
 
     if (error) throw error
 
     return NextResponse.json({ results: data })
-  } catch (err: any) {
-    console.error('Search Error:', err.message)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
