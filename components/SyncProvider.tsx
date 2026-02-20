@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 
-export default function SyncProvider({ projectId }: { projectId: string }) {
+// Added 'provider' to the type definition to fix the Vercel build error
+export default function SyncProvider({ projectId, provider }: { projectId: string, provider?: string }) {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -14,7 +15,7 @@ export default function SyncProvider({ projectId }: { projectId: string }) {
     
     setLoading(true)
     try {
-      // Matches your folder structure: app/api/sync/trigger/route.ts
+      // Targets your specific folder path: app/api/sync/trigger/route.ts
       const response = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: {
@@ -22,7 +23,8 @@ export default function SyncProvider({ projectId }: { projectId: string }) {
         },
         body: JSON.stringify({
           url: url,
-          projectId: projectId
+          projectId: projectId,
+          provider: provider || 'github'
         }),
       })
 
@@ -44,8 +46,13 @@ export default function SyncProvider({ projectId }: { projectId: string }) {
 
   return (
     <div className="p-4 bg-[#0a0a0c] border border-white/10 rounded-xl">
-      <h3 className="text-white font-bold mb-2 text-sm tracking-widest">NEURAL SYNC</h3>
-      <p className="text-gray-500 text-xs mb-4">Connect GitHub repository to index code blocks.</p>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-white font-bold text-sm tracking-widest">NEURAL SYNC</h3>
+        <span className="text-[10px] text-blue-400 font-mono uppercase px-2 py-0.5 bg-blue-500/10 rounded border border-blue-500/20">
+          {provider || 'github'}
+        </span>
+      </div>
+      <p className="text-gray-500 text-xs mb-4">Connect repository to index your code logic.</p>
       <input 
         type="text"
         value={url}
@@ -58,7 +65,7 @@ export default function SyncProvider({ projectId }: { projectId: string }) {
         disabled={loading}
         className="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg font-bold text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
       >
-        {loading ? 'SYNCING NEURAL NODES...' : 'ESTABLISH LINK'}
+        {loading ? 'INITIALIZING NEURAL LINK...' : 'ESTABLISH LINK'}
       </button>
     </div>
   )
