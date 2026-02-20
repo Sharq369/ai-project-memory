@@ -7,59 +7,55 @@ const supabaseAdmin = createClient(
 )
 
 const ALLOWED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.json', '.css'];
-const MAX_FILES = 15;
 
 export async function POST(request: NextRequest) {
   try {
-    // 1. Match your frontend payload: { url, projectId }
     const { url, projectId } = await request.json()
     
+    // 1. Get the real user ID from the Auth header
+    const authHeader = request.headers.get('Authorization')
+    const token = authHeader?.replace('Bearer ', '')
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token || '')
+
     // 2. Claude's Bulletproof URL Parser
-    let cleanUrl = url.trim().replace(/\.git$/i, '').replace(/\/$/, '')
+    const cleanUrl = url.trim().replace(/\.git$/i, '').replace(/\/$/, '')
     const match = cleanUrl.match(/github\.com\/([^/]+)\/([^/]+)/)
-    
-    if (!match) return NextResponse.json({ error: "Invalid GitHub URL" }, { status: 400 })
+    if (!match) return NextResponse.json({ error: "Invalid URL" }, { status: 400 })
     const [_, owner, repo] = match
 
-    // 3. Recursive Fetching Logic (Simplified for stability)
-    const githubToken = process.env.GITHUB_TOKEN
-    const fetchUrl = `https://api.github.com/repos/${owner}/${repo}/contents`
-    
-    const response = await fetch(fetchUrl, {
-      headers: { 'Authorization': `Bearer ${githubToken}` }
+    // 3. Fetch from GitHub
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents`, {
+      headers: { 'Authorization': `Bearer ${process.env.GITHUB_TOKEN}` }
     })
+    if (!response.ok) return NextResponse.json({ error: "GitHub access denied" }, { status: 404 })
+    const files = await response.json()
 
-    if (!response.ok) return NextResponse.json({ error: "GitHub Access Denied" }, { status: 404 })
-    
-    const allItems = await response.json()
-    const filesToSync = allItems
-      .filter((f: any) => f.type === 'file' && ALLOWED_EXTENSIONS.some(ext => f.name.endsWith(ext)))
-      .slice(0, MAX_FILES)
-
-    // 4. Content Retrieval & Upsert
+    // 4. Map the blocks - ONLY using a real UUID if it exists
     const blocks = await Promise.all(
-      filesToSync.map(async (file: any) => {
-        const contentRes = await fetch(file.download_url)
-        const text = await contentRes.text()
+      files.filter((f: any) => f.type === 'file' && ALLOWED_EXTENSIONS.some(ext => f.name.endsWith(ext)))
+      .slice(0, 15)
+      .map(async (file: any) => {
+        const res = await fetch(file.download_url)
         return {
           project_id: projectId,
           file_name: file.name,
-          content: text.substring(0, 8000), // Protect database from massive files
-          user_id: "system-sync" 
+          content: (await res.text()).substring(0, 10000),
+          // Only add user_id if we have a valid one to avoid UUID syntax errors
+          ...(user?.id && { user_id: user.id }) 
         }
       })
     )
 
-    // THE UPSERT (Fixes your Duplicate Key Error)
+    // 5. UPSERT with conflict handling
     const { error } = await supabaseAdmin
       .from('code_memories')
       .upsert(blocks, { onConflict: 'project_id,file_name' })
 
     if (error) throw error
-    
     return NextResponse.json({ success: true, count: blocks.length })
 
   } catch (err: any) {
+    // This will now catch any remaining database syntax issues
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
