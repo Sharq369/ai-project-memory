@@ -1,71 +1,74 @@
-'use client'
+"use client"
 
 import { useState } from 'react'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
-// Added 'provider' to the type definition to fix the Vercel build error
-export default function SyncProvider({ projectId, provider }: { projectId: string, provider?: string }) {
-  const [url, setUrl] = useState('')
-  const [loading, setLoading] = useState(false)
+export default function SyncProvider({ projectId }: { projectId: string }) {
+  const [isLoading, setIsLoading] = useState(false)
+  const [repoUrl, setRepoUrl] = useState('')
+  const supabase = createClientComponentClient()
 
-  const handleEstablishLink = async () => {
-    if (!url) {
-      alert("Please enter a repository URL")
-      return
-    }
+  const handleSync = async () => {
+    if (!repoUrl) return alert("Please enter a repository URL")
     
-    setLoading(true)
+    setIsLoading(true)
+    
     try {
-      // Targets your specific folder path: app/api/sync/trigger/route.ts
+      // 1. Get your active session token
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      // 2. Trigger the server-side API
       const response = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}` // Identifies YOU to the server
         },
         body: JSON.stringify({
-          url: url,
-          projectId: projectId,
-          provider: provider || 'github'
+          url: repoUrl,
+          projectId: projectId 
         }),
       })
 
       const data = await response.json()
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Sync Failed')
+      if (data.success) {
+        alert(`Success! Synced ${data.count} blocks to your Neural Memory.`)
+      } else {
+        alert(`Sync Failed: ${data.error}`)
       }
-
-      alert(`Success! Synced ${data.count} blocks to your Neural Memory.`)
-      window.location.reload() 
-
-    } catch (error: any) {
-      alert(`Sync Failed: ${error.message}`)
+    } catch (err) {
+      alert("Sync Failed: Connection error.")
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
   return (
-    <div className="p-4 bg-[#0a0a0c] border border-white/10 rounded-xl">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-white font-bold text-sm tracking-widest">NEURAL SYNC</h3>
-        <span className="text-[10px] text-blue-400 font-mono uppercase px-2 py-0.5 bg-blue-500/10 rounded border border-blue-500/20">
-          {provider || 'github'}
-        </span>
-      </div>
-      <p className="text-gray-500 text-xs mb-4">Connect repository to index your code logic.</p>
+    <div className="p-6 bg-[#0a0a0a] border border-blue-900/30 rounded-xl">
       <input 
         type="text"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
         placeholder="https://github.com/username/repo"
-        className="w-full p-3 bg-black border border-white/10 rounded-lg mb-4 text-white text-sm focus:border-blue-500 outline-none transition-all"
+        value={repoUrl}
+        onChange={(e) => setRepoUrl(e.target.value)}
+        className="w-full p-3 mb-4 bg-black border border-gray-800 rounded text-white"
       />
+      
       <button 
-        onClick={handleEstablishLink}
-        disabled={loading}
-        className="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg font-bold text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        onClick={handleSync}
+        disabled={isLoading}
+        className={`w-full py-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 ${
+          isLoading ? 'bg-blue-900 opacity-70 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'
+        }`}
       >
-        {loading ? 'INITIALIZING NEURAL LINK...' : 'ESTABLISH LINK'}
+        {isLoading ? (
+          <>
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            <span>INITIALIZING NEURAL LINK...</span>
+          </>
+        ) : (
+          "ESTABLISH LINK"
+        )}
       </button>
     </div>
   )
