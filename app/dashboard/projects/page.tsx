@@ -28,7 +28,6 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
             <Github size={20} />
             <span className="text-[9px] font-black uppercase tracking-widest">GitHub</span>
           </button>
-          
           <button 
             onClick={() => setProvider('gitlab')}
             className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${provider === 'gitlab' ? 'bg-[#FC6D26] text-white border-[#FC6D26]' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'}`}
@@ -36,7 +35,6 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
             <Gitlab size={20} />
             <span className="text-[9px] font-black uppercase tracking-widest">GitLab</span>
           </button>
-
           <button 
             onClick={() => setProvider('bitbucket')}
             className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${provider === 'bitbucket' ? 'bg-[#2684FF] text-white border-[#2684FF]' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'}`}
@@ -84,13 +82,16 @@ export default function ProjectsPage() {
   useEffect(() => { fetchProjects() }, [])
 
   async function fetchProjects() {
+    setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     
-    // Fetch projects with memory counts
-    const { data } = await supabase
+    // FIX: Match the actual table name 'code_memories'
+    const { data, error } = await supabase
       .from('projects')
-      .select(`*, code_memories(count)`) // Ensure table name matches your Supabase schema
+      .select(`*, code_memories(count)`)
       .order('created_at', { ascending: false })
+
+    if (error) console.error("Database Error:", error)
 
     const today = new Date().toISOString().split('T')[0]
     const { count } = await supabase
@@ -114,7 +115,6 @@ export default function ProjectsPage() {
     setNewProject(''); fetchProjects(); setIsCreating(false);
   }
 
-  // REWRITTEN HANDLE SYNC: Direct fetch to API to ensure data flow
   const handleSync = async (url: string, provider: string) => {
     if (!activeProjectId) return
     setIsSyncing(activeProjectId)
@@ -129,15 +129,15 @@ export default function ProjectsPage() {
       const data = await res.json()
 
       if (data.success) {
-        alert(`Neural Link Established: ${data.count} blocks synced.`)
+        alert(`Neural Link Established: ${data.count} blocks synced.`) //
         setModalOpen(false)
         await fetchProjects()
-        window.location.reload() // Ensures the count updates in the UI
+        window.location.reload() 
       } else {
-        alert(`Sync Failed: ${data.error || 'Unknown Error'}`)
+        alert(`Sync Failed: ${data.error}`)
       }
     } catch (err) {
-      alert("Unexpected error connecting to the neural node.")
+      alert("Unexpected error during sync.")
     } finally {
       setIsSyncing(null)
     }
@@ -159,39 +159,45 @@ export default function ProjectsPage() {
             value={newProject} 
             onChange={(e) => setNewProject(e.target.value)} 
           />
-          <button disabled={isCreating} className="bg-blue-600 p-4 rounded-xl shadow-lg hover:scale-105 transition-transform">
+          <button type="submit" className="bg-blue-600 p-4 rounded-xl shadow-lg hover:scale-105 transition-transform">
             {isCreating ? <Loader2 className="animate-spin" size={20} /> : <Plus size={20} />}
           </button>
         </form>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {projects.map((p) => (
-          <div key={p.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] hover:border-blue-500/40 transition-all relative">
-            <div className="flex justify-between items-start mb-6">
-              <div className="p-4 bg-blue-500/10 rounded-2xl text-blue-500"><Folder size={24} /></div>
-              <div className="text-right">
-                <p className="text-[9px] font-black text-gray-600 uppercase">Blocks</p>
-                <p className="text-xl font-black text-white">{p.code_memories?.[0]?.count || 0}</p>
+        {projects.length === 0 ? (
+          <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-800 rounded-[2.5rem]">
+            <p className="text-gray-600 uppercase tracking-widest font-black text-xs">No Nodes Found. Create one above.</p>
+          </div>
+        ) : (
+          projects.map((p) => (
+            <div key={p.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] hover:border-blue-500/40 transition-all relative">
+              <div className="flex justify-between items-start mb-6">
+                <div className="p-4 bg-blue-500/10 rounded-2xl text-blue-500"><Folder size={24} /></div>
+                <div className="text-right">
+                  <p className="text-[9px] font-black text-gray-600 uppercase">Blocks</p>
+                  <p className="text-xl font-black text-white">{p.code_memories?.[0]?.count || 0}</p>
+                </div>
+              </div>
+              <h3 className="text-lg font-bold text-white mb-8 italic uppercase tracking-tight truncate">{p.name}</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  onClick={() => { setActiveProjectId(p.id); setModalOpen(true); }} 
+                  className="bg-[#0f1117] border border-gray-800 py-3 rounded-2xl text-[9px] font-black uppercase text-gray-500 hover:text-white transition-all"
+                >
+                  Sync
+                </button>
+                <Link 
+                  href={`/dashboard/projects/${p.id}/doc`} 
+                  className="bg-blue-600/10 border border-blue-500/20 py-3 rounded-2xl text-[9px] font-black uppercase text-blue-400 text-center hover:bg-blue-600 hover:text-white transition-all"
+                >
+                  Docs
+                </Link>
               </div>
             </div>
-            <h3 className="text-lg font-bold text-white mb-8 italic uppercase tracking-tight truncate">{p.name}</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={() => { setActiveProjectId(p.id); setModalOpen(true); }} 
-                className="bg-[#0f1117] border border-gray-800 py-3 rounded-2xl text-[9px] font-black uppercase text-gray-500 hover:text-white transition-all"
-              >
-                Sync
-              </button>
-              <Link 
-                href={`/dashboard/projects/${p.id}/doc`} 
-                className="bg-blue-600/10 border border-blue-500/20 py-3 rounded-2xl text-[9px] font-black uppercase text-blue-400 text-center hover:bg-blue-600 hover:text-white transition-all"
-              >
-                Docs
-              </Link>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       <SyncModal 
