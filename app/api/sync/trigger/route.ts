@@ -7,7 +7,6 @@ const supabaseAdmin = createClient(
 )
 
 const VIBE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.css'];
-const VIBE_FILES = ['tailwind.config.js', 'next.config.js', 'package.json'];
 const MAX_BLOCKS = 15;
 
 export async function POST(request: NextRequest) {
@@ -19,19 +18,16 @@ export async function POST(request: NextRequest) {
 
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // --- SMART PATH CLEANING ---
-    // This fixes the issue where URL with .git fails while URL without it works.
-    const cleanUrl = url.trim().replace(/\/$/, '').replace(/\.git$/, '')
-    
-    const parts = cleanUrl.split('/')
-    const repo = parts.pop()
-    const owner = parts.pop()
+    // --- THE SURGICAL FIX ---
+    // This regex identifies the "owner" and "repo" directly from the URL 
+    // and ignores EVERYTHING ELSE (like .git, slashes, or subfolders).
+    const match = url.match(/github\.com\/([^/]+)\/([^/.]+)/)
+    if (!match) return NextResponse.json({ error: "Invalid GitHub URL" }, { status: 400 })
 
-    if (!owner || !repo) {
-      return NextResponse.json({ error: "Invalid GitHub URL" }, { status: 400 })
-    }
+    const owner = match[1]
+    const repo = match[2]
 
-    // Always uses the cleaned version for the GitHub API
+    // Now the URL is perfectly clean: https://api.github.com/repos/owner/repo/contents
     const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents`, {
       headers: { 
         'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
@@ -40,16 +36,15 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      return NextResponse.json({ error: "GitHub access failed. Check URL or privacy settings." }, { status: 404 })
+      const errorData = await response.json()
+      return NextResponse.json({ error: `GitHub: ${errorData.message}` }, { status: 404 })
     }
     
     const allFiles = await response.json()
 
+    // Filter for files and keep only the top 15
     const filteredFiles = allFiles
-      .filter((f: any) => 
-        (f.type === 'file' && VIBE_EXTENSIONS.some(ext => f.name.endsWith(ext))) ||
-        VIBE_FILES.includes(f.name)
-      )
+      .filter((f: any) => f.type === 'file' && VIBE_EXTENSIONS.some(ext => f.name.endsWith(ext)))
       .slice(0, MAX_BLOCKS);
 
     const blocks = await Promise.all(
@@ -66,7 +61,6 @@ export async function POST(request: NextRequest) {
     );
 
     if (blocks.length > 0) {
-      // Logic for upserting data to handle the duplicate key constraint
       const { error } = await supabaseAdmin
         .from('code_memories')
         .upsert(blocks, { onConflict: 'project_id,file_name' })
