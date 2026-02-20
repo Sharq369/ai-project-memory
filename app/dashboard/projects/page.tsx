@@ -85,13 +85,13 @@ export default function ProjectsPage() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     
-    // FIX: Match the actual table name 'code_memories'
+    // Fetch projects directly without joins to ensure they appear even if memories fail
     const { data, error } = await supabase
       .from('projects')
-      .select(`*, code_memories(count)`)
+      .select('*')
       .order('created_at', { ascending: false })
 
-    if (error) console.error("Database Error:", error)
+    if (error) console.error("Data Fetch Error:", error)
 
     const today = new Date().toISOString().split('T')[0]
     const { count } = await supabase
@@ -111,8 +111,17 @@ export default function ProjectsPage() {
     if (!newProject) return
     setIsCreating(true)
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('projects').insert([{ name: newProject, user_id: user?.id }])
-    setNewProject(''); fetchProjects(); setIsCreating(false);
+    
+    // Ensure project is tied to the current user
+    const { error } = await supabase.from('projects').insert([{ name: newProject, user_id: user?.id }])
+    
+    if (error) {
+      alert(`Creation Failed: ${error.message}`)
+    } else {
+      setNewProject('')
+      await fetchProjects()
+    }
+    setIsCreating(false)
   }
 
   const handleSync = async (url: string, provider: string) => {
@@ -129,7 +138,7 @@ export default function ProjectsPage() {
       const data = await res.json()
 
       if (data.success) {
-        alert(`Neural Link Established: ${data.count} blocks synced.`) //
+        alert(`Neural Link Established: ${data.count} blocks synced.`)
         setModalOpen(false)
         await fetchProjects()
         window.location.reload() 
@@ -159,7 +168,7 @@ export default function ProjectsPage() {
             value={newProject} 
             onChange={(e) => setNewProject(e.target.value)} 
           />
-          <button type="submit" className="bg-blue-600 p-4 rounded-xl shadow-lg hover:scale-105 transition-transform">
+          <button type="submit" disabled={isCreating} className="bg-blue-600 p-4 rounded-xl shadow-lg hover:scale-105 transition-transform flex items-center justify-center">
             {isCreating ? <Loader2 className="animate-spin" size={20} /> : <Plus size={20} />}
           </button>
         </form>
@@ -167,32 +176,32 @@ export default function ProjectsPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.length === 0 ? (
-          <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-800 rounded-[2.5rem]">
-            <p className="text-gray-600 uppercase tracking-widest font-black text-xs">No Nodes Found. Create one above.</p>
+          <div className="col-span-full py-24 text-center border border-dashed border-gray-800 rounded-[2.5rem] bg-[#16181e]/30">
+            <p className="text-gray-600 uppercase tracking-[0.3em] font-black text-[10px]">Neural Nodes Offline // Create Node Above</p>
           </div>
         ) : (
           projects.map((p) => (
-            <div key={p.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] hover:border-blue-500/40 transition-all relative">
+            <div key={p.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] hover:border-blue-500/40 transition-all relative group">
               <div className="flex justify-between items-start mb-6">
-                <div className="p-4 bg-blue-500/10 rounded-2xl text-blue-500"><Folder size={24} /></div>
+                <div className="p-4 bg-blue-500/10 rounded-2xl text-blue-500 group-hover:bg-blue-600 group-hover:text-white transition-all"><Folder size={24} /></div>
                 <div className="text-right">
-                  <p className="text-[9px] font-black text-gray-600 uppercase">Blocks</p>
-                  <p className="text-xl font-black text-white">{p.code_memories?.[0]?.count || 0}</p>
+                  <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Linked</p>
+                  <p className="text-xl font-black text-white italic">Active</p>
                 </div>
               </div>
               <h3 className="text-lg font-bold text-white mb-8 italic uppercase tracking-tight truncate">{p.name}</h3>
               <div className="grid grid-cols-2 gap-3">
                 <button 
                   onClick={() => { setActiveProjectId(p.id); setModalOpen(true); }} 
-                  className="bg-[#0f1117] border border-gray-800 py-3 rounded-2xl text-[9px] font-black uppercase text-gray-500 hover:text-white transition-all"
+                  className="bg-[#0f1117] border border-gray-800 py-4 rounded-2xl text-[9px] font-black uppercase text-gray-500 hover:text-white transition-all tracking-widest"
                 >
                   Sync
                 </button>
                 <Link 
                   href={`/dashboard/projects/${p.id}/doc`} 
-                  className="bg-blue-600/10 border border-blue-500/20 py-3 rounded-2xl text-[9px] font-black uppercase text-blue-400 text-center hover:bg-blue-600 hover:text-white transition-all"
+                  className="bg-blue-600/10 border border-blue-500/20 py-4 rounded-2xl text-[9px] font-black uppercase text-blue-400 text-center hover:bg-blue-600 hover:text-white transition-all tracking-widest"
                 >
-                  Docs
+                  Enter
                 </Link>
               </div>
             </div>
