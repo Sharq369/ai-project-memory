@@ -5,18 +5,19 @@ export async function POST(request: NextRequest) {
   try {
     const { url, projectId } = await request.json()
     
-    // Extract owner and repo from the URL
-    const pathParts = url.replace('https://github.com/', '').split('/')
+    // Clean URL and extract owner/repo safely
+    const cleanUrl = url.replace(/\/$/, '')
+    const pathParts = cleanUrl.replace('https://github.com/', '').split('/')
     const owner = pathParts[0]
     const repo = pathParts[1]?.replace('.git', '')
 
     if (!owner || !repo) {
-      return NextResponse.json({ error: "Invalid repository URL format." }, { status: 400 })
+      return NextResponse.json({ error: "Invalid repository URL format. Use https://github.com/user/repo" }, { status: 400 })
     }
 
     const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
-    // Fetch from GitHub using the token from your Vercel environment
+    // Trigger the fetch to GitHub using your secure Vercel environment token
     const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents`, {
       headers: {
         'Authorization': `Bearer ${GITHUB_TOKEN}`,
@@ -25,15 +26,16 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      console.error("GitHub API Error Status:", response.status)
-      return NextResponse.json({ error: "GitHub access failed. Repository might be private or token is invalid." }, { status: 401 })
+      return NextResponse.json({ 
+        error: "GitHub access failed. Check if GITHUB_TOKEN is active in Vercel." 
+      }, { status: 401 })
     }
 
     const files = await response.json()
-    
     const blocks = []
+
     for (const file of files) {
-      // Only sync code files
+      // Ingesting only valid code files for the Neural Memory
       if (file.type === 'file' && (file.name.endsWith('.ts') || file.name.endsWith('.tsx') || file.name.endsWith('.js'))) {
         const contentRes = await fetch(file.download_url)
         const content = await contentRes.text()
@@ -57,7 +59,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, count: blocks.length })
 
   } catch (error: any) {
-    console.error("Sync Error:", error.message)
+    console.error("Critical Sync Failure:", error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
