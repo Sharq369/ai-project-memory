@@ -1,12 +1,17 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '@supabase/supabase-js'
+
+// Use the standard client, just like we did in SyncProvider
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export default function MemoriesList({ projectId }: { projectId: string }) {
   const [memories, setMemories] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClientComponentClient()
 
   useEffect(() => {
     const fetchMemories = async () => {
@@ -17,7 +22,7 @@ export default function MemoriesList({ projectId }: { projectId: string }) {
         .eq('project_id', projectId) // Filter for THIS project
         .order('created_at', { ascending: false })
 
-      if (!error) setMemories(data)
+      if (!error && data) setMemories(data)
       setLoading(false)
     }
 
@@ -37,9 +42,9 @@ export default function MemoriesList({ projectId }: { projectId: string }) {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [projectId, supabase])
+  }, [projectId])
 
-  if (loading) return <div className="text-gray-500 animate-pulse">Scanning Neural Paths...</div>
+  if (loading) return <div className="text-gray-500 animate-pulse mt-8">Scanning Neural Paths...</div>
 
   return (
     <div className="grid gap-4 mt-8">
