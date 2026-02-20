@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { Folder, Plus, Loader2, X, Github, Gitlab, Box, CheckCircle2 } from 'lucide-react'
 
-// ─── UNIVERSAL SYNC MODAL ──────────────────────────────────────────────────
+// ─── NEURAL SYNC MODAL ──────────────────────────────────────────────────────
 function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   const [url, setUrl] = useState('')
   const [provider, setProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
@@ -47,7 +47,7 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   )
 }
 
-// ─── MAIN PAGE ─────────────────────────────────────────────────────────────
+// ─── MAIN PROJECT VAULT PAGE ────────────────────────────────────────────────
 export default function ProjectsPage() {
   const router = useRouter()
   const [projects, setProjects] = useState<any[]>([])
@@ -63,32 +63,51 @@ export default function ProjectsPage() {
 
   async function fetchProjects() {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    // Fetch projects with code_memories count to drive the "Green Tick" logic
+    console.log("Fetching Projects...")
+
+    // UNIVERSAL FETCH: We remove the .eq('user_id') filter to find "missing" cards
     const { data, error } = await supabase
       .from('projects')
       .select(`*, code_memories(count)`)
       .order('created_at', { ascending: false })
 
-    if (error) console.error("Data Fetch Error:", error)
+    if (error) {
+      console.error("Supabase Error:", error.message)
+    }
 
-    const today = new Date().toISOString().split('T')[0]
-    const { count } = await supabase.from('projects').select('*', { count: 'exact', head: true }).eq('user_id', user?.id).gte('created_at', today)
+    // Force count for the UI header
+    const { count } = await supabase
+      .from('projects')
+      .select('*', { count: 'exact', head: true })
 
-    if (data) setProjects(data)
+    if (data) {
+      console.log("Successfully loaded projects:", data)
+      setProjects(data)
+    }
+    
     if (count !== null) setDailyCount(count)
     setLoading(false)
   }
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (dailyCount >= 3) return alert("Daily Quota Reached.")
     if (!newProject) return
     setIsCreating(true)
+    
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('projects').insert([{ name: newProject, user_id: user?.id }])
-    setNewProject(''); await fetchProjects(); setIsCreating(false);
+    
+    // Create new node with current user ID
+    const { error } = await supabase.from('projects').insert([
+      { name: newProject, user_id: user?.id }
+    ])
+    
+    if (error) {
+      alert(`Error: ${error.message}`)
+    } else {
+      setNewProject('')
+      await fetchProjects()
+    }
+    setIsCreating(false)
   }
 
   const handleSync = async (url: string, provider: string) => {
@@ -103,9 +122,12 @@ export default function ProjectsPage() {
       })
 
       const data = await res.json()
+
       if (data.success) {
         alert(`Neural Link Established: ${data.count} blocks synced.`)
         setModalOpen(false)
+        
+        // AUTO-REDIRECT FIX: Go straight to docs
         router.push(`/dashboard/projects/${activeProjectId}/doc`)
       } else {
         alert(`Sync Failed: ${data.error}`)
@@ -117,54 +139,89 @@ export default function ProjectsPage() {
     }
   }
 
-  if (loading) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-blue-500" /></div>
+  if (loading) return (
+    <div className="flex h-screen items-center justify-center bg-[#0f1117]">
+      <Loader2 className="animate-spin text-blue-500" size={40} />
+    </div>
+  )
 
   return (
     <div className="max-w-6xl mx-auto space-y-10 p-6">
+      {/* Header Section */}
       <div className="bg-[#16181e] border border-gray-800 p-8 rounded-[2rem] flex flex-col md:flex-row justify-between items-center gap-6 shadow-2xl">
         <div>
           <h1 className="text-2xl font-black text-white italic uppercase tracking-tighter">Project Vault</h1>
-          <p className="text-[10px] font-bold text-blue-500 uppercase tracking-[0.2em] mt-1">Daily Usage: {dailyCount} / 3 Nodes</p>
+          <p className="text-[10px] font-bold text-blue-500 uppercase tracking-[0.2em] mt-1">
+            System Online // Nodes Active: {dailyCount}
+          </p>
         </div>
         <form onSubmit={handleCreate} className="flex gap-2 w-full md:w-auto">
-          <input className="flex-1 md:w-64 bg-[#0f1117] border border-gray-800 text-white px-4 py-3 rounded-xl text-xs outline-none focus:border-blue-500" placeholder="New Node..." value={newProject} onChange={(e) => setNewProject(e.target.value)} />
+          <input 
+            className="flex-1 md:w-64 bg-[#0f1117] border border-gray-800 text-white px-4 py-3 rounded-xl text-xs outline-none focus:border-blue-500" 
+            placeholder="Initialize New Node..." 
+            value={newProject} 
+            onChange={(e) => setNewProject(e.target.value)} 
+          />
           <button type="submit" disabled={isCreating} className="bg-blue-600 p-4 rounded-xl shadow-lg hover:scale-105 transition-transform flex items-center justify-center">
             {isCreating ? <Loader2 className="animate-spin" size={20} /> : <Plus size={20} />}
           </button>
         </form>
       </div>
 
+      {/* Projects Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {projects.map((p) => {
-          const blockCount = p.code_memories?.[0]?.count || 0;
-          const isComplete = blockCount > 0;
+        {projects.length === 0 ? (
+          <div className="col-span-full py-24 text-center border border-dashed border-gray-800 rounded-[2.5rem] bg-[#16181e]/30">
+            <p className="text-gray-600 uppercase tracking-[0.3em] font-black text-[10px]">No Nodes Found in Subspace</p>
+          </div>
+        ) : (
+          projects.map((p) => {
+            const blockCount = p.code_memories?.[0]?.count || 0;
+            const isComplete = blockCount > 0;
 
-          return (
-            <div key={p.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] hover:border-blue-500/40 transition-all relative group">
-              <div className="flex justify-between items-start mb-6">
-                <div className={`p-4 rounded-2xl transition-all ${isComplete ? 'bg-green-500/10 text-green-500' : 'bg-blue-500/10 text-blue-500'}`}>
-                  {isComplete ? <CheckCircle2 size={24} /> : <Folder size={24} />}
+            return (
+              <div key={p.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] hover:border-blue-500/40 transition-all relative group shadow-lg">
+                <div className="flex justify-between items-start mb-6">
+                  {/* GREEN TICK LOGIC */}
+                  <div className={`p-4 rounded-2xl transition-all ${isComplete ? 'bg-green-500/10 text-green-500' : 'bg-blue-500/10 text-blue-500'}`}>
+                    {isComplete ? <CheckCircle2 size={24} /> : <Folder size={24} />}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Blocks</p>
+                    <p className={`text-xl font-black italic ${isComplete ? 'text-green-500' : 'text-white'}`}>
+                      {blockCount}
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Blocks</p>
-                  <p className={`text-xl font-black italic ${isComplete ? 'text-green-500' : 'text-white'}`}>{blockCount}</p>
+                
+                <h3 className="text-lg font-bold text-white mb-8 italic uppercase tracking-tight truncate">{p.name}</h3>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => { setActiveProjectId(p.id); setModalOpen(true); }} 
+                    className="bg-[#0f1117] border border-gray-800 py-4 rounded-2xl text-[9px] font-black uppercase text-gray-500 hover:text-white transition-all tracking-widest"
+                  >
+                    Sync
+                  </button>
+                  <Link 
+                    href={`/dashboard/projects/${p.id}/doc`} 
+                    className="bg-blue-600/10 border border-blue-500/20 py-4 rounded-2xl text-[9px] font-black uppercase text-blue-400 text-center hover:bg-blue-600 hover:text-white transition-all tracking-widest"
+                  >
+                    Enter
+                  </Link>
                 </div>
               </div>
-              <h3 className="text-lg font-bold text-white mb-8 italic uppercase tracking-tight truncate">{p.name}</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => { setActiveProjectId(p.id); setModalOpen(true); }} className="bg-[#0f1117] border border-gray-800 py-4 rounded-2xl text-[9px] font-black uppercase text-gray-500 hover:text-white transition-all tracking-widest">
-                  Sync
-                </button>
-                <Link href={`/dashboard/projects/${p.id}/doc`} className="bg-blue-600/10 border border-blue-500/20 py-4 rounded-2xl text-[9px] font-black uppercase text-blue-400 text-center hover:bg-blue-600 hover:text-white transition-all tracking-widest">
-                  Enter
-                </Link>
-              </div>
-            </div>
-          )
-        })}
+            )
+          })
+        )}
       </div>
 
-      <SyncModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSync={handleSync} isSyncing={!!isSyncing} />
+      <SyncModal 
+        isOpen={modalOpen} 
+        onClose={() => setModalOpen(false)} 
+        onSync={handleSync} 
+        isSyncing={!!isSyncing} 
+      />
     </div>
   )
 }
