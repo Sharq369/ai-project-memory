@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { Folder, Plus, Loader2, X, Github, Gitlab, Box } from 'lucide-react'
 
@@ -70,6 +71,7 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
 
 // ─── MAIN PAGE ─────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
+  const router = useRouter()
   const [projects, setProjects] = useState<any[]>([])
   const [dailyCount, setDailyCount] = useState(0)
   const [newProject, setNewProject] = useState('')
@@ -85,10 +87,10 @@ export default function ProjectsPage() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     
-    // Fetch projects directly without joins to ensure they appear even if memories fail
+    // RESTORED: Fetching projects with the code_memories count
     const { data, error } = await supabase
       .from('projects')
-      .select('*')
+      .select(`*, code_memories(count)`)
       .order('created_at', { ascending: false })
 
     if (error) console.error("Data Fetch Error:", error)
@@ -112,7 +114,6 @@ export default function ProjectsPage() {
     setIsCreating(true)
     const { data: { user } } = await supabase.auth.getUser()
     
-    // Ensure project is tied to the current user
     const { error } = await supabase.from('projects').insert([{ name: newProject, user_id: user?.id }])
     
     if (error) {
@@ -140,8 +141,9 @@ export default function ProjectsPage() {
       if (data.success) {
         alert(`Neural Link Established: ${data.count} blocks synced.`)
         setModalOpen(false)
-        await fetchProjects()
-        window.location.reload() 
+        
+        // AUTO-REDIRECT: Moves you straight to the project documentation
+        router.push(`/dashboard/projects/${activeProjectId}/doc`)
       } else {
         alert(`Sync Failed: ${data.error}`)
       }
@@ -185,8 +187,9 @@ export default function ProjectsPage() {
               <div className="flex justify-between items-start mb-6">
                 <div className="p-4 bg-blue-500/10 rounded-2xl text-blue-500 group-hover:bg-blue-600 group-hover:text-white transition-all"><Folder size={24} /></div>
                 <div className="text-right">
-                  <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Linked</p>
-                  <p className="text-xl font-black text-white italic">Active</p>
+                  {/* RESTORED: This shows the number of synced blocks */}
+                  <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Blocks</p>
+                  <p className="text-xl font-black text-white italic">{p.code_memories?.[0]?.count || 0}</p>
                 </div>
               </div>
               <h3 className="text-lg font-bold text-white mb-8 italic uppercase tracking-tight truncate">{p.name}</h3>
