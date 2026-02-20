@@ -3,15 +3,15 @@
 import { useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
+// Standard client setup to match your working MemoriesList.tsx
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// Update the interface here to include provider
 interface SyncProviderProps {
-  projectId: string;
-  provider?: string; // Add this line to fix the TypeScript error
+  projectId: string
+  provider?: string
 }
 
 export default function SyncProvider({ projectId, provider = 'github' }: SyncProviderProps) {
@@ -20,50 +20,79 @@ export default function SyncProvider({ projectId, provider = 'github' }: SyncPro
 
   const handleSync = async () => {
     if (!repoUrl) return alert("Please enter a repository URL")
+    
     setIsLoading(true)
     
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      // Get the session to pass the JWT to your API route
+      const { data: { session }, error: authError } = await supabase.auth.getSession()
       
+      if (authError || !session) {
+        throw new Error("You must be logged in to sync code.")
+      }
+
       const response = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
+          'Authorization': `Bearer ${session.access_token}` 
         },
-        body: JSON.stringify({ 
-          url: repoUrl, 
+        body: JSON.stringify({
+          url: repoUrl,
           projectId: projectId,
-          provider: provider // Pass the provider to your API
+          provider: provider
         }),
       })
 
       const data = await response.json()
-      if (data.success) alert(`Success! Synced ${data.count} blocks.`)
-      else alert(`Sync Failed: ${data.error}`)
-    } catch (err) {
-      alert("Sync Failed: Connection error.")
+
+      if (data.success) {
+        alert(`Neural Link Established: ${data.count} blocks synced.`)
+        setRepoUrl('') // Clear input on success
+      } else {
+        alert(`Sync Failed: ${data.error}`)
+      }
+    } catch (err: any) {
+      alert(`Connection Error: ${err.message}`)
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="p-4 bg-black/50 border border-blue-900/20 rounded-lg">
-      <input 
-        type="text" 
-        value={repoUrl}
-        onChange={(e) => setRepoUrl(e.target.value)}
-        placeholder={`${provider.toUpperCase()} Repo URL`}
-        className="w-full p-2 mb-2 bg-gray-900 border border-gray-800 rounded text-white text-sm focus:border-blue-500 outline-none"
-      />
-      <button 
-        onClick={handleSync}
-        disabled={isLoading}
-        className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900 rounded font-bold text-xs transition-colors"
-      >
-        {isLoading ? "INITIALIZING NEURAL LINK..." : "ESTABLISH LINK"}
-      </button>
+    <div className="p-6 bg-[#0a0a0a] border border-blue-900/30 rounded-xl shadow-2xl shadow-blue-500/10">
+      <div className="flex flex-col gap-4">
+        <label className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">
+          Target {provider} Repository
+        </label>
+        
+        <input 
+          type="text"
+          placeholder="https://github.com/username/repo"
+          value={repoUrl}
+          onChange={(e) => setRepoUrl(e.target.value)}
+          className="w-full p-3 bg-black border border-gray-800 rounded-lg text-white text-sm focus:border-blue-500 outline-none transition-all font-mono"
+        />
+        
+        <button 
+          onClick={handleSync}
+          disabled={isLoading}
+          className={`w-full py-3 rounded-lg font-black text-xs tracking-tighter transition-all flex items-center justify-center gap-2 ${
+            isLoading 
+              ? 'bg-blue-900/40 text-blue-300 cursor-not-allowed border border-blue-800/50' 
+              : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/20'
+          }`}
+        >
+          {isLoading ? (
+            <>
+              <div className="w-3 h-3 border-2 border-blue-200 border-t-transparent rounded-full animate-spin"></div>
+              <span>INITIALIZING NEURAL LINK...</span>
+            </>
+          ) : (
+            "ESTABLISH LINK"
+          )}
+        </button>
+      </div>
     </div>
   )
 }
