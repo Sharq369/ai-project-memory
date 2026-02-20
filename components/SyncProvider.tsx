@@ -1,42 +1,38 @@
 "use client"
 
 import { useState } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '@supabase/supabase-js'
+
+// Use your existing environment variables
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export default function SyncProvider({ projectId }: { projectId: string }) {
   const [isLoading, setIsLoading] = useState(false)
   const [repoUrl, setRepoUrl] = useState('')
-  const supabase = createClientComponentClient()
 
   const handleSync = async () => {
     if (!repoUrl) return alert("Please enter a repository URL")
-    
     setIsLoading(true)
     
     try {
-      // 1. Get your active session token
+      // Get the session using the standard client
       const { data: { session } } = await supabase.auth.getSession()
       
-      // 2. Trigger the server-side API
       const response = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}` // Identifies YOU to the server
+          'Authorization': `Bearer ${session?.access_token}`
         },
-        body: JSON.stringify({
-          url: repoUrl,
-          projectId: projectId 
-        }),
+        body: JSON.stringify({ url: repoUrl, projectId: projectId }),
       })
 
       const data = await response.json()
-
-      if (data.success) {
-        alert(`Success! Synced ${data.count} blocks to your Neural Memory.`)
-      } else {
-        alert(`Sync Failed: ${data.error}`)
-      }
+      if (data.success) alert(`Success! Synced ${data.count} blocks.`)
+      else alert(`Sync Failed: ${data.error}`)
     } catch (err) {
       alert("Sync Failed: Connection error.")
     } finally {
@@ -45,30 +41,20 @@ export default function SyncProvider({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="p-6 bg-[#0a0a0a] border border-blue-900/30 rounded-xl">
+    <div className="p-4 bg-black/50 border border-blue-900/20 rounded-lg">
       <input 
-        type="text"
-        placeholder="https://github.com/username/repo"
+        type="text" 
         value={repoUrl}
         onChange={(e) => setRepoUrl(e.target.value)}
-        className="w-full p-3 mb-4 bg-black border border-gray-800 rounded text-white"
+        placeholder="GitHub Repo URL"
+        className="w-full p-2 mb-2 bg-gray-900 border border-gray-800 rounded text-white text-sm"
       />
-      
       <button 
         onClick={handleSync}
         disabled={isLoading}
-        className={`w-full py-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 ${
-          isLoading ? 'bg-blue-900 opacity-70 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'
-        }`}
+        className="w-full py-2 bg-blue-600 rounded font-bold text-xs"
       >
-        {isLoading ? (
-          <>
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            <span>INITIALIZING NEURAL LINK...</span>
-          </>
-        ) : (
-          "ESTABLISH LINK"
-        )}
+        {isLoading ? "INITIALIZING NEURAL LINK..." : "ESTABLISH LINK"}
       </button>
     </div>
   )
