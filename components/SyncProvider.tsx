@@ -3,13 +3,18 @@
 import { useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-// Use your existing environment variables
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default function SyncProvider({ projectId }: { projectId: string }) {
+// Update the interface here to include provider
+interface SyncProviderProps {
+  projectId: string;
+  provider?: string; // Add this line to fix the TypeScript error
+}
+
+export default function SyncProvider({ projectId, provider = 'github' }: SyncProviderProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [repoUrl, setRepoUrl] = useState('')
 
@@ -18,7 +23,6 @@ export default function SyncProvider({ projectId }: { projectId: string }) {
     setIsLoading(true)
     
     try {
-      // Get the session using the standard client
       const { data: { session } } = await supabase.auth.getSession()
       
       const response = await fetch('/api/sync/trigger', {
@@ -27,7 +31,11 @@ export default function SyncProvider({ projectId }: { projectId: string }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}`
         },
-        body: JSON.stringify({ url: repoUrl, projectId: projectId }),
+        body: JSON.stringify({ 
+          url: repoUrl, 
+          projectId: projectId,
+          provider: provider // Pass the provider to your API
+        }),
       })
 
       const data = await response.json()
@@ -46,13 +54,13 @@ export default function SyncProvider({ projectId }: { projectId: string }) {
         type="text" 
         value={repoUrl}
         onChange={(e) => setRepoUrl(e.target.value)}
-        placeholder="GitHub Repo URL"
-        className="w-full p-2 mb-2 bg-gray-900 border border-gray-800 rounded text-white text-sm"
+        placeholder={`${provider.toUpperCase()} Repo URL`}
+        className="w-full p-2 mb-2 bg-gray-900 border border-gray-800 rounded text-white text-sm focus:border-blue-500 outline-none"
       />
       <button 
         onClick={handleSync}
         disabled={isLoading}
-        className="w-full py-2 bg-blue-600 rounded font-bold text-xs"
+        className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900 rounded font-bold text-xs transition-colors"
       >
         {isLoading ? "INITIALIZING NEURAL LINK..." : "ESTABLISH LINK"}
       </button>
