@@ -7,80 +7,83 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// The "Vibe List" - prioritizing important files for Vibe Coding
+const VIBE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.css'];
+const VIBE_FILES = ['tailwind.config.js', 'next.config.js', 'package.json'];
+const MAX_BLOCKS = 15;
+
 export async function POST(request: NextRequest) {
   try {
     const { url, projectId } = await request.json()
     
-    // 1. Identify the User from the request token
+    // Identify the User
     const authHeader = request.headers.get('Authorization')
     const token = authHeader?.replace('Bearer ', '')
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token || '')
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token || '')
 
-    if (!user || authError) {
-      return NextResponse.json({ error: "Unauthorized: Please log in again." }, { status: 401 })
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // 2. Parse GitHub URL
+    // Parse GitHub URL
     const cleanUrl = url.replace(/\/$/, '')
     const pathParts = cleanUrl.replace('https://github.com/', '').split('/')
     const owner = pathParts[0]
     const repo = pathParts[1]?.replace('.git', '')
 
-    if (!owner || !repo) {
-      return NextResponse.json({ error: "Invalid repository URL." }, { status: 400 })
-    }
-
-    // 3. Get file list from GitHub
-    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    // Get file list from GitHub
     const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents`, {
       headers: {
-        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+        'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
         'Accept': 'application/vnd.github.v3+json',
       },
     });
 
     if (!response.ok) {
-      return NextResponse.json({ error: "GitHub repository not found or private." }, { status: 404 })
+      return NextResponse.json({ error: "GitHub repository not found." }, { status: 404 })
     }
 
-    const files = await response.json()
+    const allFiles = await response.json()
 
-    // 4. Optimized Parallel Fetching (Beats the 10s Vercel Timeout)
+    // Filter for "Vibe" files and limit count to stay under 10s timeout
+    const filteredFiles = allFiles
+      .filter((f: any) => 
+        (f.type === 'file' && VIBE_EXTENSIONS.some(ext => f.name.endsWith(ext))) ||
+        VIBE_FILES.includes(f.name)
+      )
+      .slice(0, MAX_BLOCKS);
+
+    // Parallel Fetching
     const blocks = await Promise.all(
-      files
-        .filter((file: any) => 
-          file.type === 'file' && 
-          (file.name.endsWith('.ts') || file.name.endsWith('.tsx') || file.name.endsWith('.js'))
-        )
-        .map(async (file: any) => {
-          const contentRes = await fetch(file.download_url);
-          const content = await contentRes.text();
-          return {
-            project_id: projectId,
-            file_name: file.name,
-            content: content,
-            user_id: user.id // Automatically tags the data to the logged-in user
-          };
-        })
+      filteredFiles.map(async (file: any) => {
+        const contentRes = await fetch(file.download_url);
+        const content = await contentRes.text();
+        return {
+          project_id: projectId,
+          file_name: file.name,
+          content: content.substring(0, 10000),
+          user_id: user.id
+        };
+      })
     );
 
-    // 5. Bulk Insert to Supabase
+    // THE UPSERT FIX: This solves the "duplicate key" error
     if (blocks.length > 0) {
-      const { error: insertError } = await supabaseAdmin
+      const { error } = await supabaseAdmin
         .from('code_memories')
-        .insert(blocks)
+        .upsert(blocks, { 
+          onConflict: 'project_id,file_name' // Targets your unique constraint
+        })
       
-      if (insertError) throw insertError
+      if (error) throw error
     }
 
     return NextResponse.json({ 
       success: true, 
-      count: blocks.length,
-      message: `Successfully synced ${blocks.length} files.` 
+      count: blocks.length 
     })
 
   } catch (error: any) {
-    console.error("Sync Error:", error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
