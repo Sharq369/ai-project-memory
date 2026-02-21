@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { Folder, Plus, Loader2, X, Github, Gitlab, Box, CheckCircle2 } from 'lucide-react'
 
-// ─── SYNC MODAL ────────────────────────────────────────────────────────────
+// ─── NEURAL SYNC MODAL ──────────────────────────────────────────────────────
 function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   const [url, setUrl] = useState('')
   const [provider, setProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
@@ -20,16 +20,38 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
           <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">Neural Sync</h3>
           <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={24} /></button>
         </div>
+        
         <div className="grid grid-cols-3 gap-2 mb-6">
-          <button onClick={() => setProvider('github')} className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${provider === 'github' ? 'bg-white text-black border-white' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'}`}><Github size={20} /><span className="text-[9px] font-black uppercase tracking-widest">GitHub</span></button>
-          <button onClick={() => setProvider('gitlab')} className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${provider === 'gitlab' ? 'bg-[#FC6D26] text-white border-[#FC6D26]' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'}`}><Gitlab size={20} /><span className="text-[9px] font-black uppercase tracking-widest">GitLab</span></button>
-          <button onClick={() => setProvider('bitbucket')} className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${provider === 'bitbucket' ? 'bg-[#2684FF] text-white border-[#2684FF]' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'}`}><Box size={20} /><span className="text-[9px] font-black uppercase tracking-widest">Bitbucket</span></button>
+          {(['github', 'gitlab', 'bitbucket'] as const).map((p) => (
+            <button 
+              key={p}
+              onClick={() => setProvider(p)} 
+              className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${provider === p ? 'bg-white text-black border-white' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'}`}
+            >
+              {p === 'github' && <Github size={20} />}
+              {p === 'gitlab' && <Gitlab size={20} />}
+              {p === 'bitbucket' && <Box size={20} />}
+              <span className="text-[9px] font-black uppercase tracking-widest">{p}</span>
+            </button>
+          ))}
         </div>
+
         <p className="text-[10px] text-gray-500 uppercase font-bold tracking-[0.2em] mb-4">Target Repository URL</p>
-        <input className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl px-6 py-4 text-white mb-8 outline-none focus:border-blue-500 transition-all font-mono text-xs" placeholder={`https://${provider}.com/repo`} value={url} onChange={(e) => setUrl(e.target.value)} disabled={isSyncing} />
+        <input 
+          className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl px-6 py-4 text-white mb-8 outline-none focus:border-blue-500 transition-all font-mono text-xs" 
+          placeholder={`https://${provider}.com/repo`} 
+          value={url} 
+          onChange={(e) => setUrl(e.target.value)} 
+          disabled={isSyncing} 
+        />
+        
         <div className="flex gap-4">
           <button onClick={onClose} className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest border border-gray-800 rounded-xl text-gray-500">Cancel</button>
-          <button onClick={() => onSync(url, provider)} disabled={isSyncing || !url} className="flex-[2] py-4 text-[10px] font-black uppercase tracking-widest bg-blue-600 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-500 disabled:opacity-50">
+          <button 
+            onClick={() => onSync(url, provider)} 
+            disabled={isSyncing || !url} 
+            className="flex-[2] py-4 text-[10px] font-black uppercase tracking-widest bg-blue-600 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-500 disabled:opacity-50"
+          >
             {isSyncing ? <Loader2 className="animate-spin" size={16} /> : `Establish Link`}
           </button>
         </div>
@@ -38,7 +60,7 @@ function SyncModal({ isOpen, onClose, onSync, isSyncing }: any) {
   )
 }
 
-// ─── MAIN PAGE ─────────────────────────────────────────────────────────────
+// ─── MAIN PROJECTS DASHBOARD ────────────────────────────────────────────────
 export default function ProjectsPage() {
   const router = useRouter()
   const [projects, setProjects] = useState<any[]>([])
@@ -55,7 +77,7 @@ export default function ProjectsPage() {
   async function fetchProjects() {
     setLoading(true)
     try {
-      // 1. Fetch raw projects first to ensure visibility
+      // 1. Fetch Projects independently to ensure 8 nodes render
       const { data: projectData, error: projectError } = await supabase
         .from('projects')
         .select('*')
@@ -63,19 +85,16 @@ export default function ProjectsPage() {
 
       if (projectError) throw projectError
 
-      // 2. Fetch memory counts separately to avoid "Empty Array" join bugs
-      const { data: memoryData } = await supabase
-        .from('code_memories')
-        .select('project_id')
+      // 2. Fetch memory counts to identify "Green Tick" status
+      const { data: memoryData } = await supabase.from('code_memories').select('project_id')
 
-      // 3. Map the data together in the frontend
-      const formattedProjects = (projectData || []).map(p => ({
+      const formatted = (projectData || []).map(p => ({
         ...p,
         memory_count: memoryData?.filter(m => m.project_id === p.id).length || 0
       }))
 
-      setProjects(formattedProjects)
-      setDailyCount(formattedProjects.length) // Correctly sets "Nodes Active: 8"
+      setProjects(formatted)
+      setDailyCount(formatted.length) // Correctly sets "Nodes Active: 8"
     } catch (err: any) {
       console.error("Fetch Error:", err.message)
     } finally {
@@ -91,26 +110,41 @@ export default function ProjectsPage() {
   }
 
   const handleSync = async (url: string, provider: string) => {
-    if (!activeProjectId) return; setIsSyncing(activeProjectId)
+    if (!activeProjectId) return;
+    setIsSyncing(activeProjectId);
+
     try {
       const res = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, projectId: activeProjectId, provider })
-      })
-      const data = await res.json()
+      });
+
+      const data = await res.json();
+
       if (data.success) {
-        alert(`Sync Successful: ${data.count} blocks added.`)
-        setModalOpen(false)
-        router.push(`/dashboard/projects/${activeProjectId}/doc`) // Auto-redirect
+        // SAVE REPO URL: Vital for the Neural Edit/Push feature to work later
+        await supabase
+          .from('projects')
+          .update({ repo_url: url })
+          .eq('id', activeProjectId);
+
+        alert(`Neural Link Established: ${data.count} blocks synced.`);
+        setModalOpen(false);
+        router.push(`/dashboard/projects/${activeProjectId}/doc`);
       }
-    } catch (err) { alert("Sync Error") } finally { setIsSyncing(null) }
-  }
+    } catch (err) {
+      alert("Sync Failed");
+    } finally {
+      setIsSyncing(null);
+    }
+  };
 
   if (loading) return <div className="flex h-screen items-center justify-center bg-[#0f1117]"><Loader2 className="animate-spin text-blue-500" size={40} /></div>
 
   return (
     <div className="max-w-6xl mx-auto space-y-10 p-6">
+      {/* HEADER SECTION */}
       <div className="bg-[#16181e] border border-gray-800 p-8 rounded-[2rem] flex flex-col md:flex-row justify-between items-center gap-6 shadow-2xl">
         <div>
           <h1 className="text-2xl font-black text-white italic uppercase tracking-tighter">Project Vault</h1>
@@ -124,6 +158,7 @@ export default function ProjectsPage() {
         </form>
       </div>
 
+      {/* PROJECTS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.length === 0 ? (
           <div className="col-span-full py-24 text-center border border-dashed border-gray-800 rounded-[2.5rem] bg-[#16181e]/30">
@@ -150,7 +185,13 @@ export default function ProjectsPage() {
           ))
         )}
       </div>
-      <SyncModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSync={handleSync} isSyncing={!!isSyncing} />
+
+      <SyncModal 
+        isOpen={modalOpen} 
+        onClose={() => setModalOpen(false)} 
+        onSync={handleSync} 
+        isSyncing={!!isSyncing} 
+      />
     </div>
   )
 }
