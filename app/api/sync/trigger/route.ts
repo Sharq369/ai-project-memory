@@ -121,7 +121,7 @@ export async function POST(req: Request) {
     // 3. Wipe old memories for this project
     await supabase.from('code_memories').delete().eq('project_id', projectId)
 
-    // 4. Process and insert new memories
+    // 4. Process and insert new memories with explicit status and file_path
     const memories = []
     
     for (const file of files) {
@@ -130,28 +130,37 @@ export async function POST(req: Request) {
       try {
         const content = await fetchFileContent(file.download_url, githubToken)
         
+        // ✅ EXPLICIT MAPPING: status and file_path for UI display
         memories.push({
           project_id: projectId,
           content: content,
-          file_path: file.path,
-          status: 'completed'
+          file_path: file.path,  // Maps to file_path column for UI filename display
+          status: 'completed'     // Explicitly set for green tick
         })
+        
+        console.log(`✓ Processed: ${file.path}`)
       } catch (error) {
         console.error(`Failed to fetch ${file.path}:`, error)
       }
     }
 
-    // 5. Insert all memories
+    // 5. Insert all memories at once
     const { error: insertError } = await supabase
       .from('code_memories')
       .insert(memories)
 
-    if (insertError) throw insertError
+    if (insertError) {
+      console.error('Insert error:', insertError)
+      throw insertError
+    }
+
+    console.log(`✅ Successfully synced ${memories.length} files`)
 
     return NextResponse.json({
       success: true,
       count: memories.length,
-      repository: repoPath
+      repository: repoPath,
+      files: memories.map(m => m.file_path) // Return list of synced files
     })
 
   } catch (error: any) {
