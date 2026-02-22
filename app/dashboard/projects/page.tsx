@@ -2,11 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { Plus, Search, Globe, Lock, MoreVertical, Zap, Loader2, X, Github } from 'lucide-react'
 
 export default function ProjectsPage() {
   const router = useRouter()
+  // Using the helper directly to bypass the missing lib/supabase file error
+  const supabase = createClientComponentClient()
+  
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showSyncModal, setShowSyncModal] = useState(false)
@@ -19,17 +22,23 @@ export default function ProjectsPage() {
   }, [])
 
   async function fetchProjects() {
-    const { data } = await supabase.from('projects').select('*').order('created_at', { ascending: false })
-    setProjects(data || [])
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: false })
+    
+    if (!error) {
+      setProjects(data || [])
+    }
     setLoading(false)
   }
 
-  // THE FIX: Points to your actual path app/api/sync/trigger/route.ts
   const handleSync = async () => {
     if (!repoUrl || !selectedProject) return
     setIsSyncing(true)
     
     try {
+      // Points to verified path: app/api/sync/trigger/route.ts
       const res = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -44,10 +53,10 @@ export default function ProjectsPage() {
         router.push(`/dashboard/projects/${selectedProject.id}/doc`)
       } else {
         const err = await res.json()
-        alert(`Sync Error: ${err.error || 'Unknown failure'}`)
+        alert(`Sync Error: ${err.error || 'Failed'}`)
       }
     } catch (error) {
-      console.error("Connection failed", error)
+      console.error("Sync failed", error)
     } finally {
       setIsSyncing(false)
     }
@@ -57,7 +66,6 @@ export default function ProjectsPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-10">
-      {/* HEADER */}
       <div className="flex justify-between items-end">
         <div className="space-y-2">
           <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter">Project Vault</h1>
@@ -65,10 +73,9 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {/* PROJECT GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.map((project) => (
-          <div key={project.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] hover:border-blue-500 transition-all group">
+          <div key={project.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] hover:border-blue-500 transition-all">
             <div className="flex justify-between items-start mb-6">
               <div className="bg-blue-500/10 p-3 rounded-2xl text-blue-500"><Globe size={20} /></div>
               <button className="text-gray-600 hover:text-white"><MoreVertical size={18} /></button>
@@ -79,13 +86,13 @@ export default function ProjectsPage() {
             <div className="flex gap-3">
               <button 
                 onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)}
-                className="flex-1 bg-[#0f1117] border border-gray-800 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-800 transition-all"
+                className="flex-1 bg-[#0f1117] border border-gray-800 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest"
               >
                 Enter Node
               </button>
               <button 
                 onClick={() => { setSelectedProject(project); setShowSyncModal(true); }}
-                className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-500 transition-all"
+                className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-500"
               >
                 <Zap size={16} fill="white" />
               </button>
@@ -94,7 +101,6 @@ export default function ProjectsPage() {
         ))}
       </div>
 
-      {/* NEURAL SYNC MODAL */}
       {showSyncModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#16181e] border border-gray-800 w-full max-w-md rounded-[2.5rem] overflow-hidden shadow-2xl">
