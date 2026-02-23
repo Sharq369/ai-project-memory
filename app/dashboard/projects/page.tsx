@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '../../../lib/supabase'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { Globe, MoreVertical, Zap, Loader2, X, Github } from 'lucide-react'
 
 export default function ProjectsPage() {
   const router = useRouter()
+  const supabase = createClientComponentClient()
+  
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showSyncModal, setShowSyncModal] = useState(false)
@@ -16,48 +18,27 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     async function fetchProjects() {
-      try {
-        const { data } = await supabase
-          .from('projects')
-          .select('*')
-          .order('created_at', { ascending: false })
-        setProjects(data || [])
-      } catch (err) {
-        console.error("Fetch failed", err)
-      } finally {
-        setLoading(false)
-      }
+      const { data } = await supabase.from('projects').select('*').order('created_at', { ascending: false })
+      setProjects(data || [])
+      setLoading(false)
     }
     fetchProjects()
-  }, [])
+  }, [supabase])
 
   const handleSync = async () => {
     if (!repoUrl || !selectedProject) return
     setIsSyncing(true)
-    
     try {
-      // Corrected API path found in your GitHub structure
       const res = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repoUrl: repoUrl,
-          projectId: selectedProject.id
-        })
+        body: JSON.stringify({ repoUrl, projectId: selectedProject.id })
       })
-
       if (res.ok) {
         setShowSyncModal(false)
         router.push(`/dashboard/projects/${selectedProject.id}/doc`)
-      } else {
-        const err = await res.json()
-        alert(`Sync Error: ${err.error || 'Failed'}`)
       }
-    } catch (error) {
-      console.error("Sync failed", error)
-    } finally {
-      setIsSyncing(false)
-    }
+    } catch (e) { console.error(e) } finally { setIsSyncing(false) }
   }
 
   if (loading) return <div className="flex h-screen items-center justify-center bg-[#0f1117]"><Loader2 className="animate-spin text-blue-500" /></div>
@@ -68,7 +49,6 @@ export default function ProjectsPage() {
         <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter">Project Vault</h1>
         <p className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.4em]">Nodes: {projects.length}</p>
       </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.map((project) => (
           <div key={project.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem]">
@@ -77,54 +57,22 @@ export default function ProjectsPage() {
               <button className="text-gray-600"><MoreVertical size={18} /></button>
             </div>
             <h3 className="text-xl font-black text-white uppercase italic tracking-tight mb-2">{project.name}</h3>
-            <p className="text-gray-500 text-[10px] font-mono mb-8">{project.id.slice(0, 12)}</p>
-            
             <div className="flex gap-3">
-              <button 
-                onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)}
-                className="flex-1 bg-[#0f1117] border border-gray-800 text-white py-3 rounded-xl text-[10px] font-black uppercase"
-              >
-                Enter Node
-              </button>
-              <button 
-                onClick={() => { setSelectedProject(project); setShowSyncModal(true); }}
-                className="bg-blue-600 text-white p-3 rounded-xl"
-              >
-                <Zap size={16} fill="white" />
-              </button>
+              <button onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)} className="flex-1 bg-[#0f1117] border border-gray-800 text-white py-3 rounded-xl text-[10px] font-black uppercase">Enter Node</button>
+              <button onClick={() => { setSelectedProject(project); setShowSyncModal(true); }} className="bg-blue-600 text-white p-3 rounded-xl"><Zap size={16} fill="white" /></button>
             </div>
           </div>
         ))}
       </div>
-
       {showSyncModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#16181e] border border-gray-800 w-full max-w-md rounded-[2.5rem] p-8 space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-white font-black italic uppercase">Neural Sync</h2>
-              <button onClick={() => setShowSyncModal(false)} className="text-gray-500"><X size={20}/></button>
-            </div>
-
-            <div className="space-y-4">
-              <label className="text-[10px] font-black text-gray-500 uppercase">GitHub Repo URL</label>
-              <div className="relative">
-                <Github className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-                <input 
-                  className="w-full bg-[#0f1117] border border-gray-800 rounded-xl py-4 pl-12 pr-4 text-xs text-white outline-none"
-                  placeholder="https://github.com/..."
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <button 
-              onClick={handleSync}
-              disabled={isSyncing}
-              className="w-full bg-blue-600 text-white py-4 rounded-2xl text-[11px] font-black uppercase flex items-center justify-center gap-2"
-            >
+            <h2 className="text-white font-black italic uppercase">Neural Sync</h2>
+            <input className="w-full bg-[#0f1117] border border-gray-800 rounded-xl py-4 px-4 text-xs text-white outline-none" placeholder="GitHub Repo URL" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} />
+            <button onClick={handleSync} className="w-full bg-blue-600 text-white py-4 rounded-2xl text-[11px] font-black uppercase flex items-center justify-center gap-2">
               {isSyncing ? <Loader2 className="animate-spin" size={16} /> : 'Establish Link'}
             </button>
+            <button onClick={() => setShowSyncModal(false)} className="w-full text-gray-500 text-[10px] uppercase font-bold">Cancel</button>
           </div>
         </div>
       )}
