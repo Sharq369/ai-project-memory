@@ -16,12 +16,17 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     async function fetchProjects() {
-      const { data } = await supabase
-        .from('projects')
-        .select('*')
-        .order('created_at', { ascending: false })
-      setProjects(data || [])
-      setLoading(false)
+      try {
+        const { data } = await supabase
+          .from('projects')
+          .select('*')
+          .order('created_at', { ascending: false })
+        setProjects(data || [])
+      } catch (err) {
+        console.error("Fetch failed", err)
+      } finally {
+        setLoading(false)
+      }
     }
     fetchProjects()
   }, [])
@@ -31,6 +36,7 @@ export default function ProjectsPage() {
     setIsSyncing(true)
     
     try {
+      // Corrected API path found in your GitHub structure
       const res = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
