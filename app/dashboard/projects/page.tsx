@@ -20,7 +20,6 @@ export default function ProjectsPage() {
   const [provider, setProvider] = useState('github') 
   const [isSyncing, setIsSyncing] = useState(false)
 
-  // Fetches project nodes and their respective memory block counts
   const fetchProjects = async () => {
     const { data: projectData } = await supabase
       .from('projects')
@@ -42,7 +41,6 @@ export default function ProjectsPage() {
 
   useEffect(() => { fetchProjects() }, [])
 
-  // Establishes the Neural Link between the repo and the database
   const handleSync = async (e?: React.MouseEvent, manualProject?: any) => {
     if (e) e.stopPropagation();
     const targetProject = manualProject || selectedProject;
@@ -52,6 +50,7 @@ export default function ProjectsPage() {
     setIsSyncing(true);
     
     try {
+      // Bridging to the trigger API
       const res = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,21 +62,27 @@ export default function ProjectsPage() {
       });
 
       const data = await res.json();
+      
       if (res.ok && data.success) {
         setShowSyncModal(false);
         await fetchProjects(); 
-        if (!manualProject) router.push(`/dashboard/projects/${targetProject.id}/doc`);
+        router.push(`/dashboard/projects/${targetProject.id}/doc`);
       } else {
-        alert(`Sync Error: ${data.error}`);
+        // Specifically handling the column/schema error
+        alert(`Sync Error: ${data.error || 'Database Schema Mismatch'}`);
+        setIsSyncing(false);
       }
     } catch (e) {
-      alert("Connection Timeout.");
-    } finally {
+      alert("Neural Link Timeout. Verify Vercel deployment.");
       setIsSyncing(false);
     }
   };
 
-  if (loading) return <div className="flex h-screen items-center justify-center bg-[#0f1117]"><Loader2 className="animate-spin text-blue-500" /></div>
+  if (loading) return (
+    <div className="flex h-screen items-center justify-center bg-[#0f1117]">
+      <Loader2 className="animate-spin text-blue-500" />
+    </div>
+  )
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-10 min-h-screen bg-[#0f1117]">
@@ -89,7 +94,7 @@ export default function ProjectsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.map((project) => (
           <div key={project.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] relative group">
-            {/* Sync Pulse indicates an active connection */}
+            {/* Live Link Pulse */}
             {project.repo_url && (
               <div className="absolute top-6 right-8 flex items-center gap-2">
                 <span className="relative flex h-2 w-2">
@@ -102,21 +107,21 @@ export default function ProjectsPage() {
             <div className="flex justify-between items-start mb-6">
               <div className="bg-blue-500/10 p-3 rounded-2xl text-blue-500"><Globe size={20} /></div>
               <button 
-                disabled={isSyncing}
-                onClick={(e) => handleSync(e, project)}
-                className="text-gray-600 hover:text-blue-500"
+                disabled={isSyncing} 
+                onClick={(e) => handleSync(e, project)} 
+                className="text-gray-600 hover:text-white transition-colors"
               >
-                <RefreshCw size={18} className={isSyncing ? "animate-spin" : ""} />
+                <RefreshCw size={18} className={isSyncing ? "animate-spin text-blue-500" : ""} />
               </button>
             </div>
             
             <h3 className="text-xl font-black text-white uppercase italic tracking-tight mb-1">{project.name}</h3>
-            {/* Displays memory counts to prevent empty card appearance */}
+            {/* Dynamic block count based on code_memories table */}
             <p className="text-blue-500 text-[9px] font-black uppercase tracking-widest mb-1">
               {project.blockCount} Memory Blocks Retrieved
             </p>
             <p className="text-gray-600 text-[7px] font-bold uppercase tracking-widest mb-8">
-              Last Sync: {project.last_sync ? new Date(project.last_sync).toLocaleTimeString() : 'Pending'}
+              Sync: {project.last_sync ? new Date(project.last_sync).toLocaleTimeString() : 'Pending'}
             </p>
             
             <div className="flex gap-3">
@@ -129,7 +134,7 @@ export default function ProjectsPage() {
         ))}
       </div>
 
-      {/* Neural Sync Modal for selecting provider and entering URL */}
+      {/* Neural Sync Provider Selection */}
       {showSyncModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#16181e] border border-gray-800 w-full max-w-md rounded-[3rem] p-10 space-y-8">
@@ -148,7 +153,7 @@ export default function ProjectsPage() {
                   key={p.id}
                   onClick={() => setProvider(p.id)}
                   className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all ${
-                    provider === p.id ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#0f1117] border-gray-800 text-gray-500'
+                    provider === p.id ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'
                   }`}
                 >
                   {p.icon}
@@ -164,7 +169,7 @@ export default function ProjectsPage() {
                 value={repoUrl} 
                 onChange={(e) => setRepoUrl(e.target.value)} 
               />
-              <button onClick={(e) => handleSync(e)} className="w-full bg-blue-600 text-white py-5 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] flex items-center justify-center gap-2">
+              <button onClick={(e) => handleSync(e)} className="w-full bg-blue-600 text-white py-5 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] flex items-center justify-center gap-2 hover:bg-blue-500">
                 {isSyncing ? <Loader2 className="animate-spin" size={16} /> : 'Establish Link'}
               </button>
               <button onClick={() => setShowSyncModal(false)} className="w-full text-gray-600 text-[9px] uppercase font-black tracking-widest hover:text-white">Cancel</button>
