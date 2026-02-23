@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
     if (updateError) throw updateError
 
-    // Smart URL Parsing: Removes .git and trailing slashes automatically
+    // Smart URL Parsing
     const cleanUrl = repoUrl.replace(/\.git$/, '').replace(/\/$/, '')
     const path = cleanUrl.replace('https://github.com/', '')
     const [owner, repo] = path.split('/')
@@ -45,7 +45,6 @@ export async function POST(req: Request) {
     const files = await githubRes.json()
 
     if (Array.isArray(files)) {
-      // Clear old memories
       await supabase.from('code_memories').delete().eq('project_id', projectId)
 
       const memories = await Promise.all(files
@@ -56,7 +55,7 @@ export async function POST(req: Request) {
           
           return {
             project_id: projectId,
-            name: file.name,
+            file_name: file.name, // <-- Fixed: Maps exactly to your database column
             content: redactSecrets(rawContent),
             type: 'code_file'
           }
