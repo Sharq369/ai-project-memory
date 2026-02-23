@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { Globe, MoreVertical, Zap, Loader2, X } from 'lucide-react'
 
-// Direct initialization - No @/lib/supabase needed
+// DIRECT INITIALIZATION - DO NOT ADD ANY IMPORTS FROM '@/lib'
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -22,10 +22,7 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     async function fetchProjects() {
-      const { data } = await supabase
-        .from('projects')
-        .select('*')
-        .order('created_at', { ascending: false })
+      const { data } = await supabase.from('projects').select('*').order('created_at', { ascending: false })
       setProjects(data || [])
       setLoading(false)
     }
