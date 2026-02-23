@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
-import { Globe, MoreVertical, Zap, Loader2, Github, Gitlab, Cpu, RefreshCw } from 'lucide-react'
+import { Globe, Zap, Loader2, Github, Gitlab, Cpu, RefreshCw, Pencil, X } from 'lucide-react'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,8 +15,10 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showSyncModal, setShowSyncModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [selectedProject, setSelectedProject] = useState<any>(null)
   const [repoUrl, setRepoUrl] = useState('')
+  const [editName, setEditName] = useState('')
   const [provider, setProvider] = useState('github') 
   const [isSyncing, setIsSyncing] = useState(false)
 
@@ -50,7 +52,6 @@ export default function ProjectsPage() {
     setIsSyncing(true);
     
     try {
-      // Bridging to the trigger API
       const res = await fetch('/api/sync/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -66,15 +67,26 @@ export default function ProjectsPage() {
       if (res.ok && data.success) {
         setShowSyncModal(false);
         await fetchProjects(); 
-        router.push(`/dashboard/projects/${targetProject.id}/doc`);
       } else {
-        // Specifically handling the column/schema error
-        alert(`Sync Error: ${data.error || 'Database Schema Mismatch'}`);
-        setIsSyncing(false);
+        alert(`Sync Error: ${data.error}`);
       }
     } catch (e) {
-      alert("Neural Link Timeout. Verify Vercel deployment.");
+      alert("Neural Link Timeout.");
+    } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleUpdateProject = async () => {
+    if (!selectedProject || !editName) return;
+    const { error } = await supabase
+      .from('projects')
+      .update({ name: editName })
+      .eq('id', selectedProject.id);
+
+    if (!error) {
+      setShowEditModal(false);
+      fetchProjects();
     }
   };
 
@@ -94,18 +106,20 @@ export default function ProjectsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.map((project) => (
           <div key={project.id} className="bg-[#16181e] border border-gray-800 p-8 rounded-[2.5rem] relative group">
-            {/* Live Link Pulse */}
-            {project.repo_url && (
-              <div className="absolute top-6 right-8 flex items-center gap-2">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-              </div>
-            )}
-
-            <div className="flex justify-between items-start mb-6">
-              <div className="bg-blue-500/10 p-3 rounded-2xl text-blue-500"><Globe size={20} /></div>
+            <div className="absolute top-6 right-8 flex items-center gap-4">
+              {/* Pencil Edit Icon */}
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setSelectedProject(project); 
+                  setEditName(project.name);
+                  setShowEditModal(true); 
+                }}
+                className="text-gray-600 hover:text-blue-500 transition-colors"
+              >
+                <Pencil size={16} />
+              </button>
+              
               <button 
                 disabled={isSyncing} 
                 onClick={(e) => handleSync(e, project)} 
@@ -114,9 +128,12 @@ export default function ProjectsPage() {
                 <RefreshCw size={18} className={isSyncing ? "animate-spin text-blue-500" : ""} />
               </button>
             </div>
+
+            <div className="flex justify-between items-start mb-6">
+              <div className="bg-blue-500/10 p-3 rounded-2xl text-blue-500"><Globe size={20} /></div>
+            </div>
             
             <h3 className="text-xl font-black text-white uppercase italic tracking-tight mb-1">{project.name}</h3>
-            {/* Dynamic block count based on code_memories table */}
             <p className="text-blue-500 text-[9px] font-black uppercase tracking-widest mb-1">
               {project.blockCount} Memory Blocks Retrieved
             </p>
@@ -134,7 +151,30 @@ export default function ProjectsPage() {
         ))}
       </div>
 
-      {/* Neural Sync Provider Selection */}
+      {/* Edit Project Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#16181e] border border-gray-800 w-full max-w-md rounded-[3rem] p-10 space-y-8">
+            <div className="flex justify-between items-center">
+              <h2 className="text-white text-2xl font-black italic uppercase tracking-tighter">Edit Node</h2>
+              <button onClick={() => setShowEditModal(false)} className="text-gray-500 hover:text-white"><X size={20}/></button>
+            </div>
+            <div className="space-y-4">
+              <label className="text-[9px] font-black uppercase text-gray-500 tracking-widest">Node Alias</label>
+              <input 
+                className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl py-5 px-6 text-xs text-white outline-none focus:border-blue-500" 
+                value={editName} 
+                onChange={(e) => setEditName(e.target.value)} 
+              />
+              <button onClick={handleUpdateProject} className="w-full bg-blue-600 text-white py-5 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] hover:bg-blue-500">
+                Update Metadata
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync Modal */}
       {showSyncModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#16181e] border border-gray-800 w-full max-w-md rounded-[3rem] p-10 space-y-8">
@@ -142,37 +182,17 @@ export default function ProjectsPage() {
               <h2 className="text-white text-2xl font-black italic uppercase tracking-tighter">Neural Sync</h2>
               <p className="text-gray-500 text-[9px] font-black uppercase tracking-[0.3em]">Select Provider</p>
             </div>
-
             <div className="grid grid-cols-3 gap-3">
-              {[
-                { id: 'github', icon: <Github size={18}/>, name: 'GitHub' },
-                { id: 'gitlab', icon: <Gitlab size={18}/>, name: 'GitLab' },
-                { id: 'bitbucket', icon: <Cpu size={18}/>, name: 'Bitbucket' }
-              ].map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setProvider(p.id)}
-                  className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all ${
-                    provider === p.id ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:border-gray-600'
-                  }`}
-                >
-                  {p.icon}
-                  <span className="text-[8px] font-black uppercase">{p.name}</span>
-                </button>
+              {['github', 'gitlab', 'bitbucket'].map((p) => (
+                <button key={p} onClick={() => setProvider(p)} className={`p-4 rounded-2xl border text-[8px] font-black uppercase ${provider === p ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#0f1117] border-gray-800 text-gray-500'}`}>{p}</button>
               ))}
             </div>
-
             <div className="space-y-4">
-              <input 
-                className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl py-5 px-6 text-xs text-white outline-none focus:border-blue-500" 
-                placeholder="Repository URL"
-                value={repoUrl} 
-                onChange={(e) => setRepoUrl(e.target.value)} 
-              />
+              <input className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl py-5 px-6 text-xs text-white outline-none focus:border-blue-500" placeholder="Repository URL" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} />
               <button onClick={(e) => handleSync(e)} className="w-full bg-blue-600 text-white py-5 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] flex items-center justify-center gap-2 hover:bg-blue-500">
                 {isSyncing ? <Loader2 className="animate-spin" size={16} /> : 'Establish Link'}
               </button>
-              <button onClick={() => setShowSyncModal(false)} className="w-full text-gray-600 text-[9px] uppercase font-black tracking-widest hover:text-white">Cancel</button>
+              <button onClick={() => setShowSyncModal(false)} className="w-full text-gray-600 text-[9px] uppercase font-black tracking-widest hover:text-white text-center block">Cancel</button>
             </div>
           </div>
         </div>
