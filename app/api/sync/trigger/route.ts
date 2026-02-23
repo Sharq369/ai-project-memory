@@ -3,10 +3,9 @@ import { NextResponse } from 'next/server'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // Uses Service Role for bypass
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Security: Scans for and hides sensitive keys
 function redactSecrets(content: string): string {
   const patterns = [
     /sk-[a-zA-Z0-9]{48}/g,
@@ -22,7 +21,6 @@ export async function POST(req: Request) {
   try {
     const { repoUrl, projectId, provider } = await req.json()
 
-    // 1. Update project metadata
     const { error: updateError } = await supabase
       .from('projects')
       .update({ 
@@ -34,20 +32,20 @@ export async function POST(req: Request) {
 
     if (updateError) throw updateError
 
-    // 2. Extract GitHub details
-    const path = repoUrl.replace('https://github.com/', '')
+    // Smart URL Parsing: Removes .git and trailing slashes automatically
+    const cleanUrl = repoUrl.replace(/\.git$/, '').replace(/\/$/, '')
+    const path = cleanUrl.replace('https://github.com/', '')
     const [owner, repo] = path.split('/')
 
-    // 3. Fetch from GitHub API
     const githubRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents`, {
       headers: { 'Accept': 'application/vnd.github.v3+json' }
     })
     
-    if (!githubRes.ok) throw new Error("Could not reach GitHub repository.")
+    if (!githubRes.ok) throw new Error("Could not reach GitHub repository. Check URL or Repo visibility.")
     const files = await githubRes.json()
 
     if (Array.isArray(files)) {
-      // Clear old memories to prevent duplication
+      // Clear old memories
       await supabase.from('code_memories').delete().eq('project_id', projectId)
 
       const memories = await Promise.all(files
@@ -61,12 +59,10 @@ export async function POST(req: Request) {
             name: file.name,
             content: redactSecrets(rawContent),
             type: 'code_file'
-            // created_at is omitted here; DB will handle via DEFAULT
           }
         })
       )
 
-      // 4. Batch insert into the bank
       const { error: memError } = await supabase.from('code_memories').insert(memories)
       if (memError) throw memError
     }
