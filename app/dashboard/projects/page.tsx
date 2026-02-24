@@ -18,8 +18,16 @@ export default function ProjectVault() {
   const [selectedNode, setSelectedNode] = useState<any>(null)
   const [activeSyncId, setActiveSyncId] = useState<string | null>(null)
 
+  // MOBILE CRASH DETECTOR: This will pop up an alert on your phone if the page breaks
   useEffect(() => {
+    const handleMobileError = (e: ErrorEvent) => {
+      alert(`Mobile Debug - Crash Detected: ${e.message}`)
+    }
+    window.addEventListener('error', handleMobileError)
+    
     fetchProjects()
+
+    return () => window.removeEventListener('error', handleMobileError)
   }, [])
 
   const fetchProjects = async () => {
@@ -32,7 +40,6 @@ export default function ProjectVault() {
       if (error) throw error
       if (data) setProjects(data)
     } catch (err: any) {
-      console.error("Link Error:", err.message)
       const { data } = await supabase.from('projects').select('*')
       if (data) setProjects(data)
     } finally {
@@ -41,7 +48,6 @@ export default function ProjectVault() {
   }
 
   const triggerSync = async (project: any) => {
-    console.log("TRIGGERING SYNC FOR:", project.name)
     setActiveSyncId(project.id)
     try {
       const res = await fetch('/api/sync/trigger', {
@@ -54,7 +60,6 @@ export default function ProjectVault() {
       setSelectedNode(null)
       fetchProjects()
     } catch (err: any) {
-      console.error("Sync Catch block hit:", err)
       alert(`Sync Error: ${err.message}`)
     } finally {
       setActiveSyncId(null)
@@ -68,49 +73,52 @@ export default function ProjectVault() {
   )
 
   return (
-    <div className="min-h-screen bg-[#0b0c10] text-white p-10 font-sans tracking-tight relative overflow-hidden">
-      <div className="max-w-7xl mx-auto relative z-10">
+    <div className="min-h-screen bg-[#0b0c10] text-white p-6 md:p-10 font-sans tracking-tight">
+      <div className="max-w-7xl mx-auto">
         
-        <header className="mb-16">
-          <h1 className="text-5xl font-black italic uppercase tracking-tighter mb-2">Project Vault</h1>
+        <header className="mb-12 mt-8 md:mt-0">
+          <h1 className="text-4xl md:text-5xl font-black italic uppercase tracking-tighter mb-2">Project Vault</h1>
           <p className="text-[#3b82f6] text-[10px] font-black uppercase tracking-[0.4em]">
             Nodes Active: {projects.length}
           </p>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 md:gap-10">
           {projects.map((project) => (
-            <div key={project.id} className="bg-[#111319] border border-gray-800/40 rounded-[3rem] p-10 relative group hover:border-blue-500/30 transition-all duration-500 overflow-hidden">
+            <div key={project.id} className="bg-[#111319] border border-gray-800/40 rounded-[2.5rem] md:rounded-[3rem] p-8 md:p-10 relative group">
               
-              {/* TOP ACTION ICONS: Forced Z-Index and Pointer Events */}
-              <div className="absolute top-10 right-10 flex gap-5 text-gray-500 z-20 pointer-events-auto">
-                <Pencil 
-                  size={18} 
-                  className="hover:text-white cursor-pointer transition-colors" 
+              {/* TOP ACTION ICONS: Added 'p-3' to create a massive invisible thumb-tap area */}
+              <div className="absolute top-6 right-6 md:top-10 md:right-10 flex gap-2 text-gray-500 z-30">
+                <button 
+                  className="p-3 hover:text-white transition-colors"
                   onClick={(e) => {
-                    e.stopPropagation()
-                    console.log("PENCIL CLICKED")
+                    e.preventDefault()
                     alert(`Edit mode for ${project.name}`)
                   }}
-                />
-                <RotateCw 
-                  size={18} 
-                  className={`hover:text-white cursor-pointer transition-all ${activeSyncId === project.id ? 'animate-spin text-blue-500' : ''}`} 
+                >
+                  <Pencil size={20} />
+                </button>
+
+                <button 
+                  className={`p-3 hover:text-white transition-all ${activeSyncId === project.id ? 'animate-spin text-blue-500' : ''}`}
                   onClick={(e) => {
-                    e.stopPropagation()
-                    console.log("SYNC ICON CLICKED")
+                    e.preventDefault()
                     triggerSync(project)
                   }}
-                />
+                >
+                  <RotateCw size={20} />
+                </button>
               </div>
 
-              <div className="w-14 h-14 rounded-full bg-blue-500/5 flex items-center justify-center mb-10 border border-blue-500/10 relative z-10">
+              <div className="w-14 h-14 rounded-full bg-blue-500/5 flex items-center justify-center mb-8 border border-blue-500/10">
                 <Globe size={24} className="text-blue-500" />
               </div>
               
-              <h2 className="text-3xl font-black italic uppercase mb-2 tracking-tighter relative z-10">{project.name}</h2>
+              <h2 className="text-2xl md:text-3xl font-black italic uppercase mb-2 tracking-tighter w-[80%] break-words">
+                {project.name}
+              </h2>
               
-              <div className="space-y-1 mb-12 relative z-10">
+              <div className="space-y-1 mb-10">
                 <p className="text-[#3b82f6] text-[10px] font-black uppercase tracking-[0.2em]">
                   {project.code_memories?.length || 0} Memory Blocks Retrieved
                 </p>
@@ -119,22 +127,21 @@ export default function ProjectVault() {
                 </p>
               </div>
 
-              {/* FOOTER BUTTONS: Forced Z-Index and Isolation */}
-              <div className="flex gap-4 relative z-20 pointer-events-auto">
+              {/* FOOTER BUTTONS: Changed to explicit type="button" for mobile compatibility */}
+              <div className="flex gap-4 relative z-30">
                 <button 
-                  onClick={(e) => { e.stopPropagation(); console.log("ENTER NODE CLICKED"); }}
-                  className="flex-[3] bg-transparent border border-gray-800 py-5 rounded-[1.5rem] text-[10px] font-black uppercase tracking-[0.2em] hover:bg-white/5 transition-all cursor-pointer"
+                  type="button"
+                  className="flex-[3] bg-transparent border border-gray-800 py-5 rounded-[1.5rem] text-[10px] font-black uppercase tracking-[0.2em] hover:bg-white/5 transition-all active:bg-gray-800"
                 >
                   Enter Node
                 </button>
                 <button 
+                  type="button"
                   onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log("ZAP BUTTON CLICKED", project);
-                    setSelectedNode(project);
+                    e.preventDefault()
+                    setSelectedNode(project)
                   }}
-                  className="flex-1 bg-[#1d4ed8] flex items-center justify-center rounded-[1.5rem] hover:bg-blue-600 transition-all shadow-[0_0_20px_rgba(29,78,216,0.2)] cursor-pointer"
+                  className="flex-1 bg-[#1d4ed8] flex items-center justify-center rounded-[1.5rem] hover:bg-blue-600 active:bg-blue-800 transition-all shadow-lg"
                 >
                   <Zap size={22} fill="white" stroke="none" />
                 </button>
@@ -144,21 +151,22 @@ export default function ProjectVault() {
         </div>
       </div>
 
-      {/* MODAL: Forced Top Z-Index */}
+      {/* MODAL: Added safe-area padding for mobile screens */}
       {selectedNode && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6 transition-all pointer-events-auto">
-          <div className="bg-[#0f1116] border border-gray-800/60 rounded-[3.5rem] p-12 w-full max-w-md shadow-2xl relative overflow-hidden">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-xl p-4 md:p-6 transition-all overflow-y-auto">
+          <div className="bg-[#0f1116] border border-gray-800/60 rounded-[2.5rem] md:rounded-[3.5rem] p-8 md:p-12 w-full max-w-md shadow-2xl relative my-auto">
             
             <div className="absolute -top-20 -right-20 w-40 h-40 bg-blue-600/10 blur-[80px] rounded-full pointer-events-none" />
 
-            <div className="flex justify-between items-start mb-12 relative z-10">
+            <div className="flex justify-between items-start mb-10 relative z-10">
               <div>
-                <h3 className="text-4xl font-black italic uppercase tracking-tighter">Select Source</h3>
+                <h3 className="text-3xl md:text-4xl font-black italic uppercase tracking-tighter">Select Source</h3>
                 <p className="text-blue-500 text-[9px] font-black uppercase tracking-[0.3em] mt-2">Neural Link Authorization</p>
               </div>
               <button 
-                onClick={(e) => { e.stopPropagation(); setSelectedNode(null); }} 
-                className="text-gray-600 hover:text-white transition-colors cursor-pointer"
+                type="button"
+                onClick={() => setSelectedNode(null)} 
+                className="p-2 -m-2 text-gray-600 hover:text-white transition-colors"
               >
                 <X size={28} />
               </button>
@@ -166,26 +174,27 @@ export default function ProjectVault() {
             
             <div className="space-y-4 relative z-10">
               <button 
-                onClick={(e) => { e.stopPropagation(); triggerSync(selectedNode); }}
-                className="w-full flex items-center justify-between bg-[#16181e] p-7 rounded-[2rem] border border-gray-800 hover:border-blue-500 transition-all group cursor-pointer"
+                type="button"
+                onClick={() => triggerSync(selectedNode)}
+                className="w-full flex items-center justify-between bg-[#16181e] p-6 md:p-7 rounded-[1.5rem] md:rounded-[2rem] border border-gray-800 hover:border-blue-500 active:border-blue-500 transition-all group"
               >
-                <div className="flex items-center gap-5">
-                  <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center group-hover:bg-blue-500/10">
-                    <Github size={24}/>
+                <div className="flex items-center gap-4 md:gap-5">
+                  <div className="w-10 h-10 md:w-12 md:h-12 bg-white/5 rounded-xl md:rounded-2xl flex items-center justify-center group-active:bg-blue-500/10">
+                    <Github size={20} md:size={24}/>
                   </div>
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em]">GitHub Protocol</span>
+                  <span className="text-[10px] md:text-[11px] font-black uppercase tracking-[0.2em]">GitHub Protocol</span>
                 </div>
-                {activeSyncId === selectedNode.id ? <Loader2 className="animate-spin text-blue-500" size={20} /> : <Zap size={18} className="text-gray-700 group-hover:text-blue-500" />}
+                {activeSyncId === selectedNode.id ? <Loader2 className="animate-spin text-blue-500" size={20} /> : <Zap size={18} className="text-gray-700" />}
               </button>
 
-              <button className="w-full flex items-center gap-5 bg-[#0f1116] p-7 rounded-[2rem] border border-gray-900/50 opacity-30 cursor-not-allowed">
-                <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center"><Gitlab size={24} className="text-gray-500" /></div>
-                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-500">GitLab Link</span>
+              <button type="button" className="w-full flex items-center gap-4 md:gap-5 bg-[#0f1116] p-6 md:p-7 rounded-[1.5rem] md:rounded-[2rem] border border-gray-900/50 opacity-30 cursor-not-allowed">
+                <div className="w-10 h-10 md:w-12 md:h-12 bg-white/5 rounded-xl md:rounded-2xl flex items-center justify-center"><Gitlab size={20} className="text-gray-500" /></div>
+                <span className="text-[10px] md:text-[11px] font-black uppercase tracking-[0.2em] text-gray-500">GitLab Link</span>
               </button>
 
-              <button className="w-full flex items-center gap-5 bg-[#0f1116] p-7 rounded-[2rem] border border-gray-900/50 opacity-30 cursor-not-allowed">
-                <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center"><Database size={24} className="text-gray-500" /></div>
-                <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-500">Bitbucket Link</span>
+              <button type="button" className="w-full flex items-center gap-4 md:gap-5 bg-[#0f1116] p-6 md:p-7 rounded-[1.5rem] md:rounded-[2rem] border border-gray-900/50 opacity-30 cursor-not-allowed">
+                <div className="w-10 h-10 md:w-12 md:h-12 bg-white/5 rounded-xl md:rounded-2xl flex items-center justify-center"><Database size={20} className="text-gray-500" /></div>
+                <span className="text-[10px] md:text-[11px] font-black uppercase tracking-[0.2em] text-gray-500">Bitbucket Link</span>
               </button>
             </div>
           </div>
