@@ -13,35 +13,40 @@ export async function POST(req: Request) {
   try {
     const { query, projectId } = await req.json()
 
+    // 1. Fetch memory blocks (Grounding data)
     const { data: memories } = await supabase
       .from('code_memories')
       .select('file_name, content')
       .eq('project_id', projectId)
 
     if (!memories || memories.length === 0) {
-      return NextResponse.json({ response: "STRICT MODE: No memory blocks found. Please run the SQL fix in Supabase to enable syncing." })
+      return NextResponse.json({ response: "STRICT MODE: No memory blocks found in database. Sync your project first." })
     }
 
     const codeContext = memories.map(m => `FILE: ${m.file_name}\nCONTENT:\n${m.content}`).join('\n\n---\n\n')
 
     const systemPrompt = `
       You are the Neural Terminal. STRICT MODE ENABLED.
-      CONTEXT: ${codeContext}
+      YOUR SOURCE OF TRUTH:
+      ${codeContext}
+      
       RULES:
-      1. ONLY use the context provided.
-      2. Cite files with [[filename.ts]].
-      3. If unknown, say DATA MISSING.
+      1. Use ONLY the provided context. 
+      2. If logic is missing, say "DATA MISSING".
+      3. Cite files using [[filename.ts]].
+      4. Be brief.
     `;
 
-    // CHANGED: Using 'gemini-pro' for maximum stability across all regions
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" })
+    // 2. Use the stable model ID to prevent the 'Google 404'
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" })
 
-    const result = await model.generateContent([systemPrompt, query])
-    const response = await result.response
-    const responseText = response.text()
+    const result = await model.generateContent(systemPrompt + "\n\nUser Query: " + query)
+    const responseText = result.response.text()
 
     return NextResponse.json({ response: responseText })
   } catch (error: any) {
+    // Log the actual error to your Vercel logs so we can see it
+    console.error("AI Route Error:", error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
