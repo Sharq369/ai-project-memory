@@ -1,13 +1,30 @@
 'use client'
 
-import { useState } from 'react'
-import { Github, Gitlab, HardDrive, Zap, X, Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
+import { Github, Gitlab, HardDrive, Zap, X, Loader2, Globe, Edit2, RefreshCw } from 'lucide-react'
 
-// ... existing imports and fetch logic ...
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export default function ProjectVault() {
+  const [projects, setProjects] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState<any>(null)
   const [isSyncing, setIsSyncing] = useState(false)
+
+  useEffect(() => {
+    fetchProjects()
+  }, [])
+
+  const fetchProjects = async () => {
+    setLoading(true)
+    const { data } = await supabase.from('projects').select('*').order('created_at', { ascending: false })
+    if (data) setProjects(data)
+    setLoading(false)
+  }
 
   const triggerSync = async (projectId: string, repoUrl: string) => {
     setIsSyncing(true)
@@ -17,80 +34,70 @@ export default function ProjectVault() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId, repoUrl })
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      
-      alert("Neural Link Established: Memory Blocks Retrieved.")
-      setSelectedNode(null) // Close frame
+      if (!res.ok) throw new Error("Sync failed")
+      alert("Neural Link Established.")
+      setSelectedNode(null)
+      fetchProjects()
     } catch (err: any) {
-      alert(`Sync Failed: ${err.message}`)
+      alert(err.message)
     } finally {
       setIsSyncing(false)
     }
   }
 
+  if (loading) return <div className="flex h-screen items-center justify-center bg-[#0f1117]"><Loader2 className="animate-spin text-blue-500" /></div>
+
   return (
-    <div className="min-h-screen bg-[#0f1117] text-white p-6 font-sans">
-      {/* ... Your Project Grid ... */}
+    <div className="min-h-screen bg-[#0f1117] text-white p-8">
+      <div className="max-w-6xl mx-auto">
+        <h1 className="text-4xl font-black italic uppercase mb-12">Project Vault</h1>
 
-      {/* Futuristic Provider Selection Frame */}
-      {selectedNode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#08090d]/90 backdrop-blur-md">
-          <div className="relative w-full max-w-sm bg-[#111319] border border-blue-500/20 rounded-[2.5rem] p-8 shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden">
-            
-            {/* Animated Background Glow */}
-            <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-600/10 blur-[100px] rounded-full" />
-            
-            {/* Header */}
-            <div className="flex justify-between items-start mb-8 relative z-10">
-              <div>
-                <h2 className="text-3xl font-black italic uppercase tracking-tighter leading-none">Select Source</h2>
-                <p className="text-blue-500 text-[9px] font-black uppercase tracking-[0.3em] mt-2">Neural Link Authorization</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {projects.map((project) => (
+            <div key={project.id} className="bg-[#16181e] border border-gray-800 rounded-[2rem] p-8">
+              <div className="flex justify-between mb-8">
+                <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center"><Globe size={18} className="text-blue-500" /></div>
               </div>
-              <button onClick={() => setSelectedNode(null)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
-                <X size={20} className="text-gray-500" />
-              </button>
-            </div>
-
-            {/* Provider Options */}
-            <div className="space-y-3 relative z-10">
               
-              {/* GitHub - THE ACTIVE ONE */}
+              <h2 className="text-2xl font-black italic uppercase mb-4">{project.name}</h2>
+              <p className="text-gray-500 text-[10px] uppercase tracking-widest mb-8">
+                Last Sync: {project.last_sync ? new Date(project.last_sync).toLocaleTimeString() : 'Never'}
+              </p>
+
+              <div className="flex gap-4">
+                <button className="flex-1 bg-gray-900 border border-gray-800 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest">Enter Node</button>
+                <button 
+                  onClick={() => setSelectedNode(project)} 
+                  className="bg-blue-600 p-4 rounded-2xl hover:scale-105 transition-all shadow-lg shadow-blue-900/20"
+                >
+                  <Zap size={20} fill="white" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* SELECTION MODAL */}
+      {selectedNode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-6">
+          <div className="bg-[#111319] border border-gray-800 rounded-[2.5rem] p-8 w-full max-w-sm">
+            <div className="flex justify-between mb-6">
+              <h3 className="text-xl font-black italic uppercase">Select Source</h3>
+              <button onClick={() => setSelectedNode(null)}><X size={20} /></button>
+            </div>
+            <div className="space-y-3">
               <button 
                 onClick={() => triggerSync(selectedNode.id, selectedNode.repo_url)}
-                disabled={isSyncing}
-                className="group w-full flex items-center justify-between bg-[#1a1d26] border border-gray-800 p-5 rounded-2xl hover:border-blue-500 hover:bg-blue-500/5 transition-all"
+                className="w-full flex items-center justify-between bg-gray-900 p-4 rounded-2xl border border-gray-800 hover:border-blue-500 transition-all"
               >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
-                    <Github size={22} />
-                  </div>
-                  <span className="text-[11px] font-black uppercase tracking-widest">GitHub Protocol</span>
-                </div>
-                {isSyncing ? <Loader2 className="animate-spin text-blue-500" size={18} /> : <Zap size={16} className="text-gray-600 group-hover:text-blue-500" />}
+                <div className="flex items-center gap-3"><Github size={20}/><span className="text-[10px] font-black uppercase tracking-widest">GitHub</span></div>
+                {isSyncing && <Loader2 className="animate-spin" size={16}/>}
               </button>
-
-              {/* GitLab - Locked Design */}
-              <button className="w-full flex items-center gap-4 bg-[#111319] border border-gray-900 p-5 rounded-2xl opacity-40 cursor-not-allowed">
-                <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center">
-                  <Gitlab size={22} className="text-gray-600" />
-                </div>
-                <span className="text-[11px] font-black uppercase tracking-widest text-gray-600">GitLab (Encrypted)</span>
-              </button>
-
-              {/* Bitbucket - Locked Design */}
-              <button className="w-full flex items-center gap-4 bg-[#111319] border border-gray-900 p-5 rounded-2xl opacity-40 cursor-not-allowed">
-                <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center">
-                  <HardDrive size={22} className="text-gray-600" />
-                </div>
-                <span className="text-[11px] font-black uppercase tracking-widest text-gray-600">Bitbucket (Offline)</span>
+              <button className="w-full flex items-center gap-3 bg-gray-900 p-4 rounded-2xl opacity-30 cursor-not-allowed border border-gray-800">
+                <Gitlab size={20}/><span className="text-[10px] font-black uppercase tracking-widest">GitLab</span>
               </button>
             </div>
-
-            {/* Footer Text */}
-            <p className="mt-8 text-center text-gray-600 text-[8px] font-bold uppercase tracking-[0.2em] relative z-10">
-              Secure tunneling via Gemini Flash-1.5 Protocol
-            </p>
           </div>
         </div>
       )}
