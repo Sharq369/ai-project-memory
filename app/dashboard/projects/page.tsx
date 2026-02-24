@@ -3,87 +3,72 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-// DEBUG: Catching setup errors
-let supabase: any;
-try {
-  supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-} catch (e) {
-  if (typeof window !== 'undefined') alert("Supabase Config Error: " + e)
-}
-
 export default function ProjectVault() {
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [debugError, setDebugError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Checkpoint 1: Did the component actually load?
-    alert("Checkpoint 1: Component Mounted");
-
-    async function fetchProjects() {
+    async function init() {
       try {
-        alert("Checkpoint 2: Fetching from Supabase...");
-        const { data, error } = await supabase.from('projects').select('*');
-        
-        if (error) {
-          alert("Supabase Error: " + error.message);
-        } else {
-          alert("Checkpoint 3: Data Received! Count: " + (data?.length || 0));
-          setProjects(data || []);
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+        if (!url || !key) {
+          throw new Error("Missing Supabase Environment Variables in Vercel settings.")
         }
+
+        const supabase = createClient(url, key)
+        const { data, error } = await supabase.from('projects').select('*')
+        
+        if (error) throw error
+        setProjects(data || [])
       } catch (err: any) {
-        alert("Fetch Crash: " + err.message);
+        setDebugError(err.message)
       } finally {
         setLoading(false)
       }
     }
-
-    fetchProjects()
+    init()
   }, [])
 
-  const handleTestClick = (name: string) => {
-    alert("SUCCESS! You clicked: " + name);
+  if (debugError) {
+    return (
+      <div className="min-h-screen bg-red-900 p-10 text-white">
+        <h1 className="text-2xl font-bold">🚨 CRASH DETECTED</h1>
+        <p className="mt-4 font-mono bg-black p-4 rounded">{debugError}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="mt-6 bg-white text-black p-4 font-bold rounded"
+        >
+          REFRESH PAGE
+        </button>
+      </div>
+    )
   }
 
-  if (loading) return <div style={{padding: '50px', color: 'white'}}>SYSTEM LOADING...</div>
-
   return (
-    <div style={{ backgroundColor: '#0b0c10', minHeight: '100vh', color: 'white', padding: '20px' }}>
-      <h1 style={{fontSize: '30px', fontWeight: 'bold'}}>DEBUG TERMINAL</h1>
+    <div className="min-h-screen bg-[#0b0c10] text-white p-6">
+      <h1 className="text-4xl font-black italic uppercase mb-8">System Check</h1>
       
-      <div style={{ marginTop: '20px' }}>
-        {projects.length === 0 && <p>No projects found in Database.</p>}
-        
-        {projects.map((project) => (
-          <div 
-            key={project.id} 
-            style={{ 
-              border: '2px solid #3b82f6', 
-              padding: '20px', 
-              marginBottom: '10px',
-              borderRadius: '15px'
-            }}
-          >
-            <h2 style={{fontSize: '20px'}}>{project.name}</h2>
-            <button 
-              onClick={() => handleTestClick(project.name)}
-              style={{ 
-                backgroundColor: '#1d4ed8', 
-                color: 'white', 
-                padding: '15px 30px', 
-                marginTop: '10px',
-                borderRadius: '10px',
-                width: '100%',
-                fontWeight: 'bold'
-              }}
-            >
-              TAP TO TEST CLICK
-            </button>
-          </div>
-        ))}
-      </div>
+      {loading ? (
+        <p className="animate-pulse">SYNCHRONIZING...</p>
+      ) : (
+        <div className="space-y-4">
+          {projects.map(p => (
+            <div key={p.id} className="border border-gray-800 p-6 rounded-3xl bg-[#111319]">
+              <h2 className="text-xl font-bold mb-4">{p.name}</h2>
+              <button 
+                onClick={() => alert('Logic Terminal Active for ' + p.name)}
+                className="w-full bg-blue-600 p-4 rounded-xl font-black uppercase text-xs active:scale-95 transition-transform"
+              >
+                Test Neural Link
+              </button>
+            </div>
+          ))}
+          {projects.length === 0 && <p className="text-gray-500">No nodes detected in database.</p>}
+        </div>
+      )}
     </div>
   )
 }
