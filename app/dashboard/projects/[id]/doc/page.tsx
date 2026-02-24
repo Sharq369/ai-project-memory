@@ -3,9 +3,12 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
-import { ChevronLeft, FileText, Loader2, MessageSquare, Send, Sparkles, X } from 'lucide-react'
+import { ChevronLeft, FileText, Loader2, MessageSquare, Send, Sparkles, X, Hash } from 'lucide-react'
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export default function ProjectDocPage() {
   const { id } = useParams()
@@ -22,12 +25,40 @@ export default function ProjectDocPage() {
     const loadNodeData = async () => {
       const { data: proj } = await supabase.from('projects').select('*').eq('id', id).single()
       setProject(proj)
-      const { data: mems } = await supabase.from('code_memories').select('*').eq('project_id', id)
+      const { data: mems } = await supabase.from('code_memories').select('*').eq('project_id', id).order('file_name', { ascending: true })
       if (mems) setMemories(mems)
       setLoading(false)
     }
     if (id) loadNodeData()
   }, [id])
+
+  const scrollToBlock = (fileName: string) => {
+    const element = document.getElementById(`block-${fileName}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      element.classList.add('ring-4', 'ring-blue-500', 'ring-offset-4', 'ring-offset-[#0f1117]');
+      setTimeout(() => element.classList.remove('ring-4', 'ring-blue-500', 'ring-offset-4', 'ring-offset-[#0f1117]'), 3000);
+    }
+  };
+
+  const renderMessageContent = (content: string) => {
+    const parts = content.split(/(\[\[.*?\]\])/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('[[') && part.endsWith(']]')) {
+        const fileName = part.slice(2, -2);
+        return (
+          <button
+            key={index}
+            onClick={() => scrollToBlock(fileName)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 mx-1 bg-blue-500/20 border border-blue-500/30 rounded text-blue-400 hover:bg-blue-500 hover:text-white transition-all italic font-bold"
+          >
+            <Hash size={10} /> {fileName}
+          </button>
+        );
+      }
+      return part;
+    });
+  };
 
   const handleSendMessage = async () => {
     if (!query || isThinking) return
@@ -45,7 +76,7 @@ export default function ProjectDocPage() {
       const data = await res.json()
       setMessages(prev => [...prev, { role: 'ai', content: data.response || data.error }])
     } catch (e) {
-      setMessages(prev => [...prev, { role: 'ai', content: "Neural Link Disrupted." }])
+      setMessages(prev => [...prev, { role: 'ai', content: "Neural Link Disrupted. Check API route." }])
     } finally {
       setIsThinking(false)
     }
@@ -55,6 +86,7 @@ export default function ProjectDocPage() {
 
   return (
     <div className="min-h-screen bg-[#0f1117] text-white flex overflow-hidden">
+      {/* Main Content Area */}
       <div className={`flex-1 p-8 transition-all duration-500 overflow-y-auto ${chatOpen ? 'mr-[400px]' : ''}`}>
         <button onClick={() => router.push('/dashboard/projects')} className="flex items-center gap-2 text-gray-500 hover:text-white transition-all text-[10px] font-black uppercase mb-12">
           <ChevronLeft size={14} /> Back to Vault
@@ -71,9 +103,13 @@ export default function ProjectDocPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 pb-20">
+          <div className="grid grid-cols-1 gap-6 pb-32">
             {memories.map((mem) => (
-              <div key={mem.id} className="bg-[#16181e] border border-gray-800 rounded-[2rem] overflow-hidden">
+              <div 
+                key={mem.id} 
+                id={`block-${mem.file_name}`}
+                className="bg-[#16181e] border border-gray-800 rounded-[2rem] overflow-hidden transition-all duration-500"
+              >
                 <div className="bg-gray-900/50 px-8 py-4 border-b border-gray-800 flex items-center gap-3">
                   <FileText size={14} className="text-blue-500"/>
                   <span className="text-[11px] font-black uppercase tracking-widest">{mem.file_name}</span>
@@ -98,20 +134,20 @@ export default function ProjectDocPage() {
           <div className="flex-1 overflow-y-auto space-y-6 mb-6 pr-2 scrollbar-hide">
             {messages.length === 0 && (
               <div className="h-full flex items-center justify-center text-center opacity-20 px-10">
-                <p className="text-[10px] font-black uppercase tracking-widest leading-loose">Grounding active. Ask about the current code blocks.</p>
+                <p className="text-[10px] font-black uppercase tracking-widest leading-loose">Strict Mode Active. AI is grounded to local memory blocks.</p>
               </div>
             )}
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] p-5 rounded-3xl text-[11px] font-medium leading-relaxed ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-[#16181e] border border-gray-800 text-gray-300'}`}>
-                  {msg.content}
+                <div className={`max-w-[90%] p-5 rounded-3xl text-[11px] font-medium leading-relaxed ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-[#16181e] border border-gray-800 text-gray-300'}`}>
+                  {renderMessageContent(msg.content)}
                 </div>
               </div>
             ))}
             {isThinking && <Loader2 className="animate-spin text-blue-500 mx-auto" size={16} />}
           </div>
 
-          <div className="relative">
+          <div className="relative mt-auto">
             <input 
               value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
               placeholder="Query memory blocks..."
