@@ -13,7 +13,9 @@ export async function GET(request: Request) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          get(name: string) { return cookieStore.get(name)?.value },
+          get(name: string) {
+            return cookieStore.get(name)?.value
+          },
           set(name: string, value: string, options: CookieOptions) {
             cookieStore.set({ name, value, ...options })
           },
@@ -24,13 +26,15 @@ export async function GET(request: Request) {
       }
     )
 
+    // Exchange the code for a session
     const { error } = await supabase.auth.exchangeCodeForSession(code)
+    
     if (!error) {
-      // FIX: Redirect specifically to the projects vault page
+      // SUCCESS: Redirect back to the Projects Vault
       return NextResponse.redirect(`${origin}/dashboard/projects`)
     }
   }
 
-  // If it fails, send them home
-  return NextResponse.redirect(`${origin}`)
+  // FAIL: Return to landing page if something goes wrong
+  return NextResponse.redirect(`${origin}/`)
 }
