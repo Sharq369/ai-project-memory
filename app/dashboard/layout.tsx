@@ -16,8 +16,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   ]
 
   return (
-    <div className="flex min-h-screen bg-[#0f1117] text-white">
-      {/* FIXED SIDEBAR: Added 'hidden' for mobile, 'lg:flex' for desktop */}
+    <div className="flex min-h-screen bg-[#0f1117] text-white overflow-x-hidden">
+      {/* SIDEBAR: Hidden on mobile, visible on desktop */}
       <aside className="hidden lg:flex w-64 border-r border-gray-800/50 flex-col fixed inset-y-0 bg-[#0f1117] z-50">
         <div className="p-8 italic font-black text-xl tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-lg not-italic flex items-center justify-center">M</div>
@@ -48,9 +48,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {/* MAIN CONTENT: Added 'lg:ml-64' to make room for desktop sidebar, and 'relative z-10' */}
-      <main className="flex-1 lg:ml-64 p-4 lg:p-12 bg-[#0a0c10] relative z-10 pointer-events-auto">
-        {children}
+      {/* MAIN CONTENT: The 'lg:ml-64' fix ensures content is centered on mobile */}
+      <main className="flex-1 lg:ml-64 min-h-screen bg-[#0a0c10]">
+        <div className="p-6 md:p-8 lg:p-12">
+          {children}
+        </div>
       </main>
     </div>
   )
