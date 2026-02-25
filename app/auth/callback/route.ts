@@ -13,9 +13,7 @@ export async function GET(request: Request) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value
-          },
+          get(name: string) { return cookieStore.get(name)?.value },
           set(name: string, value: string, options: CookieOptions) {
             cookieStore.set({ name, value, ...options })
           },
@@ -26,15 +24,13 @@ export async function GET(request: Request) {
       }
     )
 
-    // This converts the temporary 'code' into a real user session
     const { error } = await supabase.auth.exchangeCodeForSession(code)
-    
     if (!error) {
-      // Redirect to the specific projects page where the "Session Active" bar is
+      // FIX: Redirect specifically to the projects vault page
       return NextResponse.redirect(`${origin}/dashboard/projects`)
     }
   }
 
-  // If something goes wrong, send them back to the home page
-  return NextResponse.redirect(`${origin}/`)
+  // If it fails, send them home
+  return NextResponse.redirect(`${origin}`)
 }
