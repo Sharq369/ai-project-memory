@@ -17,7 +17,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen bg-[#0f1117] text-white overflow-x-hidden">
-      {/* SIDEBAR: Hidden on mobile, visible on desktop */}
+      {/* SIDEBAR: Only exists on Desktop (lg:flex) */}
       <aside className="hidden lg:flex w-64 border-r border-gray-800/50 flex-col fixed inset-y-0 bg-[#0f1117] z-50">
         <div className="p-8 italic font-black text-xl tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-lg not-italic flex items-center justify-center">M</div>
@@ -37,20 +37,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Link>
           ))}
         </nav>
-
-        <div className="p-4 mt-auto">
-          <div className="bg-[#16181e] border border-gray-800 rounded-[2rem] p-6 text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest mb-4">Free Tier Active</p>
-            <Link href="/dashboard/settings" className="block w-full py-3 bg-white text-black text-[9px] font-black uppercase rounded-xl">
-              Upgrade Now
-            </Link>
-          </div>
-        </div>
       </aside>
 
-      {/* MAIN CONTENT: The 'lg:ml-64' fix ensures content is centered on mobile */}
-      <main className="flex-1 lg:ml-64 min-h-screen bg-[#0a0c10]">
-        <div className="p-6 md:p-8 lg:p-12">
+      {/* MAIN CONTENT: Margin-left is ONLY applied on desktop (lg:ml-64) */}
+      <main className="flex-1 lg:ml-64 bg-[#0a0c10] min-h-screen relative">
+        <div className="p-4 md:p-8 lg:p-12">
           {children}
         </div>
       </main>
