@@ -1,145 +1,59 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
-import { Github, Gitlab, GitBranch, Globe, Zap, X, Loader2, Pencil, RotateCw } from 'lucide-react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { LayoutDashboard, Folder, Brain, Search, Settings } from 'lucide-react'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
 
-export default function ProjectVault() {
-  const [projects, setProjects] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selectedNode, setSelectedNode] = useState<any>(null)
-  const [isMounted, setIsMounted] = useState(false)
-
-  useEffect(() => {
-    setIsMounted(true)
-    fetchProjects()
-  }, [])
-
-  const fetchProjects = async () => {
-    setLoading(true)
-    try {
-      const { data, error } = await supabase
-        .from('projects')
-        .select(`*, code_memories!project_id(id)`)
-      if (error) throw error
-      setProjects(data || [])
-    } catch (err) {
-      const { data } = await supabase.from('projects').select('*')
-      setProjects(data || [])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (!isMounted) return null
+  const navigation = [
+    { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Memories', href: '/dashboard/memories', icon: Brain },
+    { name: 'Projects', href: '/dashboard/projects', icon: Folder },
+    { name: 'AI Search', href: '/dashboard/ai-search', icon: Search },
+    { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+  ]
 
   return (
-    <div className="min-h-screen text-white font-sans overflow-x-hidden">
-      
-      <header className="mb-16">
-        <h1 className="text-5xl font-black italic uppercase tracking-tighter leading-none mb-2">Project Vault</h1>
-        <p className="text-blue-500 text-[10px] font-black uppercase tracking-[0.4em]">Neural Nodes Active: {projects.length}</p>
-      </header>
-
-      {loading ? (
-        <div className="flex justify-center p-20"><Loader2 className="animate-spin text-blue-500" size={40} /></div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {projects.map((project) => (
-            <div key={project.id} className="bg-[#111319] border border-gray-800/40 rounded-[3rem] p-10 relative group shadow-2xl">
-              
-              <div className="absolute top-8 right-8 flex gap-2 z-10">
-                <button onClick={() => alert("Edit")} className="p-3 text-gray-600 active:text-white"><Pencil size={18} /></button>
-                <button onClick={() => fetchProjects()} className="p-3 text-gray-600 active:text-blue-500"><RotateCw size={18} /></button>
-              </div>
-
-              <div className="w-14 h-14 rounded-full bg-blue-500/5 flex items-center justify-center mb-10 border border-blue-500/10">
-                <Globe size={24} className="text-blue-500" />
-              </div>
-              
-              <h2 className="text-3xl font-black italic uppercase mb-2 tracking-tighter">{project.name}</h2>
-              <p className="text-blue-500 text-[10px] font-black uppercase tracking-[0.2em] mb-12">
-                {project.code_memories?.length || 0} Memory Blocks
-              </p>
-
-              <div className="flex gap-4 relative z-10">
-                <button className="flex-[3] bg-transparent border border-gray-800 py-5 rounded-[1.5rem] text-[10px] font-black uppercase tracking-[0.2em] active:bg-white/5 transition-all">
-                  Enter Node
-                </button>
-                <button 
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setSelectedNode(project);
-                  }}
-                  className="flex-1 bg-blue-700 flex items-center justify-center rounded-[1.5rem] active:bg-blue-500 shadow-lg shadow-blue-900/20"
-                >
-                  <Zap size={22} fill="white" stroke="none" />
-                </button>
-              </div>
-            </div>
-          ))}
+    <div className="flex min-h-screen bg-[#0f1117] text-white overflow-x-hidden">
+      {/* SIDEBAR: Hidden on mobile, visible on desktop */}
+      <aside className="hidden lg:flex w-64 border-r border-gray-800/50 flex-col fixed inset-y-0 bg-[#0f1117] z-50">
+        <div className="p-8 italic font-black text-xl tracking-tighter flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg not-italic flex items-center justify-center">M</div>
+          MEMORY AI
         </div>
-      )}
+        
+        <nav className="flex-1 px-4 space-y-2">
+          {navigation.map((item) => (
+            <Link 
+              key={item.name} 
+              href={item.href} 
+              className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-[10px] uppercase font-bold tracking-widest transition-colors ${
+                pathname === item.href ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'
+              }`}
+            >
+              <item.icon size={16} /> {item.name}
+            </Link>
+          ))}
+        </nav>
 
-      {/* MULTI-SOURCE MODAL WINDOW */}
-      {selectedNode && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 backdrop-blur-md p-6 pointer-events-auto">
-          <div className="bg-[#0f1116] border border-gray-800/60 rounded-[3.5rem] p-10 w-full max-w-md shadow-2xl relative overflow-hidden">
-            <div className="flex justify-between items-start mb-12">
-              <div>
-                <h3 className="text-4xl font-black italic uppercase tracking-tighter">Select Source</h3>
-                <p className="text-blue-500 text-[9px] font-black uppercase tracking-[0.3em] mt-2">Neural Link Authorization</p>
-              </div>
-              <button onClick={() => setSelectedNode(null)} className="p-2 text-gray-500 active:text-white"><X size={28} /></button>
-            </div>
-            
-            {/* THE PROTOCOLS */}
-            <div className="space-y-4">
-              {/* GitHub */}
-              <button 
-                onClick={() => alert("GitHub Sync Initializing...")}
-                className="w-full flex items-center justify-between bg-[#16181e] p-7 rounded-[2rem] border border-gray-800 active:border-blue-500 transition-all"
-              >
-                <div className="flex items-center gap-5">
-                  <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center"><Github size={24}/></div>
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em]">GitHub Protocol</span>
-                </div>
-                <Zap size={18} className="text-gray-700" />
-              </button>
-
-              {/* GitLab */}
-              <button 
-                onClick={() => alert("GitLab Sync Initializing...")}
-                className="w-full flex items-center justify-between bg-[#16181e] p-7 rounded-[2rem] border border-gray-800 active:border-orange-500 transition-all"
-              >
-                <div className="flex items-center gap-5">
-                  <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center"><Gitlab size={24}/></div>
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em]">GitLab Protocol</span>
-                </div>
-                <Zap size={18} className="text-gray-700" />
-              </button>
-
-              {/* Bitbucket */}
-              <button 
-                onClick={() => alert("Bitbucket Sync Initializing...")}
-                className="w-full flex items-center justify-between bg-[#16181e] p-7 rounded-[2rem] border border-gray-800 active:border-cyan-500 transition-all"
-              >
-                <div className="flex items-center gap-5">
-                  <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center"><GitBranch size={24}/></div>
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em]">Bitbucket Protocol</span>
-                </div>
-                <Zap size={18} className="text-gray-700" />
-              </button>
-            </div>
-
+        <div className="p-4 mt-auto">
+          <div className="bg-[#16181e] border border-gray-800 rounded-[2rem] p-6 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest mb-4">Free Tier Active</p>
+            <Link href="/dashboard/settings" className="block w-full py-3 bg-white text-black text-[9px] font-black uppercase rounded-xl">
+              Upgrade Now
+            </Link>
           </div>
         </div>
-      )}
+      </aside>
+
+      {/* MAIN CONTENT: The 'lg:ml-64' fix ensures content is centered on mobile */}
+      <main className="flex-1 lg:ml-64 min-h-screen bg-[#0a0c10]">
+        <div className="p-6 md:p-8 lg:p-12">
+          {children}
+        </div>
+      </main>
     </div>
   )
 }
