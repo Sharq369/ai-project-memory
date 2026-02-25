@@ -5,6 +5,8 @@ import { NextResponse } from 'next/server'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
+  // next is used to redirect the user to a specific page after login
+  const next = searchParams.get('next') ?? '/dashboard/projects'
 
   if (code) {
     const cookieStore = cookies()
@@ -26,15 +28,15 @@ export async function GET(request: Request) {
       }
     )
 
-    // Exchange the code for a session
+    // This is where the magic happens: converting the code to a session
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     
     if (!error) {
-      // SUCCESS: Redirect back to the Projects Vault
-      return NextResponse.redirect(`${origin}/dashboard/projects`)
+      // Return to the dashboard projects page
+      return NextResponse.redirect(`${origin}${next}`)
     }
   }
 
-  // FAIL: Return to landing page if something goes wrong
-  return NextResponse.redirect(`${origin}/`)
+  // If the code is missing or exchange fails, return to login
+  return NextResponse.redirect(`${origin}/login`)
 }
