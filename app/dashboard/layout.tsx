@@ -17,7 +17,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen bg-[#0f1117] text-white">
-      {/* SIDEBAR: Hidden on mobile, fixed on desktop */}
+      {/* SIDEBAR: Hidden on mobile devices */}
       <aside className="hidden lg:flex w-64 border-r border-gray-800/50 flex-col fixed inset-y-0 bg-[#0f1117] z-50">
         <div className="p-8 italic font-black text-xl tracking-tighter flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-lg not-italic flex items-center justify-center">M</div>
@@ -39,11 +39,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
       </aside>
 
-      {/* MAIN CONTENT: Fixes the margin gap on mobile devices */}
-      <main className="flex-1 lg:ml-64 bg-[#0a0c10] min-h-screen">
-        <div className="p-4 md:p-8 lg:p-12">
-          {children}
-        </div>
+      {/* MAIN CONTENT: Margin-left (ml-64) is ONLY applied on large screens */}
+      <main className="flex-1 lg:ml-64 p-4 md:p-8 lg:p-12 bg-[#0a0c10] relative z-10">
+        {children}
       </main>
     </div>
   )
