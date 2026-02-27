@@ -9,7 +9,6 @@ export async function POST(req: NextRequest) {
   const signature = req.headers.get('x-hub-signature-256');
   const secret = process.env.GITHUB_WEBHOOK_SECRET;
 
-  // 1. Secret Key Check
   if (secret && signature) {
     const hmac = crypto.createHmac('sha256', secret);
     const digest = 'sha256=' + hmac.update(rawBody).digest('hex');
@@ -21,20 +20,15 @@ export async function POST(req: NextRequest) {
     const repoName = payload.repository?.full_name;
     const commits = payload.commits || [];
 
-    // 2. Find Project
     const { data: project } = await supabase.from('projects').select('id').eq('repo_full_name', repoName).single();
-    if (!project) return NextResponse.json({ error: "No node mapped to this repo" }, { status: 404 });
+    if (!project) return NextResponse.json({ error: "Node not mapped" }, { status: 404 });
 
-    // 3. Update Modified Files
     const files = new Set<string>();
     commits.forEach((c: any) => [...c.added, ...c.modified].forEach(f => files.add(f)));
 
-    await supabase.from('code_memories')
-      .update({ is_verified: true, deployed_at: new Date().toISOString() })
-      .eq('project_id', project.id)
-      .in('file_name', Array.from(files));
+    await supabase.from('code_memories').update({ is_verified: true, deployed_at: new Date().toISOString() }).eq('project_id', project.id).in('file_name', Array.from(files));
 
-    return NextResponse.json({ status: "Synced" });
+    return NextResponse.json({ status: "Neural Sync Verified" });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
