@@ -43,19 +43,9 @@ export default function ProjectVault() {
           <p className="text-blue-500 text-[9px] font-black uppercase tracking-[0.3em] mt-4">NEURAL NODES ACTIVE: {projects.length}</p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="relative">
-            <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600" />
-            <input placeholder="SEARCH NODES..." className="bg-[#111319] border border-gray-800/50 rounded-xl py-3 pl-12 pr-6 text-[9px] font-bold uppercase outline-none focus:border-blue-600 w-64" />
-          </div>
           <button onClick={() => setIsNewNodeOpen(true)} className="bg-blue-600 px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">New Node</button>
         </div>
       </header>
-
-      <div className="flex gap-3 mb-16">
-        {['ALL', 'FRONTEND', 'BACKEND', 'FULLSTACK', 'API', 'OTHER'].map((cat) => (
-          <button key={cat} className={`px-6 py-2 rounded-full text-[8px] font-black tracking-widest border transition-all ${cat === 'ALL' ? 'bg-blue-600 border-blue-600' : 'bg-[#111319] border-gray-800 text-gray-500 hover:text-white'}`}>{cat}</button>
-        ))}
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {projects.map((project) => (
@@ -66,7 +56,7 @@ export default function ProjectVault() {
             </div>
             <div className="flex gap-3">
               <button onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)} className="flex-1 bg-transparent border border-gray-800 py-4 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">Enter Node</button>
-              <button onClick={() => setIsSourceOpen(true)} className="bg-blue-600 p-4 rounded-xl hover:scale-105 transition-all shadow-lg shadow-blue-900/20">
+              <button onClick={() => setIsSourceOpen(true)} className="bg-blue-600 p-4 rounded-xl hover:scale-105 transition-all">
                 <Zap size={18} fill="white" stroke="none" />
               </button>
             </div>
@@ -74,32 +64,20 @@ export default function ProjectVault() {
         ))}
       </div>
 
-      {/* SOURCE SELECTION MODAL - RESTORED FROM YOUR SCREENSHOT */}
+      {/* SOURCE SELECTION MODAL */}
       {isSourceOpen && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
           <div className="bg-[#111319] border border-gray-800 w-full max-w-sm rounded-[2.5rem] p-10 relative">
             <button onClick={() => setIsSourceOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white"><X size={18}/></button>
-            <h2 className="text-xl font-black italic uppercase mb-8 tracking-tight">SOURCE</h2>
+            <h2 className="text-xl font-black italic uppercase mb-8 tracking-tight">SOURCE PROTOCOL</h2>
             <div className="space-y-3">
-              {['GITHUB PROTOCOL', 'GITLAB PROTOCOL', 'BITBUCKET PROTOCOL'].map((protocol) => (
-                <button key={protocol} onClick={() => { alert(`${protocol} Initialized`); setIsSourceOpen(false); }} className="w-full bg-black/40 border border-gray-800/60 p-5 rounded-2xl flex justify-between items-center group hover:border-blue-600 transition-all">
+              {['GITHUB', 'GITLAB', 'BITBUCKET'].map((protocol) => (
+                <button key={protocol} onClick={() => setIsSourceOpen(false)} className="w-full bg-black/40 border border-gray-800/60 p-5 rounded-2xl flex justify-between items-center group hover:border-blue-600 transition-all">
                   <span className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 group-hover:text-white">{protocol}</span>
                   <Zap size={12} className="text-gray-700 group-hover:text-blue-600" />
                 </button>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* NEW NODE MODAL */}
-      {isNewNodeOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-          <div className="bg-[#111319] border border-gray-800 w-full max-w-md rounded-[2.5rem] p-12 relative">
-            <button onClick={() => setIsNewNodeOpen(false)} className="absolute top-10 right-10 text-gray-500 hover:text-white"><X size={20}/></button>
-            <h2 className="text-3xl font-black italic uppercase mb-8">INIT NODE</h2>
-            <input autoFocus value={newNodeName} onChange={(e) => setNewNodeName(e.target.value)} placeholder="NODE NAME..." className="w-full bg-black/40 border border-gray-800 rounded-xl p-5 mb-8 text-white font-bold outline-none focus:border-blue-600"/>
-            <button onClick={handleCreateNode} className="w-full bg-blue-600 py-5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">Create Node</button>
           </div>
         </div>
       )}
