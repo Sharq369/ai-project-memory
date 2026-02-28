@@ -5,7 +5,11 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { Star, Zap, Search, Loader2, X } from 'lucide-react'
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+// Initialize Supabase Client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export default function ProjectVault() {
   const router = useRouter()
@@ -36,6 +40,19 @@ export default function ProjectVault() {
       setNewNodeName('')
       setIsNewNodeOpen(false)
     }
+  }
+
+  // FIXED: Using Supabase Native OAuth to match your GitHub settings
+  const handleOAuthLogin = async (provider: 'github' | 'gitlab' | 'bitbucket') => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        // This directs Supabase to send the user to your app's callback route after login
+        redirectTo: `${window.location.origin}/auth/callback`,
+        scopes: provider === 'github' ? 'repo' : 'api',
+      },
+    })
+    if (error) console.error(`${provider} Login Error:`, error.message)
   }
 
   const filteredProjects = projects.filter(p => 
@@ -130,19 +147,7 @@ export default function ProjectVault() {
               {['GITHUB', 'GITLAB', 'BITBUCKET'].map((protocol) => (
                 <button 
                   key={protocol} 
-                  onClick={() => {
-                    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-                    
-                    if (protocol === 'GITHUB') {
-                      window.location.href = `https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=repo`;
-                    } 
-                    else if (protocol === 'GITLAB') {
-                      window.location.href = `https://gitlab.com/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITLAB_CLIENT_ID}&redirect_uri=${siteUrl}/api/auth/gitlab/callback&response_type=code&scope=api`;
-                    } 
-                    else if (protocol === 'BITBUCKET') {
-                      window.location.href = `https://bitbucket.org/site/oauth2/authorize?client_id=${process.env.NEXT_PUBLIC_BITBUCKET_CLIENT_ID}&response_type=code`;
-                    }
-                  }} 
+                  onClick={() => handleOAuthLogin(protocol.toLowerCase() as 'github' | 'gitlab' | 'bitbucket')} 
                   className="w-full bg-black/40 border border-gray-800/60 p-5 rounded-2xl flex justify-between items-center group hover:border-blue-600 transition-all"
                 >
                   <span className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 group-hover:text-white">{protocol}</span>
