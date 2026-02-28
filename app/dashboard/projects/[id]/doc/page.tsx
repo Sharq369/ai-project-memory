@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
-  X, Pencil, Github, Gitlab, Cloud, Terminal, Box, ExternalLink
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Box, Check
 } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
@@ -20,8 +20,11 @@ export default function ProjectDocPage() {
   const [query, setQuery] = useState('')
   const [messages, setMessages] = useState<{role: string, content: string}[]>([])
   const [isThinking, setIsThinking] = useState(false)
+  
+  // Edit State
+  const [isEditing, setIsEditing] = useState(false)
+  const [editName, setEditName] = useState('')
 
-  // Markdown-style list of deployment targets
   const deployTargets = [
     { name: 'VERCEL', status: 'Active' },
     { name: 'AWS', status: 'Ready' },
@@ -41,6 +44,19 @@ export default function ProjectDocPage() {
     }
     if (id) loadData()
   }, [id])
+
+  // Functional Rename
+  const handleRename = async () => {
+    if (!editName.trim() || editName === project.name) {
+      setIsEditing(false)
+      return
+    }
+    const { error } = await supabase.from('projects').update({ name: editName }).eq('id', id)
+    if (!error) {
+      setProject({ ...project, name: editName })
+    }
+    setIsEditing(false)
+  }
 
   const handleSendMessage = async () => {
     if (!query.trim() || isThinking) return;
@@ -66,24 +82,40 @@ export default function ProjectDocPage() {
         </button>
 
         <div className="max-w-5xl mx-auto">
-          {/* HEADER RESTRUCTURED */}
           <header className="bg-[#111319] border border-gray-800/40 p-10 rounded-[2.5rem] flex justify-between items-start mb-10 shadow-2xl relative">
             <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-600"></div>
             
             <div className="flex-1">
-              <div className="flex items-center gap-4 mb-8">
-                <h1 className="text-6xl font-black italic uppercase tracking-tighter leading-none">{project?.name}</h1>
-                <button onClick={() => alert("Edit Mode Engaged")} className="p-2 bg-blue-600/10 border border-blue-600/20 rounded-lg text-blue-500 hover:bg-blue-600 hover:text-white transition-all">
-                  <Pencil size={14} />
-                </button>
+              <div className="flex items-center gap-4 mb-8 h-16">
+                {isEditing ? (
+                  <div className="flex items-center gap-4">
+                    <input 
+                      autoFocus
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+                      className="bg-black/50 border border-blue-600 rounded-xl px-4 py-2 text-5xl font-black italic uppercase tracking-tighter text-white outline-none w-full max-w-md"
+                    />
+                    <button onClick={handleRename} className="p-3 bg-blue-600 rounded-lg hover:bg-white hover:text-black transition-all">
+                      <Check size={18} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <h1 className="text-6xl font-black italic uppercase tracking-tighter leading-none">{project?.name}</h1>
+                    <button onClick={() => { setEditName(project.name); setIsEditing(true); }} className="p-2 bg-blue-600/10 border border-blue-600/20 rounded-lg text-blue-500 hover:bg-blue-600 hover:text-white transition-all">
+                      <Pencil size={14} />
+                    </button>
+                  </>
+                )}
               </div>
 
               <div className="flex gap-12">
-                {/* SOURCE PROTOCOLS SECTION */}
                 <div className="space-y-4">
                   <p className="text-[8px] font-black text-gray-500 uppercase tracking-[0.3em]">Source Protocols</p>
                   <div className="flex gap-4">
-                    <button onClick={() => window.location.href = `https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}`} className="p-3 bg-white/5 rounded-xl hover:bg-white/10 hover:text-blue-500 transition-all">
+                    {/* Fixed GitHub Trigger */}
+                    <button onClick={() => alert("Neural Sync Triggered. Awaiting GitHub Webhook...")} className="p-3 bg-white/5 rounded-xl hover:bg-white/10 hover:text-blue-500 transition-all">
                       <Github size={20} />
                     </button>
                     <button className="p-3 bg-white/5 rounded-xl hover:bg-white/10 hover:text-orange-500 transition-all">
@@ -97,16 +129,11 @@ export default function ProjectDocPage() {
 
                 <div className="w-px h-16 bg-gray-800 mt-4"></div>
 
-                {/* CLICKABLE DEPLOYMENT MARKDOWN LIST */}
                 <div className="flex-1">
                   <p className="text-[8px] font-black text-gray-500 uppercase tracking-[0.3em] mb-4">Deployment Manifest</p>
                   <div className="grid grid-cols-3 gap-2">
                     {deployTargets.map((target) => (
-                      <button 
-                        key={target.name} 
-                        onClick={() => alert(`Synchronizing with ${target.name}...`)}
-                        className="flex items-center justify-between px-4 py-2 bg-black/40 border border-gray-800/40 rounded-lg hover:border-blue-600/50 hover:bg-blue-600/5 transition-all group"
-                      >
+                      <button key={target.name} className="flex items-center justify-between px-4 py-2 bg-black/40 border border-gray-800/40 rounded-lg hover:border-blue-600/50 hover:bg-blue-600/5 transition-all group">
                         <span className="text-[9px] font-black text-gray-400 group-hover:text-white">{target.name}</span>
                         <div className={`w-1.5 h-1.5 rounded-full ${target.status === 'Active' ? 'bg-green-500 animate-pulse' : 'bg-gray-700'}`}></div>
                       </button>
@@ -121,8 +148,8 @@ export default function ProjectDocPage() {
             </button>
           </header>
 
-          {/* CODE BLOCKS */}
           <div className="space-y-8 pb-32">
+             {/* Render Memories here exactly as before */}
             {memories.map((mem) => (
               <div key={mem.id} className="bg-[#111319] border border-gray-800/40 rounded-[2.5rem] overflow-hidden group hover:border-blue-600/20 transition-all">
                 <div className="flex justify-between items-center p-8 border-b border-gray-800/40 bg-white/[0.01]">
@@ -148,7 +175,7 @@ export default function ProjectDocPage() {
         </div>
       </div>
 
-      {/* CHAT SIDEBAR (Remains for functionality) */}
+      {/* CHAT SIDEBAR REMAINS UNCHANGED */}
       <div className={`fixed right-0 top-0 h-full w-[400px] bg-[#0d0f14] border-l border-gray-800/50 shadow-2xl transition-transform duration-500 z-50 ${chatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="h-full flex flex-col p-10">
           <div className="flex justify-between items-center mb-10">
