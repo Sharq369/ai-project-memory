@@ -119,7 +119,7 @@ export default function ProjectVault() {
         </div>
       )}
 
-      {/* SOURCE SELECTION MODAL */}
+{/* SOURCE SELECTION MODAL */}
       {isSourceOpen && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
           <div className="bg-[#111319] border border-gray-800 w-full max-w-sm rounded-[2.5rem] p-10 relative">
@@ -127,7 +127,20 @@ export default function ProjectVault() {
             <h2 className="text-xl font-black italic uppercase mb-8 tracking-tight">SOURCE PROTOCOL</h2>
             <div className="space-y-3">
               {['GITHUB', 'GITLAB', 'BITBUCKET'].map((protocol) => (
-                <button key={protocol} onClick={() => setIsSourceOpen(false)} className="w-full bg-black/40 border border-gray-800/60 p-5 rounded-2xl flex justify-between items-center group hover:border-blue-600 transition-all">
+                <button 
+                  key={protocol} 
+                  onClick={() => {
+                    if (protocol === 'GITHUB') {
+                      // Actually trigger the GitHub OAuth flow
+                      window.location.href = `https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=repo`;
+                    } else {
+                      // Placeholder for GitLab/Bitbucket
+                      alert(`${protocol} integration pending.`);
+                      setIsSourceOpen(false);
+                    }
+                  }} 
+                  className="w-full bg-black/40 border border-gray-800/60 p-5 rounded-2xl flex justify-between items-center group hover:border-blue-600 transition-all"
+                >
                   <span className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 group-hover:text-white">{protocol}</span>
                   <Zap size={12} className="text-gray-700 group-hover:text-blue-600" />
                 </button>
@@ -136,6 +149,3 @@ export default function ProjectVault() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
