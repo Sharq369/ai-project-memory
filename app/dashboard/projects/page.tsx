@@ -2,17 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 import { Star, Zap, Search, Loader2, X } from 'lucide-react'
-
-// Initialize Supabase Client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 export default function ProjectVault() {
   const router = useRouter()
+  
+  // Initialize the Supabase client for the browser
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isNewNodeOpen, setIsNewNodeOpen] = useState(false)
@@ -25,16 +26,24 @@ export default function ProjectVault() {
 
   useEffect(() => {
     const fetchProjects = async () => {
-      const { data } = await supabase.from('projects').select('*').order('created_at', { ascending: false })
-      if (data) setProjects(data)
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (!error && data) setProjects(data)
       setLoading(false)
     }
     fetchProjects()
-  }, [])
+  }, [supabase])
 
   const handleCreateNode = async () => {
     if (!newNodeName.trim()) return
-    const { data, error } = await supabase.from('projects').insert([{ name: newNodeName, preferred_platform: 'Vercel' }]).select()
+    const { data, error } = await supabase
+      .from('projects')
+      .insert([{ name: newNodeName, preferred_platform: 'Vercel' }])
+      .select()
+    
     if (!error && data) {
       setProjects([data[0], ...projects])
       setNewNodeName('')
@@ -42,17 +51,15 @@ export default function ProjectVault() {
     }
   }
 
-  // FIXED: Using Supabase Native OAuth to match your GitHub settings
-  const handleOAuthLogin = async (provider: 'github' | 'gitlab' | 'bitbucket') => {
-    const { error } = await supabase.auth.signInWithOAuth({
+  // Proper Supabase OAuth Login
+  const handleSocialLogin = async (provider: 'github' | 'gitlab' | 'bitbucket') => {
+    await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        // This directs Supabase to send the user to your app's callback route after login
+        // This tells Supabase to send the user to your new callback route
         redirectTo: `${window.location.origin}/auth/callback`,
-        scopes: provider === 'github' ? 'repo' : 'api',
       },
     })
-    if (error) console.error(`${provider} Login Error:`, error.message)
   }
 
   const filteredProjects = projects.filter(p => 
@@ -73,20 +80,26 @@ export default function ProjectVault() {
         <div className="flex justify-between items-end">
           <div>
             <h1 className="text-7xl font-black italic uppercase tracking-tighter leading-none">PROJECT VAULT</h1>
-            <p className="text-blue-500 text-[9px] font-black uppercase tracking-[0.3em] mt-4">NEURAL NODES ACTIVE: {projects.length}</p>
+            <p className="text-blue-500 text-[9px] font-black uppercase tracking-[0.3em] mt-4">
+              NEURAL NODES ACTIVE: {projects.length}
+            </p>
           </div>
           <div className="flex items-center gap-4">
-            <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-blue-500 transition-colors" size={14} />
+            <div className="relative">
               <input 
                 type="text" 
                 placeholder="SEARCH NODES..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-[#111319] border border-gray-800 rounded-xl pl-12 pr-4 py-3 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 w-64 transition-all"
+                className="bg-[#111319] border border-gray-800 rounded-xl px-4 py-3 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 w-64 transition-all"
               />
             </div>
-            <button onClick={() => setIsNewNodeOpen(true)} className="bg-blue-600 px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">New Node</button>
+            <button 
+              onClick={() => setIsNewNodeOpen(true)} 
+              className="bg-blue-600 px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all"
+            >
+              New Node
+            </button>
           </div>
         </div>
         
@@ -95,7 +108,11 @@ export default function ProjectVault() {
             <button 
               key={f} 
               onClick={() => setActiveFilter(f)}
-              className={`px-5 py-2 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${activeFilter === f ? 'bg-blue-600 border-blue-600 text-white' : 'bg-transparent border-gray-800 text-gray-500 hover:border-gray-600 hover:text-white'}`}
+              className={`px-5 py-2 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
+                activeFilter === f 
+                ? 'bg-blue-600 border-blue-600 text-white' 
+                : 'bg-transparent border-gray-800 text-gray-500 hover:border-gray-600 hover:text-white'
+              }`}
             >
               {f}
             </button>
@@ -111,7 +128,12 @@ export default function ProjectVault() {
               <Star size={14} className="text-gray-800 group-hover:text-blue-600 transition-colors" />
             </div>
             <div className="flex gap-3">
-              <button onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)} className="flex-1 bg-transparent border border-gray-800 py-4 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">Enter Node</button>
+              <button 
+                onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)} 
+                className="flex-1 bg-transparent border border-gray-800 py-4 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-white/5 transition-all"
+              >
+                Enter Node
+              </button>
               <button onClick={() => setIsSourceOpen(true)} className="bg-blue-600 p-4 rounded-xl hover:scale-105 transition-all">
                 <Zap size={18} fill="white" stroke="none" />
               </button>
@@ -120,10 +142,13 @@ export default function ProjectVault() {
         ))}
       </div>
 
+      {/* NEW NODE MODAL */}
       {isNewNodeOpen && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
           <div className="bg-[#111319] border border-gray-800 w-full max-w-sm rounded-[2.5rem] p-10 relative shadow-2xl shadow-blue-900/20">
-            <button onClick={() => setIsNewNodeOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white transition-colors"><X size={18}/></button>
+            <button onClick={() => setIsNewNodeOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white transition-colors">
+              <X size={18}/>
+            </button>
             <h2 className="text-xl font-black italic uppercase mb-8 tracking-tight">INITIALIZE NODE</h2>
             <input 
               autoFocus
@@ -133,24 +158,31 @@ export default function ProjectVault() {
               placeholder="NODE DESIGNATION..." 
               className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-4 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 mb-6 transition-all"
             />
-            <button onClick={handleCreateNode} className="w-full bg-blue-600 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">CREATE</button>
+            <button onClick={handleCreateNode} className="w-full bg-blue-600 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">
+              CREATE
+            </button>
           </div>
         </div>
       )}
 
+      {/* SOURCE SELECTION MODAL */}
       {isSourceOpen && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
           <div className="bg-[#111319] border border-gray-800 w-full max-w-sm rounded-[2.5rem] p-10 relative">
-            <button onClick={() => setIsSourceOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white"><X size={18}/></button>
+            <button onClick={() => setIsSourceOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white">
+              <X size={18}/>
+            </button>
             <h2 className="text-xl font-black italic uppercase mb-8 tracking-tight">SOURCE PROTOCOL</h2>
             <div className="space-y-3">
-              {['GITHUB', 'GITLAB', 'BITBUCKET'].map((protocol) => (
+              {(['github', 'gitlab', 'bitbucket'] as const).map((provider) => (
                 <button 
-                  key={protocol} 
-                  onClick={() => handleOAuthLogin(protocol.toLowerCase() as 'github' | 'gitlab' | 'bitbucket')} 
+                  key={provider} 
+                  onClick={() => handleSocialLogin(provider)} 
                   className="w-full bg-black/40 border border-gray-800/60 p-5 rounded-2xl flex justify-between items-center group hover:border-blue-600 transition-all"
                 >
-                  <span className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 group-hover:text-white">{protocol}</span>
+                  <span className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 group-hover:text-white">
+                    {provider}
+                  </span>
                   <Zap size={12} className="text-gray-700 group-hover:text-blue-600" />
                 </button>
               ))}
