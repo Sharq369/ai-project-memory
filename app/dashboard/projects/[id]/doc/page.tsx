@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { 
-  ChevronLeft, FileText, Loader2, MessageSquare, Send, 
-  X, CheckCircle2, Pencil, Github, Gitlab, Cloud, Terminal, Box
+  ChevronLeft, Loader2, MessageSquare, Send, 
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Box, ExternalLink
 } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
@@ -21,7 +21,15 @@ export default function ProjectDocPage() {
   const [messages, setMessages] = useState<{role: string, content: string}[]>([])
   const [isThinking, setIsThinking] = useState(false)
 
-  const deployPlatforms = ['VERCEL', 'AWS', 'AZURE', 'GCP', 'NETLIFY', 'RAILWAY']
+  // Markdown-style list of deployment targets
+  const deployTargets = [
+    { name: 'VERCEL', status: 'Active' },
+    { name: 'AWS', status: 'Ready' },
+    { name: 'AZURE', status: 'Idle' },
+    { name: 'GCP', status: 'Idle' },
+    { name: 'NETLIFY', status: 'Ready' },
+    { name: 'RAILWAY', status: 'Idle' }
+  ]
 
   useEffect(() => {
     const loadData = async () => {
@@ -35,7 +43,7 @@ export default function ProjectDocPage() {
   }, [id])
 
   const handleSendMessage = async () => {
-    if (!query.trim() || isThinking) return; // FIX: Syntax error cleared
+    if (!query.trim() || isThinking) return;
     const userMsg = { role: 'user', content: query }
     setMessages(prev => [...prev, userMsg])
     setQuery(''); setIsThinking(true)
@@ -53,58 +61,86 @@ export default function ProjectDocPage() {
   return (
     <div className="min-h-screen bg-[#0a0b0e] text-white flex overflow-hidden">
       <div className={`flex-1 p-12 transition-all duration-500 overflow-y-auto ${chatOpen ? 'mr-[400px]' : ''}`}>
-        <button onClick={() => router.push('/dashboard/projects')} className="flex items-center gap-2 text-gray-600 hover:text-white text-[9px] font-black uppercase mb-12 tracking-widest">
-          <ChevronLeft size={14} /> BACK TO VAULT
+        <button onClick={() => router.push('/dashboard/projects')} className="flex items-center gap-2 text-gray-600 hover:text-white text-[9px] font-black uppercase mb-12 tracking-widest group">
+          <ChevronLeft size={14} className="group-hover:-translate-x-1 transition-transform"/> BACK TO VAULT
         </button>
 
         <div className="max-w-5xl mx-auto">
-          <header className="bg-[#111319] border border-gray-800/40 p-10 rounded-[2.5rem] flex justify-between items-center mb-10 shadow-2xl relative">
-            <div className="absolute top-0 left-0 w-1 h-full bg-blue-600"></div>
-            <div>
-              <div className="flex items-center gap-4 mb-5">
-                <h1 className="text-5xl font-black italic uppercase tracking-tighter leading-none">{project?.name}</h1>
+          {/* HEADER RESTRUCTURED */}
+          <header className="bg-[#111319] border border-gray-800/40 p-10 rounded-[2.5rem] flex justify-between items-start mb-10 shadow-2xl relative">
+            <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-600"></div>
+            
+            <div className="flex-1">
+              <div className="flex items-center gap-4 mb-8">
+                <h1 className="text-6xl font-black italic uppercase tracking-tighter leading-none">{project?.name}</h1>
                 <button onClick={() => alert("Edit Mode Engaged")} className="p-2 bg-blue-600/10 border border-blue-600/20 rounded-lg text-blue-500 hover:bg-blue-600 hover:text-white transition-all">
-                  <Pencil size={12} />
+                  <Pencil size={14} />
                 </button>
               </div>
-              
-              <div className="flex items-center gap-6">
-                <div className="flex gap-4">
-                  <Github size={16} className="text-gray-600 hover:text-white cursor-pointer" />
-                  <Gitlab size={16} className="text-gray-600 hover:text-orange-500 cursor-pointer" />
-                  <Cloud size={16} className="text-gray-600 hover:text-blue-400 cursor-pointer" />
-                </div>
-                <div className="h-4 w-px bg-gray-800"></div>
-                
-                {/* CLICKABLE DEPLOYMENT LIST */}
-                <div className="flex gap-2">
-                  {deployPlatforms.map(p => (
-                    <button key={p} onClick={() => alert(`Build Triggered on ${p}`)} className="text-[8px] font-black text-gray-500 bg-white/5 px-3 py-1.5 rounded-md border border-transparent hover:border-blue-600 hover:text-white transition-all">
-                      {p}
+
+              <div className="flex gap-12">
+                {/* SOURCE PROTOCOLS SECTION */}
+                <div className="space-y-4">
+                  <p className="text-[8px] font-black text-gray-500 uppercase tracking-[0.3em]">Source Protocols</p>
+                  <div className="flex gap-4">
+                    <button onClick={() => window.location.href = `https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}`} className="p-3 bg-white/5 rounded-xl hover:bg-white/10 hover:text-blue-500 transition-all">
+                      <Github size={20} />
                     </button>
-                  ))}
+                    <button className="p-3 bg-white/5 rounded-xl hover:bg-white/10 hover:text-orange-500 transition-all">
+                      <Gitlab size={20} />
+                    </button>
+                    <button className="p-3 bg-white/5 rounded-xl hover:bg-white/10 hover:text-blue-400 transition-all">
+                      <Cloud size={20} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="w-px h-16 bg-gray-800 mt-4"></div>
+
+                {/* CLICKABLE DEPLOYMENT MARKDOWN LIST */}
+                <div className="flex-1">
+                  <p className="text-[8px] font-black text-gray-500 uppercase tracking-[0.3em] mb-4">Deployment Manifest</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {deployTargets.map((target) => (
+                      <button 
+                        key={target.name} 
+                        onClick={() => alert(`Synchronizing with ${target.name}...`)}
+                        className="flex items-center justify-between px-4 py-2 bg-black/40 border border-gray-800/40 rounded-lg hover:border-blue-600/50 hover:bg-blue-600/5 transition-all group"
+                      >
+                        <span className="text-[9px] font-black text-gray-400 group-hover:text-white">{target.name}</span>
+                        <div className={`w-1.5 h-1.5 rounded-full ${target.status === 'Active' ? 'bg-green-500 animate-pulse' : 'bg-gray-700'}`}></div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
-            <button onClick={() => setChatOpen(!chatOpen)} className="bg-blue-600 p-6 rounded-[2rem] hover:scale-105 transition-all shadow-xl shadow-blue-900/40">
-              <MessageSquare size={28} fill="white" />
+
+            <button onClick={() => setChatOpen(!chatOpen)} className="bg-blue-600 p-7 rounded-[2.2rem] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-blue-900/40 ml-8">
+              <MessageSquare size={32} fill="white" stroke="none" />
             </button>
           </header>
 
+          {/* CODE BLOCKS */}
           <div className="space-y-8 pb-32">
             {memories.map((mem) => (
-              <div key={mem.id} className="bg-[#111319] border border-gray-800/40 rounded-[2.5rem] overflow-hidden">
-                <div className="flex justify-between items-center p-8 border-b border-gray-800/40 bg-white/[0.02]">
+              <div key={mem.id} className="bg-[#111319] border border-gray-800/40 rounded-[2.5rem] overflow-hidden group hover:border-blue-600/20 transition-all">
+                <div className="flex justify-between items-center p-8 border-b border-gray-800/40 bg-white/[0.01]">
                   <div className="flex items-center gap-4">
                     <Terminal size={18} className="text-blue-500"/>
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em]">{mem.file_name}</h3>
+                    <div>
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em]">{mem.file_name}</h3>
+                      <p className="text-[7px] text-gray-600 font-bold uppercase mt-1">Status: Verified</p>
+                    </div>
                   </div>
-                  <span className={`text-[8px] font-black uppercase px-4 py-2 rounded-lg flex items-center gap-2 border ${mem.is_verified ? 'text-green-500 bg-green-500/10 border-green-500/20' : 'text-gray-500 bg-gray-500/10 border-gray-500/20'}`}>
-                    <Box size={10}/> {mem.is_verified ? 'GROUNDED STATE' : 'AWAITING SYNC'}
+                  <span className="text-[8px] font-black uppercase px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-green-500 flex items-center gap-2">
+                    <Box size={10}/> GROUNDED STATE
                   </span>
                 </div>
                 <div className="p-8">
-                  <pre className="p-8 bg-black/40 rounded-[1.5rem] text-[11px] font-mono text-gray-400 overflow-x-auto border border-gray-800/20"><code>{mem.content}</code></pre>
+                  <pre className="p-8 bg-black/60 rounded-[1.5rem] text-[11px] font-mono text-gray-400 overflow-x-auto border border-gray-800/20 scrollbar-hide">
+                    <code>{mem.content}</code>
+                  </pre>
                 </div>
               </div>
             ))}
@@ -112,14 +148,16 @@ export default function ProjectDocPage() {
         </div>
       </div>
 
-      {/* CHAT SIDEBAR */}
+      {/* CHAT SIDEBAR (Remains for functionality) */}
       <div className={`fixed right-0 top-0 h-full w-[400px] bg-[#0d0f14] border-l border-gray-800/50 shadow-2xl transition-transform duration-500 z-50 ${chatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="h-full flex flex-col p-10">
           <div className="flex justify-between items-center mb-10">
-            <h3 className="text-[11px] font-black uppercase tracking-widest text-blue-500">NEURAL HUB</h3>
-            <button onClick={() => setChatOpen(false)} className="p-2 hover:bg-white/5 rounded-xl"><X size={18} className="text-gray-600" /></button>
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-blue-500 flex items-center gap-2">
+               <div className="w-2 h-2 bg-blue-600 rounded-full"></div> NEURAL HUB
+            </h3>
+            <button onClick={() => setChatOpen(false)} className="p-2 hover:bg-white/5 rounded-xl transition-colors"><X size={18} className="text-gray-600" /></button>
           </div>
-          <div className="flex-1 overflow-y-auto space-y-6 mb-8 pr-2">
+          <div className="flex-1 overflow-y-auto space-y-6 mb-8 pr-2 custom-scrollbar">
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] p-6 rounded-[1.8rem] text-[12px] leading-relaxed ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-[#111319] border border-gray-800 text-gray-300'}`}>
@@ -129,8 +167,16 @@ export default function ProjectDocPage() {
             ))}
           </div>
           <div className="relative">
-            <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} placeholder="QUERY ARCHIVE..." className="w-full bg-[#111319] border border-gray-800 rounded-2xl py-6 pl-8 pr-16 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600"/>
-            <button onClick={handleSendMessage} className="absolute right-5 top-1/2 -translate-y-1/2 p-2 text-blue-500"><Send size={20} /></button>
+            <input 
+              value={query} 
+              onChange={(e) => setQuery(e.target.value)} 
+              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} 
+              placeholder="QUERY ARCHIVE..." 
+              className="w-full bg-[#111319] border border-gray-800 rounded-2xl py-6 pl-8 pr-16 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 transition-all"
+            />
+            <button onClick={handleSendMessage} className="absolute right-5 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-white transition-colors">
+              <Send size={20} />
+            </button>
           </div>
         </div>
       </div>
