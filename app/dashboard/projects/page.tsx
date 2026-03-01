@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Star, Zap, Search, Loader2, X, Plus, Pencil, Trash2, Check, Github, Gitlab, Cloud } from 'lucide-react'
+import { Star, Zap, Search, Loader2, X, Plus, Pencil, Trash2, Check, Github, Gitlab, Cloud, CheckCircle2, AlertCircle } from 'lucide-react'
 
 export default function ProjectVault() {
   const router = useRouter()
@@ -16,6 +16,9 @@ export default function ProjectVault() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   
+  // Custom Notification State
+  const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
+
   // Modals State
   const [isNewNodeOpen, setIsNewNodeOpen] = useState(false)
   const [newNodeName, setNewNodeName] = useState('')
@@ -24,7 +27,6 @@ export default function ProjectVault() {
   const [editingProject, setEditingProject] = useState<any>(null)
   const [editName, setEditName] = useState('')
 
-  // --- NEW: SYNC MODAL STATE FOR DASHBOARD ---
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [syncingProject, setSyncingProject] = useState<any>(null)
   const [repoName, setRepoName] = useState('')
@@ -34,6 +36,12 @@ export default function ProjectVault() {
   useEffect(() => {
     fetchProjects()
   }, [])
+
+  // Helper function for professional notifications
+  const showNotification = (message: string, type: 'success' | 'error') => {
+    setNotification({ message, type })
+    setTimeout(() => setNotification(null), 4000) // Auto-hide after 4 seconds
+  }
 
   const fetchProjects = async () => {
     const { data, error } = await supabase
@@ -48,7 +56,7 @@ export default function ProjectVault() {
   const handleCreateNode = async () => {
     if (!newNodeName.trim()) return
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return alert("Please log in.")
+    if (!user) return showNotification("Authentication required. Please log in.", "error")
 
     const { data, error } = await supabase
       .from('projects')
@@ -59,6 +67,9 @@ export default function ProjectVault() {
       setProjects([data[0], ...projects])
       setNewNodeName('')
       setIsNewNodeOpen(false)
+      showNotification(`Node '${data[0].name}' initialized successfully.`, "success")
+    } else {
+      showNotification("Failed to initialize node.", "error")
     }
   }
 
@@ -71,10 +82,11 @@ export default function ProjectVault() {
     const { error } = await supabase.from('projects').update({ name: editName }).eq('id', editingProject.id)
 
     if (error) {
-      alert("Update failed: " + error.message)
+      showNotification("Update failed: " + error.message, "error")
     } else {
       setProjects(projects.map(p => p.id === editingProject.id ? { ...p, name: editName } : p))
       setIsEditModalOpen(false)
+      showNotification("Node parameters updated.", "success")
     }
   }
 
@@ -85,14 +97,14 @@ export default function ProjectVault() {
     const { error } = await supabase.from('projects').delete().eq('id', editingProject.id)
 
     if (error) {
-      alert("Deletion failed: " + error.message)
+      showNotification("Deletion failed: " + error.message, "error")
     } else {
       setProjects(projects.filter(p => p.id !== editingProject.id))
       setIsEditModalOpen(false)
+      showNotification("Node successfully decommissioned.", "success")
     }
   }
 
-  // --- NEW: SYNC HANDLER ---
   const handleSyncTrigger = async () => {
     if (!repoName.trim() || !syncingProject) return
     setIsSyncing(true)
@@ -107,14 +119,14 @@ export default function ProjectVault() {
       const result = await response.json()
       
       if (result.success) {
-        alert(`Success: ${result.count} files synchronized to ${syncingProject.name}.`)
+        showNotification(`${result.count} files synchronized to ${syncingProject.name}.`, "success")
         setIsSyncModalOpen(false)
         setRepoName('')
       } else {
-        alert(`Sync Error: ${result.error}`)
+        showNotification(`Sync Error: ${result.error}`, "error")
       }
     } catch (err) {
-      alert("Neural link failed to establish. Check connection.")
+      showNotification("Neural link failed to establish. Check connection.", "error")
     } finally {
       setIsSyncing(false)
     }
@@ -123,7 +135,7 @@ export default function ProjectVault() {
   if (loading) return <div className="h-screen bg-[#0a0b0e] flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" /></div>
 
   return (
-    <div className="max-w-7xl mx-auto p-12 min-h-screen bg-[#0a0b0e] text-white">
+    <div className="max-w-7xl mx-auto p-12 min-h-screen bg-[#0a0b0e] text-white relative overflow-hidden">
       <header className="mb-12 flex flex-col gap-6">
         <div className="flex justify-between items-end">
           <div>
@@ -170,7 +182,6 @@ export default function ProjectVault() {
               <button onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)} className="flex-1 bg-transparent border border-gray-800 py-4 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">
                 Enter Node
               </button>
-              {/* FIXED: WIRED THE ZAP BUTTON TO OPEN SYNC MODAL */}
               <button 
                 onClick={() => {
                   setSyncingProject(project)
@@ -266,6 +277,26 @@ export default function ProjectVault() {
           </div>
         </div>
       )}
+
+      {/* CUSTOM PROFESSIONAL TOAST NOTIFICATION */}
+      {notification && (
+        <div className="fixed bottom-10 right-10 z-[200] transition-all animate-in slide-in-from-bottom-5 fade-in duration-300">
+          <div className={`flex items-center gap-4 px-6 py-5 rounded-2xl border backdrop-blur-md shadow-2xl ${
+            notification.type === 'success' 
+            ? 'bg-green-950/40 border-green-500/30 text-green-400' 
+            : 'bg-red-950/40 border-red-500/30 text-red-400'
+          }`}>
+            {notification.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+            <p className="text-[11px] font-black uppercase tracking-widest leading-none mt-1">
+              {notification.message}
+            </p>
+            <button onClick={() => setNotification(null)} className="ml-4 opacity-50 hover:opacity-100 transition-opacity">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
