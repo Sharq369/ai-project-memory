@@ -30,7 +30,7 @@ export async function POST(req: Request) {
 
     // 4. Initialize Gemini (The Brain)
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
 
     const systemPrompt = `
       YOU ARE THE "NEURAL TERMINAL" FOR A VIBE CODER.
