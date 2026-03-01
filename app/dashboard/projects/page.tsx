@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Star, Zap, Search, Loader2, X, Plus, Pencil, Trash2, Check } from 'lucide-react'
+import { Star, Zap, Search, Loader2, X, Plus, Pencil, Trash2, Check, Github, Gitlab, Cloud } from 'lucide-react'
 
 export default function ProjectVault() {
   const router = useRouter()
@@ -23,6 +23,13 @@ export default function ProjectVault() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<any>(null)
   const [editName, setEditName] = useState('')
+
+  // --- NEW: SYNC MODAL STATE FOR DASHBOARD ---
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
+  const [syncingProject, setSyncingProject] = useState<any>(null)
+  const [repoName, setRepoName] = useState('')
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
 
   useEffect(() => {
     fetchProjects()
@@ -55,17 +62,13 @@ export default function ProjectVault() {
     }
   }
 
-  // --- NEW: UPDATE LOGIC ---
   const handleUpdateProject = async () => {
     if (!editName.trim() || editName === editingProject.name) {
       setIsEditModalOpen(false)
       return
     }
 
-    const { error } = await supabase
-      .from('projects')
-      .update({ name: editName })
-      .eq('id', editingProject.id)
+    const { error } = await supabase.from('projects').update({ name: editName }).eq('id', editingProject.id)
 
     if (error) {
       alert("Update failed: " + error.message)
@@ -75,21 +78,45 @@ export default function ProjectVault() {
     }
   }
 
-  // --- NEW: DELETE LOGIC ---
   const handleDeleteProject = async () => {
     const confirmDelete = window.confirm(`Permanently decommission node: ${editingProject.name}?`)
     if (!confirmDelete) return
 
-    const { error } = await supabase
-      .from('projects')
-      .delete()
-      .eq('id', editingProject.id)
+    const { error } = await supabase.from('projects').delete().eq('id', editingProject.id)
 
     if (error) {
       alert("Deletion failed: " + error.message)
     } else {
       setProjects(projects.filter(p => p.id !== editingProject.id))
       setIsEditModalOpen(false)
+    }
+  }
+
+  // --- NEW: SYNC HANDLER ---
+  const handleSyncTrigger = async () => {
+    if (!repoName.trim() || !syncingProject) return
+    setIsSyncing(true)
+    
+    try {
+      const response = await fetch(`/api/sync/${activeProvider}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo: repoName, projectId: syncingProject.id })
+      })
+
+      const result = await response.json()
+      
+      if (result.success) {
+        alert(`Success: ${result.count} files synchronized to ${syncingProject.name}.`)
+        setIsSyncModalOpen(false)
+        setRepoName('')
+      } else {
+        alert(`Sync Error: ${result.error}`)
+      }
+    } catch (err) {
+      alert("Neural link failed to establish. Check connection.")
+    } finally {
+      setIsSyncing(false)
     }
   }
 
@@ -126,7 +153,6 @@ export default function ProjectVault() {
             <div className="flex justify-between items-start mb-10">
               <h3 className="text-2xl font-black italic uppercase truncate pr-4">{project.name}</h3>
               <div className="flex gap-2">
-                {/* NEW PENCIL EDIT BUTTON */}
                 <button 
                   onClick={() => {
                     setEditingProject(project)
@@ -144,7 +170,14 @@ export default function ProjectVault() {
               <button onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)} className="flex-1 bg-transparent border border-gray-800 py-4 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">
                 Enter Node
               </button>
-              <button className="bg-blue-600 p-4 rounded-xl hover:scale-105 transition-all">
+              {/* FIXED: WIRED THE ZAP BUTTON TO OPEN SYNC MODAL */}
+              <button 
+                onClick={() => {
+                  setSyncingProject(project)
+                  setIsSyncModalOpen(true)
+                }} 
+                className="bg-blue-600 p-4 rounded-xl hover:scale-105 transition-all"
+              >
                 <Zap size={18} fill="white" stroke="none" />
               </button>
             </div>
@@ -162,6 +195,7 @@ export default function ProjectVault() {
               autoFocus
               value={newNodeName} 
               onChange={(e) => setNewNodeName(e.target.value)} 
+              onKeyDown={(e) => e.key === 'Enter' && handleCreateNode()}
               className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-4 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 mb-6"
             />
             <button onClick={handleCreateNode} className="w-full bg-blue-600 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">CREATE</button>
@@ -181,23 +215,54 @@ export default function ProjectVault() {
               autoFocus
               value={editName} 
               onChange={(e) => setEditName(e.target.value)} 
+              onKeyDown={(e) => e.key === 'Enter' && handleUpdateProject()}
               className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-4 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 mb-6"
             />
             
             <div className="flex gap-3">
-              <button 
-                onClick={handleDeleteProject} 
-                className="flex-1 bg-red-900/20 border border-red-900/40 py-4 rounded-xl text-[9px] font-black uppercase text-red-500 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center gap-2"
-              >
+              <button onClick={handleDeleteProject} className="flex-1 bg-red-900/20 border border-red-900/40 py-4 rounded-xl text-[9px] font-black uppercase text-red-500 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center gap-2">
                 <Trash2 size={14} /> DEPLOY DELETE
               </button>
-              <button 
-                onClick={handleUpdateProject} 
-                className="flex-1 bg-blue-600 py-4 rounded-xl text-[9px] font-black uppercase text-white hover:bg-white hover:text-black transition-all flex items-center justify-center gap-2"
-              >
+              <button onClick={handleUpdateProject} className="flex-1 bg-blue-600 py-4 rounded-xl text-[9px] font-black uppercase text-white hover:bg-white hover:text-black transition-all flex items-center justify-center gap-2">
                 <Check size={14} /> SAVE CHANGES
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* SYNC MODAL */}
+      {isSyncModalOpen && syncingProject && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
+          <div className="bg-[#111319] border border-gray-800 w-full max-w-sm rounded-[2.5rem] p-10 relative shadow-2xl">
+            <button onClick={() => setIsSyncModalOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white transition-colors">
+              <X size={18}/>
+            </button>
+            
+            <div className="flex gap-4 justify-center mb-6">
+              <button onClick={() => setActiveProvider('github')} className={`p-3 rounded-xl transition-all ${activeProvider === 'github' ? 'bg-white/10 text-blue-500 border border-blue-500/30' : 'bg-white/5 text-gray-500 hover:text-blue-500'}`}><Github size={20} /></button>
+              <button onClick={() => setActiveProvider('gitlab')} className={`p-3 rounded-xl transition-all ${activeProvider === 'gitlab' ? 'bg-white/10 text-orange-500 border border-orange-500/30' : 'bg-white/5 text-gray-500 hover:text-orange-500'}`}><Gitlab size={20} /></button>
+              <button onClick={() => setActiveProvider('bitbucket')} className={`p-3 rounded-xl transition-all ${activeProvider === 'bitbucket' ? 'bg-white/10 text-blue-400 border border-blue-400/30' : 'bg-white/5 text-gray-500 hover:text-blue-400'}`}><Cloud size={20} /></button>
+            </div>
+
+            <h2 className="text-xl font-black italic uppercase mb-2 text-center">{activeProvider} SYNC</h2>
+            <p className="text-[9px] text-gray-500 font-black text-center uppercase tracking-widest mb-8 leading-relaxed truncate">Target Node: {syncingProject.name}</p>
+            
+            <input 
+              autoFocus
+              value={repoName} 
+              onChange={(e) => setRepoName(e.target.value)} 
+              placeholder="e.g., owner/repository"
+              className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-4 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 mb-6 transition-all text-center"
+            />
+            
+            <button 
+              onClick={handleSyncTrigger} 
+              disabled={isSyncing || !repoName.trim()}
+              className={`w-full py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${isSyncing ? 'bg-blue-600/50 cursor-not-allowed' : 'bg-blue-600 hover:bg-white hover:text-black'}`}
+            >
+              {isSyncing ? <><Loader2 size={14} className="animate-spin"/> PULLING REPOSITORY...</> : <><Zap size={14}/> INJECT CODE TO NODE</>}
+            </button>
           </div>
         </div>
       )}
