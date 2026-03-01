@@ -2,17 +2,22 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
-  X, Pencil, Github, Gitlab, Cloud, Terminal, Box, Check
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Box, Check, Copy
 } from 'lucide-react'
-
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
 export default function ProjectDocPage() {
   const { id } = useParams()
   const router = useRouter()
+  
+  // Upgraded to match our new SSR setup
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
   const [memories, setMemories] = useState<any[]>([])
   const [project, setProject] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -24,6 +29,9 @@ export default function ProjectDocPage() {
   // Edit State
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState('')
+
+  // Clipboard State
+  const [copied, setCopied] = useState(false)
 
   const deployTargets = [
     { name: 'VERCEL', status: 'Active' },
@@ -43,7 +51,7 @@ export default function ProjectDocPage() {
       setLoading(false)
     }
     if (id) loadData()
-  }, [id])
+  }, [id, supabase])
 
   // Functional Rename
   const handleRename = async () => {
@@ -58,11 +66,13 @@ export default function ProjectDocPage() {
     setIsEditing(false)
   }
 
+  // Neural Hub Chat
   const handleSendMessage = async () => {
     if (!query.trim() || isThinking) return;
     const userMsg = { role: 'user', content: query }
     setMessages(prev => [...prev, userMsg])
-    setQuery(''); setIsThinking(true)
+    setQuery('');
+    setIsThinking(true)
     try {
       const res = await fetch('/api/chat', { method: 'POST', body: JSON.stringify({ query: userMsg.content, projectId: id }) })
       const data = await res.json()
@@ -70,6 +80,22 @@ export default function ProjectDocPage() {
     } catch (e) {
       setMessages(prev => [...prev, { role: 'ai', content: "Neural Link Disrupted." }])
     } finally { setIsThinking(false) }
+  }
+
+  // NEW: Context Clipboard Function
+  const copyNeuralContext = async () => {
+    if (memories.length === 0) return;
+
+    const contextHeader = `NEURAL NODE CONTEXT: Project Designation "${project?.name}"\n`
+    const contextBody = memories.map(mem => (
+      `--- FILE: ${mem.file_name} ---\n${mem.content}\n`
+    )).join('\n')
+
+    const fullContext = `${contextHeader}\n${contextBody}\n\nINSTRUCTION: Please analyze this project state and wait for my next command.`
+
+    await navigator.clipboard.writeText(fullContext)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   if (loading) return <div className="h-screen bg-[#0a0b0e] flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" /></div>
@@ -82,6 +108,7 @@ export default function ProjectDocPage() {
         </button>
 
         <div className="max-w-5xl mx-auto">
+          {/* HEADER SECTION */}
           <header className="bg-[#111319] border border-gray-800/40 p-10 rounded-[2.5rem] flex justify-between items-start mb-10 shadow-2xl relative">
             <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-600"></div>
             
@@ -103,7 +130,7 @@ export default function ProjectDocPage() {
                 ) : (
                   <>
                     <h1 className="text-6xl font-black italic uppercase tracking-tighter leading-none">{project?.name}</h1>
-                    <button onClick={() => { setEditName(project.name); setIsEditing(true); }} className="p-2 bg-blue-600/10 border border-blue-600/20 rounded-lg text-blue-500 hover:bg-blue-600 hover:text-white transition-all">
+                    <button onClick={() => { setEditName(project?.name); setIsEditing(true); }} className="p-2 bg-blue-600/10 border border-blue-600/20 rounded-lg text-blue-500 hover:bg-blue-600 hover:text-white transition-all">
                       <Pencil size={14} />
                     </button>
                   </>
@@ -114,7 +141,6 @@ export default function ProjectDocPage() {
                 <div className="space-y-4">
                   <p className="text-[8px] font-black text-gray-500 uppercase tracking-[0.3em]">Source Protocols</p>
                   <div className="flex gap-4">
-                    {/* Fixed GitHub Trigger */}
                     <button onClick={() => alert("Neural Sync Triggered. Awaiting GitHub Webhook...")} className="p-3 bg-white/5 rounded-xl hover:bg-white/10 hover:text-blue-500 transition-all">
                       <Github size={20} />
                     </button>
@@ -148,8 +174,27 @@ export default function ProjectDocPage() {
             </button>
           </header>
 
+          {/* NEW: CONTEXT CLIPBOARD BAR */}
+          <div className="flex justify-between items-center mb-8">
+            <h2 className="text-xl font-black italic uppercase tracking-tighter text-gray-400">Archived Nodes</h2>
+            <button 
+              onClick={copyNeuralContext}
+              disabled={memories.length === 0}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                copied 
+                  ? 'bg-green-600 text-white' 
+                  : memories.length === 0
+                    ? 'bg-gray-800/50 text-gray-600 cursor-not-allowed'
+                    : 'bg-[#111319] border border-blue-600/30 text-blue-400 hover:bg-blue-600 hover:text-white'
+              }`}
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? 'CONTEXT SYNCED' : 'COPY NODE CONTEXT'}
+            </button>
+          </div>
+
+          {/* MEMORIES SECTION */}
           <div className="space-y-8 pb-32">
-             {/* Render Memories here exactly as before */}
             {memories.map((mem) => (
               <div key={mem.id} className="bg-[#111319] border border-gray-800/40 rounded-[2.5rem] overflow-hidden group hover:border-blue-600/20 transition-all">
                 <div className="flex justify-between items-center p-8 border-b border-gray-800/40 bg-white/[0.01]">
@@ -171,11 +216,17 @@ export default function ProjectDocPage() {
                 </div>
               </div>
             ))}
+            
+            {memories.length === 0 && !loading && (
+              <div className="text-center p-12 border border-dashed border-gray-800 rounded-[2.5rem]">
+                <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">No grounded code memories found.</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* CHAT SIDEBAR REMAINS UNCHANGED */}
+      {/* CHAT SIDEBAR REMAINS EXACTLY AS BEFORE */}
       <div className={`fixed right-0 top-0 h-full w-[400px] bg-[#0d0f14] border-l border-gray-800/50 shadow-2xl transition-transform duration-500 z-50 ${chatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="h-full flex flex-col p-10">
           <div className="flex justify-between items-center mb-10">
