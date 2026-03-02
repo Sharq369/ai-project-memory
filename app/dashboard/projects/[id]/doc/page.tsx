@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
-  X, Pencil, Github, Gitlab, Cloud, Terminal, Box, Check, Copy, Zap, Trash2, Eye, Globe, Cpu, HardDrive
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Box, Check, Copy, Zap, Trash2, Globe, Cpu, HardDrive, Server, Shield
 } from 'lucide-react'
 
 export default function ProjectDocPage() {
@@ -28,16 +28,24 @@ export default function ProjectDocPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [selectedFile, setSelectedFile] = useState<any | null>(null)
+  
+  // Track which specific card was copied
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const [fileCopied, setFileCopied] = useState(false)
+  
+  // Sync States
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [repoName, setRepoName] = useState('')
   const [isSyncing, setIsSyncing] = useState(false)
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
 
+  // --- FULL DEPLOYMENT MANIFEST ---
   const deployTargets = [
     { name: 'VERCEL EDGE', status: 'ACTIVE', icon: <Globe size={10}/> },
     { name: 'AWS LAMBDA', status: 'STANDBY', icon: <Cpu size={10}/> },
-    { name: 'AZURE BLOB', status: 'OFFLINE', icon: <HardDrive size={10}/> }
+    { name: 'AZURE BLOB', status: 'OFFLINE', icon: <HardDrive size={10}/> },
+    { name: 'CLOUDFLARE', status: 'ACTIVE', icon: <Shield size={10}/> },
+    { name: 'NETLIFY', status: 'STANDBY', icon: <Server size={10}/> }
   ]
 
   // --- DATA LOADING ---
@@ -61,6 +69,13 @@ export default function ProjectDocPage() {
   }, [loadData])
 
   // --- ACTIONS ---
+  const handleCopy = (e: React.MouseEvent, content: string, memoryId: string) => {
+    e.stopPropagation() // Prevents opening the modal
+    navigator.clipboard.writeText(content)
+    setCopiedId(memoryId)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
   const handleDeleteMemory = async (e: React.MouseEvent, memoryId: string) => {
     e.stopPropagation() 
     if (!confirm("PERMANENTLY WIPE THIS NODE FROM DATABASE?")) return
@@ -154,7 +169,7 @@ export default function ProjectDocPage() {
 
                 <div className="flex-1">
                   <p className="text-[8px] font-black text-gray-500 uppercase tracking-[0.3em] mb-4">Deployment Manifest</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {deployTargets.map((target) => (
                       <div key={target.name} className="flex items-center justify-between px-5 py-3 bg-black/40 border border-gray-800/40 rounded-xl">
                         <div className="flex items-center gap-3">
@@ -179,7 +194,7 @@ export default function ProjectDocPage() {
             <Box size={18}/> Archived Nodes
           </h2>
 
-          {/* MEMORY CARDS - DESIGN RESTORED + DELETE ADDED */}
+          {/* MEMORY CARDS - DESIGN RESTORED + COPY BUTTON + DELETE ADDED */}
           <div className="grid grid-cols-1 gap-6 pb-40">
             {memories.map((mem) => (
               <div key={mem.id} onClick={() => setSelectedFile(mem)} className="bg-[#111319] border border-gray-800/40 rounded-[2.5rem] group hover:border-blue-600/30 transition-all cursor-pointer relative overflow-hidden shadow-lg active:scale-[0.99]">
@@ -190,9 +205,22 @@ export default function ProjectDocPage() {
                     </div>
                     <h3 className="text-[11px] font-black uppercase tracking-[0.2em] group-hover:text-blue-400 transition-colors">{mem.file_name}</h3>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-[8px] font-black uppercase px-4 py-2 bg-green-500/10 text-green-500 rounded-lg border border-green-500/20">VERIFIED</span>
-                    <button onClick={(e) => handleDeleteMemory(e, mem.id)} className="p-3 text-gray-700 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[8px] font-black uppercase px-4 py-2 bg-green-500/10 text-green-500 rounded-lg border border-green-500/20 mr-2">VERIFIED</span>
+                    
+                    {/* RESTORED COPY BUTTON ON CARD */}
+                    <button 
+                      onClick={(e) => handleCopy(e, mem.content, mem.id)} 
+                      className="p-3 text-gray-600 hover:text-white hover:bg-white/10 rounded-xl transition-all"
+                    >
+                      {copiedId === mem.id ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
+                    </button>
+
+                    {/* DELETE BUTTON */}
+                    <button 
+                      onClick={(e) => handleDeleteMemory(e, mem.id)} 
+                      className="p-3 text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"
+                    >
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -230,6 +258,20 @@ export default function ProjectDocPage() {
             <div className="flex-1 overflow-auto p-10 bg-black/20 custom-scrollbar">
               <pre className="text-[13px] leading-relaxed font-mono text-blue-100/70 whitespace-pre"><code>{selectedFile.content}</code></pre>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- SYNC MODAL --- */}
+      {isSyncModalOpen && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[250] flex items-center justify-center p-6">
+          <div className="bg-[#111319] border border-gray-800 w-full max-w-sm rounded-[2.5rem] p-10 relative">
+            <button onClick={() => setIsSyncModalOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white"><X size={18}/></button>
+            <h2 className="text-xl font-black italic uppercase mb-8">{activeProvider} SYNC</h2>
+            <input autoFocus value={repoName} onChange={(e) => setRepoName(e.target.value)} placeholder="owner/repository" className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-4 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 mb-6"/>
+            <button onClick={() => {/* your sync logic */}} disabled={isSyncing || !repoName.trim()} className="w-full py-4 bg-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2">
+              {isSyncing ? <Loader2 size={14} className="animate-spin"/> : <Zap size={14}/>} {isSyncing ? 'SYNCING...' : 'INITIATE SYNC'}
+            </button>
           </div>
         </div>
       )}
