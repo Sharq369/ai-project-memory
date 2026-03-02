@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
@@ -17,7 +17,7 @@ export default function ProjectDocPage() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  // Core States
+  // --- STATES ---
   const [memories, setMemories] = useState<any[]>([])
   const [project, setProject] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -28,8 +28,6 @@ export default function ProjectDocPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [copied, setCopied] = useState(false)
-
-  // Code Preview & Sync States
   const [selectedFile, setSelectedFile] = useState<any | null>(null)
   const [fileCopied, setFileCopied] = useState(false)
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
@@ -37,17 +35,16 @@ export default function ProjectDocPage() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
 
+  // --- DATA LOADING ---
   const loadData = useCallback(async () => {
     if (!id) return
     const { data: proj } = await supabase.from('projects').select('*').eq('id', id).single()
     setProject(proj)
-    
     const { data: mems } = await supabase
       .from('code_memories')
       .select('*')
       .eq('project_id', id)
       .order('file_name', { ascending: true })
-    
     if (mems) setMemories(mems)
     setLoading(false)
   }, [id, supabase])
@@ -56,25 +53,21 @@ export default function ProjectDocPage() {
     loadData()
   }, [loadData])
 
-  // --- PERSISTENT DELETE LOGIC ---
-  const handleDeleteMemory = async (e: React.MouseEvent, memoryId: string) => {
-    e.stopPropagation() // Prevents opening preview modal
-    if (!confirm("Permanently wipe this node from the database?")) return
-
-    const { error } = await supabase
-      .from('code_memories')
-      .delete()
-      .eq('id', memoryId)
-
-    if (error) {
-      alert(`Wipe Failed: ${error.message}`)
-    } else {
+  // --- PERSISTENT DELETE (Fixes "Reappearing" bug) ---
+  const handleDeleteMemory = async (e: any, memoryId: string) => {
+    e.stopPropagation()
+    if (!confirm("Wipe this node from the database forever?")) return
+    try {
+      const { error } = await supabase.from('code_memories').delete().eq('id', memoryId)
+      if (error) throw error
       setMemories(prev => prev.filter(m => m.id !== memoryId))
+    } catch (err: any) {
+      alert(`Wipe Failed: ${err.message}. Check your Supabase DELETE policy.`)
     }
   }
 
   const handleRename = async () => {
-    if (!editName.trim() || editName === project.name) {
+    if (!editName.trim() || editName === project?.name) {
       setIsEditing(false)
       return
     }
@@ -87,17 +80,18 @@ export default function ProjectDocPage() {
     if (!repoName.trim()) return
     setIsSyncing(true)
     try {
-      const response = await fetch(`/api/sync/${activeProvider}`, {
+      const res = await fetch(`/api/sync/${activeProvider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repo: repoName, projectId: id })
       })
-      const result = await response.json()
-      if (result.success) {
+      if (res.ok) {
         await loadData()
         setIsSyncModalOpen(false)
         setRepoName('')
       }
+    } catch (err) {
+      console.error(err)
     } finally {
       setIsSyncing(false)
     }
@@ -116,34 +110,41 @@ export default function ProjectDocPage() {
       })
       const data = await res.json()
       setMessages(prev => [...prev, { role: 'ai', content: data.response || data.error }])
+    } catch (e) {
+      setMessages(prev => [...prev, { role: 'ai', content: "Neural Hub Link Failure." }])
     } finally { 
       setIsThinking(false) 
     }
   }
 
-  if (loading) return <div className="h-screen bg-[#0a0b0e] flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" /></div>
+  if (loading) {
+    return (
+      <div className="h-screen bg-[#0a0b0e] flex items-center justify-center">
+        <Loader2 className="animate-spin text-blue-500" />
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-[#0a0b0e] text-white flex overflow-hidden relative font-sans">
+    <div className="min-h-screen bg-[#0a0b0e] text-white flex overflow-hidden relative">
       
       {/* MAIN VIEWPORT */}
       <div className={`flex-1 p-6 lg:p-12 transition-all duration-500 overflow-y-auto ${chatOpen ? 'mr-[400px]' : ''}`}>
-        <button onClick={() => router.push('/dashboard/projects')} className="flex items-center gap-2 text-gray-600 hover:text-white text-[9px] font-black uppercase mb-12 tracking-[0.2em] group">
+        <button onClick={() => router.push('/dashboard/projects')} className="flex items-center gap-2 text-gray-600 hover:text-white text-[9px] font-black uppercase mb-12 tracking-widest group">
           <ChevronLeft size={14} className="group-hover:-translate-x-1 transition-transform"/> BACK TO VAULT
         </button>
 
         <div className="max-w-5xl mx-auto">
-          {/* HEADER SECTION */}
           <header className="bg-[#111319] border border-gray-800/40 p-10 rounded-[2.5rem] flex flex-col lg:flex-row justify-between items-start mb-10 shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-600"></div>
             <div className="flex-1">
               <div className="flex items-center gap-4 mb-8">
                 {isEditing ? (
-                  <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)} onBlur={handleRename} onKeyDown={(e) => e.key === 'Enter' && handleRename()} className="bg-black/50 border border-blue-600 rounded-xl px-4 py-2 text-4xl font-black uppercase text-white outline-none w-full max-w-md"/>
+                  <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)} onBlur={handleRename} onKeyDown={(e) => e.key === 'Enter' && handleRename()} className="bg-black/40 border border-blue-600 rounded-xl px-4 py-2 text-4xl font-black uppercase outline-none text-white"/>
                 ) : (
                   <>
                     <h1 className="text-4xl lg:text-6xl font-black italic uppercase tracking-tighter leading-none">{project?.name}</h1>
-                    <button onClick={() => { setEditName(project?.name); setIsEditing(true); }} className="p-2 text-blue-500"><Pencil size={14} /></button>
+                    <button onClick={() => { setEditName(project?.name); setIsEditing(true); }} className="text-blue-500"><Pencil size={16} /></button>
                   </>
                 )}
               </div>
@@ -161,11 +162,10 @@ export default function ProjectDocPage() {
 
           <h2 className="text-xl font-black italic uppercase tracking-tighter text-gray-500 mb-8">Archived Nodes</h2>
 
-          {/* MEMORY BLOCKS */}
           <div className="grid grid-cols-1 gap-6 pb-32">
             {memories.map((mem) => (
               <div key={mem.id} onClick={() => setSelectedFile(mem)} className="bg-[#111319] border border-gray-800/40 rounded-[2rem] group hover:border-blue-600/30 transition-all cursor-pointer relative overflow-hidden">
-                <div className="flex justify-between items-center p-6 border-b border-gray-800/20">
+                <div className="flex justify-between items-center p-6 border-b border-gray-800/20 bg-white/[0.01]">
                   <div className="flex items-center gap-4">
                     <Terminal size={18} className="text-blue-500"/>
                     <h3 className="text-[10px] font-black uppercase tracking-widest">{mem.file_name}</h3>
@@ -210,7 +210,7 @@ export default function ProjectDocPage() {
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* --- SYNC MODAL --- */}
       {isSyncModalOpen && (
