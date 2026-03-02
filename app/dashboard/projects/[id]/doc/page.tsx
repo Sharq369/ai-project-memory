@@ -37,7 +37,7 @@ export default function ProjectDocPage() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
 
-  // --- FULL DEPLOYMENT MANIFEST (Restored all 6 targets) ---
+  // --- FULL DEPLOYMENT MANIFEST (Restored all 7 targets) ---
   const deployTargets = [
     { name: 'VERCEL', status: 'Active' },
     { name: 'AWS', status: 'Ready' },
