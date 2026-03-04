@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
-  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2, CheckSquare, Square
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2, CheckSquare, Square, RefreshCw
 } from 'lucide-react'
 
 export default function ProjectDocPage() {
@@ -91,10 +91,7 @@ export default function ProjectDocPage() {
     e.stopPropagation() 
     if (!confirm("Are you sure you want to permanently delete this file?")) return
 
-    const { error } = await supabase
-      .from('code_memories')
-      .delete()
-      .eq('id', memoryId)
+    const { error } = await supabase.from('code_memories').delete().eq('id', memoryId)
 
     if (error) {
       alert(`Delete Failed: ${error.message}`)
@@ -104,11 +101,18 @@ export default function ProjectDocPage() {
     }
   }
 
+  // --- UPDATED SYNC LOGIC FOR RE-SYNCING ---
   const handleSyncTrigger = async () => {
     if (!repoName.trim()) return
     setIsSyncing(true)
     
     try {
+      // 1. If updating, clean the slate first to prevent duplicate files!
+      if (memories.length > 0) {
+        await supabase.from('code_memories').delete().eq('project_id', id)
+      }
+
+      // 2. Fetch fresh files
       const response = await fetch(`/api/sync/${activeProvider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -119,13 +123,14 @@ export default function ProjectDocPage() {
       
       if (result.success) {
         if (result.count === 0) {
-           alert("Sync completed, but 0 files were pulled. Make sure your repo name is exact (e.g., owner/repo).")
+           alert("Sync completed, but 0 files were pulled. Make sure your repo name is exact.")
         } else {
-           alert(`Success: ${result.count} files synchronized to your project.`)
+           alert(`Success: ${result.count} files pulled. Project is up to date!`)
         }
-        await loadData()
+        await loadData() // Reload the fresh list
         setIsSyncModalOpen(false)
         setRepoName('')
+        setSelectedForAI([]) // Clear selection on update
       } else {
         alert(`Sync API Error: ${result.error}`)
       }
@@ -158,7 +163,6 @@ export default function ProjectDocPage() {
   }
 
   // --- VIBE CODING LOGIC ---
-
   const toggleFileSelection = (e: React.MouseEvent, memoryId: string) => {
     e.stopPropagation()
     setSelectedForAI(prev => 
@@ -176,13 +180,10 @@ export default function ProjectDocPage() {
 
   const copySelectedForAI = async () => {
     if (selectedForAI.length === 0) return
-    
     const filteredMemories = memories.filter(m => selectedForAI.includes(m.id))
-    
     let markdownOutput = `# Project Context: "${project?.name}"\n\n`
     
     filteredMemories.forEach(mem => {
-      // Guess language for syntax highlighting
       const ext = mem.file_name.split('.').pop()?.toLowerCase() || ''
       let lang = ext
       if (['ts', 'tsx'].includes(ext)) lang = 'typescript'
@@ -209,6 +210,9 @@ export default function ProjectDocPage() {
       <Loader2 className="animate-spin text-gray-500" />
     </div>
   )
+
+  // Derive Status Tag
+  const projectStatus = memories.length === 0 ? 'Grounded' : 'Active'
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-gray-200 flex overflow-hidden font-sans selection:bg-blue-500/30">
@@ -243,8 +247,14 @@ export default function ProjectDocPage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <h1 className="text-3xl md:text-4xl font-semibold text-white tracking-tight">{project?.name}</h1>
+                    
+                    {/* GROUNDED / ACTIVE STATUS TAG */}
+                    <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border ${projectStatus === 'Grounded' ? 'bg-gray-800/80 text-gray-400 border-gray-700' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
+                      {projectStatus}
+                    </span>
+
                     <button onClick={() => { setEditName(project?.name); setIsEditing(true); }} className="p-1.5 text-gray-500 hover:text-white rounded-md hover:bg-white/5 transition-colors">
                       <Pencil size={14} />
                     </button>
@@ -257,13 +267,13 @@ export default function ProjectDocPage() {
                 <div className="space-y-3">
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Sync Source</p>
                   <div className="flex gap-3">
-                    <button onClick={() => { setActiveProvider('github'); setIsSyncModalOpen(true); }} className="p-2.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-gray-500 transition-all text-gray-300 hover:text-white">
+                    <button onClick={() => { setActiveProvider('github'); setIsSyncModalOpen(true); }} className="p-2.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-gray-500 transition-all text-gray-300 hover:text-white" title="Sync / Update GitHub">
                       <Github size={18} />
                     </button>
-                    <button onClick={() => { setActiveProvider('gitlab'); setIsSyncModalOpen(true); }} className="p-2.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-orange-500 transition-all text-gray-300 hover:text-white">
+                    <button onClick={() => { setActiveProvider('gitlab'); setIsSyncModalOpen(true); }} className="p-2.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-orange-500 transition-all text-gray-300 hover:text-white" title="Sync / Update GitLab">
                       <Gitlab size={18} />
                     </button>
-                    <button onClick={() => { setActiveProvider('bitbucket'); setIsSyncModalOpen(true); }} className="p-2.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-blue-400 transition-all text-gray-300 hover:text-white">
+                    <button onClick={() => { setActiveProvider('bitbucket'); setIsSyncModalOpen(true); }} className="p-2.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-blue-400 transition-all text-gray-300 hover:text-white" title="Sync / Update Bitbucket">
                       <Cloud size={18} />
                     </button>
                   </div>
@@ -311,17 +321,19 @@ export default function ProjectDocPage() {
               )}
             </div>
             
-            <button 
-              onClick={copySelectedForAI} 
-              disabled={selectedForAI.length === 0}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all w-full sm:w-auto justify-center
-                ${copied ? 'bg-green-600 text-white shadow-[0_0_15px_rgba(22,163,74,0.4)]' : 
-                  selectedForAI.length === 0 ? 'bg-[#0a0a0a] text-gray-600 cursor-not-allowed border border-gray-800' : 
-                  'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20'}`}
-            >
-              {copied ? <Check size={14} /> : <Terminal size={14} />}
-              {copied ? 'Markdown Copied!' : `Copy Selected (${selectedForAI.length}) for AI`}
-            </button>
+            <div className="flex w-full sm:w-auto gap-2">
+              <button 
+                onClick={copySelectedForAI} 
+                disabled={selectedForAI.length === 0}
+                className={`flex-1 sm:flex-none flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all justify-center
+                  ${copied ? 'bg-green-600 text-white shadow-[0_0_15px_rgba(22,163,74,0.4)]' : 
+                    selectedForAI.length === 0 ? 'bg-[#0a0a0a] text-gray-600 cursor-not-allowed border border-gray-800' : 
+                    'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20'}`}
+              >
+                {copied ? <Check size={14} /> : <Terminal size={14} />}
+                {copied ? 'Markdown Copied!' : `Copy Selected (${selectedForAI.length})`}
+              </button>
+            </div>
           </div>
 
           {/* PROFESSIONAL FILE LIST UI */}
@@ -346,12 +358,10 @@ export default function ProjectDocPage() {
                     className={`bg-[#0e1117] border rounded-lg overflow-hidden transition-colors cursor-pointer shadow-sm group
                       ${isSelected ? 'border-blue-500/50 bg-blue-950/10' : 'border-gray-800 hover:border-gray-600'}`}
                   >
-                    {/* File Header */}
                     <div className={`flex justify-between items-center px-4 py-3 border-b transition-colors
                       ${isSelected ? 'border-blue-500/20 bg-blue-900/10' : 'border-gray-800/50 bg-[#161b22]'}`}>
                       
                       <div className="flex items-center gap-3 overflow-hidden flex-1">
-                        {/* Custom Checkbox Hitbox to prevent modal open */}
                         <div 
                           onClick={(e) => toggleFileSelection(e, mem.id)}
                           className="p-1 -ml-1 cursor-pointer text-gray-500 hover:text-white transition-colors"
@@ -364,26 +374,22 @@ export default function ProjectDocPage() {
                         </h3>
                       </div>
                       
-                      {/* Action Buttons */}
                       <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                         <button 
                           onClick={(e) => copyIndividualBlock(e, mem.content, mem.id)} 
                           className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors bg-[#0a0a0a] border border-gray-800"
-                          title="Copy raw code"
                         >
                            {individualCopiedId === mem.id ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                         </button>
                         <button 
                           onClick={(e) => handleDeleteMemory(e, mem.id)} 
                           className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#0a0a0a] border border-gray-800"
-                          title="Delete file"
                         >
                            <Trash2 size={14}/>
                         </button>
                       </div>
                     </div>
                     
-                    {/* Code Preview */}
                     <div className="p-4 bg-[#0d1117] opacity-80">
                       <pre className="text-xs font-mono text-gray-400 overflow-hidden line-clamp-2">
                         <code>{mem.content}</code>
@@ -414,7 +420,7 @@ export default function ProjectDocPage() {
         </div>
       )}
 
-      {/* SYNC MODAL */}
+      {/* SYNC/UPDATE MODAL */}
       {isSyncModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-[#111111] border border-gray-800 w-full max-w-md rounded-xl p-8 relative shadow-2xl">
@@ -426,10 +432,14 @@ export default function ProjectDocPage() {
               {activeProvider === 'github' && <Github className="text-gray-200" size={24}/>}
               {activeProvider === 'gitlab' && <Gitlab className="text-orange-500" size={24}/>}
               {activeProvider === 'bitbucket' && <Cloud className="text-blue-400" size={24}/>}
-              <h2 className="text-xl font-semibold capitalize text-white">{activeProvider} Sync</h2>
+              <h2 className="text-xl font-semibold capitalize text-white">{memories.length > 0 ? 'Update Sync' : `${activeProvider} Sync`}</h2>
             </div>
             
-            <p className="text-sm text-gray-400 mb-6">Enter the repository name to pull its code into this project.</p>
+            <p className="text-sm text-gray-400 mb-6">
+              {memories.length > 0 
+                ? "This will replace your current project files with the latest version from the repository." 
+                : "Enter the repository name to pull its code into this project."}
+            </p>
             
             <div className="space-y-4">
               <div>
@@ -448,14 +458,14 @@ export default function ProjectDocPage() {
                 disabled={isSyncing || !repoName.trim()}
                 className={`w-full py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all ${isSyncing || !repoName.trim() ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20'}`}
               >
-                {isSyncing ? <><Loader2 size={16} className="animate-spin"/> Syncing...</> : <><Zap size={16}/> Pull Files</>}
+                {isSyncing ? <><Loader2 size={16} className="animate-spin"/> Syncing...</> : memories.length > 0 ? <><RefreshCw size={16}/> Pull Updates</> : <><Zap size={16}/> Pull Files</>}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* CHAT SIDEBAR */}
+      {/* CHAT SIDEBAR (Unchanged from previous) */}
       <div className={`fixed right-0 top-0 h-full w-full sm:w-[400px] bg-[#0a0a0a] border-l border-gray-800 shadow-2xl transition-transform duration-300 z-50 ${chatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="h-full flex flex-col p-6 sm:p-8">
           
