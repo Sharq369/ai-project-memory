@@ -5,14 +5,14 @@ import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
-  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2, CheckSquare, Square, RefreshCw
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2, CheckSquare, Square, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle, Info
 } from 'lucide-react'
 
 export default function ProjectDocPage() {
   const { id } = useParams()
   const router = useRouter()
   
-  // Initialize Supabase Browser Client
+  // Initialize Supabase
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -36,6 +36,11 @@ export default function ProjectDocPage() {
   const [individualCopiedId, setIndividualCopiedId] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<any | null>(null)
 
+  // --- PREMIUM UI STATE ---
+  const [notification, setNotification] = useState<{ visible: boolean, type: 'success' | 'error' | 'info', message: string }>({ visible: false, type: 'info', message: '' })
+  const [fileToDelete, setFileToDelete] = useState<{ id: string, name: string } | null>(null)
+  const [isDeletingFile, setIsDeletingFile] = useState(false)
+
   // --- SYNC ENGINE STATE ---
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [repoName, setRepoName] = useState('')
@@ -45,7 +50,6 @@ export default function ProjectDocPage() {
   // --- VIBE CODING FILTER STATE ---
   const [selectedForAI, setSelectedForAI] = useState<string[]>([])
 
-  // Deployment Targets
   const deployTargets = [
     { name: 'Vercel', status: 'Active' },
     { name: 'AWS', status: 'Ready' },
@@ -55,64 +59,69 @@ export default function ProjectDocPage() {
     { name: 'Railway', status: 'Idle' }
   ]
 
-  // Data Loading
+  // Helper to show premium toasts
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    setNotification({ visible: true, type, message })
+    setTimeout(() => {
+      setNotification(prev => ({ ...prev, visible: false }))
+    }, 4000)
+  }
+
   const loadData = useCallback(async () => {
     if (!id) return
     const { data: proj } = await supabase.from('projects').select('*').eq('id', id).single()
     setProject(proj)
     
-    const { data: mems } = await supabase
-      .from('code_memories')
-      .select('*')
-      .eq('project_id', id)
-      .order('file_name', { ascending: true })
-    
+    const { data: mems } = await supabase.from('code_memories').select('*').eq('project_id', id).order('file_name', { ascending: true })
     if (mems) setMemories(mems)
     setLoading(false)
   }, [id, supabase])
 
-  useEffect(() => {
-    loadData()
-  }, [loadData])
+  useEffect(() => { loadData() }, [loadData])
 
   // --- ACTION HANDLERS ---
-
   const handleRename = async () => {
     if (!editName.trim() || editName === project?.name) {
       setIsEditing(false)
       return
     }
     const { error } = await supabase.from('projects').update({ name: editName }).eq('id', id)
-    if (!error) setProject({ ...project, name: editName })
+    if (!error) {
+      setProject({ ...project, name: editName })
+      showToast('success', 'Project renamed successfully.')
+    } else {
+      showToast('error', 'Failed to rename project.')
+    }
     setIsEditing(false)
   }
 
-  const handleDeleteMemory = async (e: React.MouseEvent, memoryId: string) => {
-    e.stopPropagation() 
-    if (!confirm("Are you sure you want to permanently delete this file?")) return
+  const confirmDeleteMemory = async () => {
+    if (!fileToDelete) return
+    setIsDeletingFile(true)
 
-    const { error } = await supabase.from('code_memories').delete().eq('id', memoryId)
+    const { error } = await supabase.from('code_memories').delete().eq('id', fileToDelete.id)
 
     if (error) {
-      alert(`Delete Failed: ${error.message}`)
+      showToast('error', `Delete Failed: ${error.message}`)
     } else {
-      setMemories(prev => prev.filter(m => m.id !== memoryId))
-      setSelectedForAI(prev => prev.filter(id => id !== memoryId))
+      setMemories(prev => prev.filter(m => m.id !== fileToDelete.id))
+      setSelectedForAI(prev => prev.filter(id => id !== fileToDelete.id))
+      showToast('success', 'File permanently deleted.')
     }
+    
+    setIsDeletingFile(false)
+    setFileToDelete(null)
   }
 
-  // --- UPDATED SYNC LOGIC FOR RE-SYNCING ---
   const handleSyncTrigger = async () => {
     if (!repoName.trim()) return
     setIsSyncing(true)
     
     try {
-      // 1. If updating, clean the slate first to prevent duplicate files!
       if (memories.length > 0) {
         await supabase.from('code_memories').delete().eq('project_id', id)
       }
 
-      // 2. Fetch fresh files
       const response = await fetch(`/api/sync/${activeProvider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -123,22 +132,63 @@ export default function ProjectDocPage() {
       
       if (result.success) {
         if (result.count === 0) {
-           alert("Sync completed, but 0 files were pulled. Make sure your repo name is exact.")
+           showToast('info', "Sync completed, but 0 files were pulled. Check repository name.")
         } else {
-           alert(`Success: ${result.count} files pulled. Project is up to date!`)
+           showToast('success', `${result.count} files pulled. Node is up to date!`)
         }
-        await loadData() // Reload the fresh list
+        await loadData()
         setIsSyncModalOpen(false)
         setRepoName('')
-        setSelectedForAI([]) // Clear selection on update
+        setSelectedForAI([])
       } else {
-        alert(`Sync API Error: ${result.error}`)
+        showToast('error', `Sync API Error: ${result.error}`)
       }
     } catch (err: any) {
-      alert(`Network Error: Failed to reach the sync API. ${err.message}`)
+      showToast('error', `Network Error: Failed to reach the sync API.`)
     } finally {
       setIsSyncing(false)
     }
+  }
+
+  // --- VIBE CODING LOGIC ---
+  const toggleFileSelection = (e: React.MouseEvent, memoryId: string) => {
+    e.stopPropagation()
+    setSelectedForAI(prev => prev.includes(memoryId) ? prev.filter(id => id !== memoryId) : [...prev, memoryId])
+  }
+
+  const toggleAllFiles = () => {
+    if (selectedForAI.length === memories.length) {
+      setSelectedForAI([])
+    } else {
+      setSelectedForAI(memories.map(m => m.id))
+    }
+  }
+
+  const copySelectedForAI = async () => {
+    if (selectedForAI.length === 0) return
+    const filteredMemories = memories.filter(m => selectedForAI.includes(m.id))
+    let markdownOutput = `# Project Context: "${project?.name}"\n\n`
+    
+    filteredMemories.forEach(mem => {
+      const ext = mem.file_name.split('.').pop()?.toLowerCase() || ''
+      let lang = ext
+      if (['ts', 'tsx'].includes(ext)) lang = 'typescript'
+      if (['js', 'jsx'].includes(ext)) lang = 'javascript'
+      if (['md'].includes(ext)) lang = 'markdown'
+      markdownOutput += `### FILE: ${mem.file_name}\n\`\`\`${lang}\n${mem.content}\n\`\`\`\n\n`
+    })
+
+    await navigator.clipboard.writeText(markdownOutput)
+    setCopied(true)
+    showToast('success', `Copied ${selectedForAI.length} files to clipboard!`)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const copyIndividualBlock = (e: React.MouseEvent, content: string, memId: string) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(content)
+    setIndividualCopiedId(memId)
+    setTimeout(() => setIndividualCopiedId(null), 2000)
   }
 
   const handleSendMessage = async () => {
@@ -162,61 +212,38 @@ export default function ProjectDocPage() {
     }
   }
 
-  // --- VIBE CODING LOGIC ---
-  const toggleFileSelection = (e: React.MouseEvent, memoryId: string) => {
-    e.stopPropagation()
-    setSelectedForAI(prev => 
-      prev.includes(memoryId) ? prev.filter(id => id !== memoryId) : [...prev, memoryId]
-    )
-  }
-
-  const toggleAllFiles = () => {
-    if (selectedForAI.length === memories.length) {
-      setSelectedForAI([])
-    } else {
-      setSelectedForAI(memories.map(m => m.id))
-    }
-  }
-
-  const copySelectedForAI = async () => {
-    if (selectedForAI.length === 0) return
-    const filteredMemories = memories.filter(m => selectedForAI.includes(m.id))
-    let markdownOutput = `# Project Context: "${project?.name}"\n\n`
-    
-    filteredMemories.forEach(mem => {
-      const ext = mem.file_name.split('.').pop()?.toLowerCase() || ''
-      let lang = ext
-      if (['ts', 'tsx'].includes(ext)) lang = 'typescript'
-      if (['js', 'jsx'].includes(ext)) lang = 'javascript'
-      if (['md'].includes(ext)) lang = 'markdown'
-      
-      markdownOutput += `### FILE: ${mem.file_name}\n\`\`\`${lang}\n${mem.content}\n\`\`\`\n\n`
-    })
-
-    await navigator.clipboard.writeText(markdownOutput)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  const copyIndividualBlock = (e: React.MouseEvent, content: string, memId: string) => {
-    e.stopPropagation()
-    navigator.clipboard.writeText(content)
-    setIndividualCopiedId(memId)
-    setTimeout(() => setIndividualCopiedId(null), 2000)
-  }
-
   if (loading) return (
     <div className="h-screen bg-[#0a0a0a] flex items-center justify-center">
-      <Loader2 className="animate-spin text-gray-500" />
+      <Loader2 className="animate-spin text-blue-500" size={32} />
     </div>
   )
 
-  // Derive Status Tag
   const projectStatus = memories.length === 0 ? 'Grounded' : 'Active'
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-gray-200 flex overflow-hidden font-sans selection:bg-blue-500/30">
       
+      {/* PREMIUM TOAST NOTIFICATION */}
+      <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[300] transition-all duration-300 pointer-events-none
+        ${notification.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'}`}
+      >
+        <div className={`flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto
+          ${notification.type === 'success' ? 'bg-green-950/80 border-green-500/30 text-green-200' :
+            notification.type === 'error' ? 'bg-red-950/80 border-red-500/30 text-red-200' :
+            'bg-blue-950/80 border-blue-500/30 text-blue-200'}`}
+        >
+          {notification.type === 'success' && <CheckCircle2 size={16} className="text-green-500" />}
+          {notification.type === 'error' && <AlertCircle size={16} className="text-red-500" />}
+          {notification.type === 'info' && <Info size={16} className="text-blue-500" />}
+          
+          <span className="text-sm font-medium">{notification.message}</span>
+          
+          <button onClick={() => setNotification(prev => ({...prev, visible: false}))} className="ml-2 opacity-60 hover:opacity-100 transition-opacity">
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+
       {/* MAIN CONTENT AREA */}
       <div className={`flex-1 p-6 md:p-12 transition-all duration-500 overflow-y-auto ${chatOpen ? 'mr-[400px]' : ''}`}>
         <button 
@@ -250,8 +277,8 @@ export default function ProjectDocPage() {
                   <div className="flex items-center gap-3 flex-wrap">
                     <h1 className="text-3xl md:text-4xl font-semibold text-white tracking-tight">{project?.name}</h1>
                     
-                    {/* GROUNDED / ACTIVE STATUS TAG */}
-                    <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border ${projectStatus === 'Grounded' ? 'bg-gray-800/80 text-gray-400 border-gray-700' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
+                    <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border flex items-center gap-1.5 ${projectStatus === 'Grounded' ? 'bg-gray-800/80 text-gray-400 border-gray-700' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
+                      <div className={`w-1.5 h-1.5 rounded-full ${projectStatus === 'Grounded' ? 'bg-gray-500' : 'bg-green-500'}`}></div>
                       {projectStatus}
                     </span>
 
@@ -263,7 +290,6 @@ export default function ProjectDocPage() {
               </div>
 
               <div className="flex flex-col md:flex-row gap-10 md:gap-16">
-                {/* Source Protocols */}
                 <div className="space-y-3">
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Sync Source</p>
                   <div className="flex gap-3">
@@ -281,7 +307,6 @@ export default function ProjectDocPage() {
 
                 <div className="hidden md:block w-px bg-gray-800"></div>
 
-                {/* Deployment Manifest */}
                 <div className="flex-1">
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Deployments</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -296,7 +321,7 @@ export default function ProjectDocPage() {
               </div>
             </div>
 
-            {/* CHAT TOGGLE BUTTON */}
+            {/* CHAT TOGGLE */}
             <button 
               onClick={() => setChatOpen(!chatOpen)} 
               className="mt-6 md:mt-0 bg-blue-600 p-4 rounded-xl hover:bg-blue-500 transition-all shadow-lg flex items-center justify-center relative group"
@@ -306,7 +331,7 @@ export default function ProjectDocPage() {
             </button>
           </header>
 
-          {/* LIST HEADER WITH VIBE CODING CONTROLS */}
+          {/* VIBE CODING CONTROLS */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-[#111111] border border-gray-800 p-4 rounded-xl">
             <div className="flex items-center gap-4">
               <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Project Files</h2>
@@ -336,7 +361,7 @@ export default function ProjectDocPage() {
             </div>
           </div>
 
-          {/* PROFESSIONAL FILE LIST UI */}
+          {/* FILE LIST */}
           <div className="space-y-3 pb-32">
             {memories.length === 0 && !loading ? (
               <div className="p-12 text-center border border-gray-800 border-dashed rounded-xl bg-gray-900/20">
@@ -381,8 +406,13 @@ export default function ProjectDocPage() {
                         >
                            {individualCopiedId === mem.id ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                         </button>
+                        
+                        {/* CUSTOM DELETE TRIGGER */}
                         <button 
-                          onClick={(e) => handleDeleteMemory(e, mem.id)} 
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setFileToDelete({ id: mem.id, name: mem.file_name })
+                          }} 
                           className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#0a0a0a] border border-gray-800"
                         >
                            <Trash2 size={14}/>
@@ -402,23 +432,6 @@ export default function ProjectDocPage() {
           </div>
         </div>
       </div>
-
-      {/* CODE PREVIEW MODAL */}
-      {selectedFile && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4 sm:p-8">
-          <div className="bg-[#0e1117] border border-gray-800 w-full max-w-5xl h-[85vh] rounded-xl flex flex-col overflow-hidden shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 bg-[#161b22] border-b border-gray-800">
-              <span className="text-sm font-medium text-gray-200 truncate pr-4">{selectedFile.file_name}</span>
-              <button onClick={() => setSelectedFile(null)} className="p-1.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded-md transition-colors"><X size={20}/></button>
-            </div>
-            <div className="flex-1 overflow-auto p-6 bg-[#0d1117]">
-              <pre className="text-sm font-mono text-gray-300 whitespace-pre-wrap break-words">
-                <code>{selectedFile.content}</code>
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* SYNC/UPDATE MODAL */}
       {isSyncModalOpen && (
@@ -465,7 +478,41 @@ export default function ProjectDocPage() {
         </div>
       )}
 
-      {/* CHAT SIDEBAR (Unchanged from previous) */}
+      {/* PREMIUM FILE DELETION CONFIRMATION MODAL */}
+      {fileToDelete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 sm:p-8">
+          <div className="bg-[#0e1117] border border-red-900/30 w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl scale-in-95">
+            <div className="p-6 md:p-8">
+              <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
+                <AlertTriangle className="text-red-500" size={24} />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">Delete File?</h2>
+              <p className="text-sm text-gray-400 mb-1">
+                You are about to permanently remove <strong className="text-gray-200">{fileToDelete.name}</strong> from this node's memory.
+              </p>
+              <p className="text-sm text-gray-400">This action cannot be undone.</p>
+            </div>
+            <div className="flex gap-3 px-6 md:px-8 pb-6 md:pb-8">
+              <button 
+                onClick={() => setFileToDelete(null)}
+                disabled={isDeletingFile}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] hover:bg-gray-800 text-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmDeleteMemory}
+                disabled={isDeletingFile}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/20 transition-colors flex items-center justify-center gap-2"
+              >
+                {isDeletingFile ? <Loader2 size={16} className="animate-spin" /> : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CHAT SIDEBAR (Unchanged) */}
       <div className={`fixed right-0 top-0 h-full w-full sm:w-[400px] bg-[#0a0a0a] border-l border-gray-800 shadow-2xl transition-transform duration-300 z-50 ${chatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="h-full flex flex-col p-6 sm:p-8">
           
