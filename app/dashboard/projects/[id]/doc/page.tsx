@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
-  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2, CheckSquare, Square
 } from 'lucide-react'
 
 export default function ProjectDocPage() {
@@ -41,6 +41,9 @@ export default function ProjectDocPage() {
   const [repoName, setRepoName] = useState('')
   const [isSyncing, setIsSyncing] = useState(false)
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
+
+  // --- VIBE CODING FILTER STATE ---
+  const [selectedForAI, setSelectedForAI] = useState<string[]>([])
 
   // Deployment Targets
   const deployTargets = [
@@ -97,6 +100,7 @@ export default function ProjectDocPage() {
       alert(`Delete Failed: ${error.message}`)
     } else {
       setMemories(prev => prev.filter(m => m.id !== memoryId))
+      setSelectedForAI(prev => prev.filter(id => id !== memoryId))
     }
   }
 
@@ -153,11 +157,42 @@ export default function ProjectDocPage() {
     }
   }
 
-  const copyNeuralContext = async () => {
-    if (memories.length === 0) return
-    const contextHeader = `Project Context: "${project?.name}"\n`
-    const contextBody = memories.map(mem => (`FILE: ${mem.file_name}\nCONTENT:\n${mem.content}\n---`)).join('\n')
-    await navigator.clipboard.writeText(`${contextHeader}\n${contextBody}`)
+  // --- VIBE CODING LOGIC ---
+
+  const toggleFileSelection = (e: React.MouseEvent, memoryId: string) => {
+    e.stopPropagation()
+    setSelectedForAI(prev => 
+      prev.includes(memoryId) ? prev.filter(id => id !== memoryId) : [...prev, memoryId]
+    )
+  }
+
+  const toggleAllFiles = () => {
+    if (selectedForAI.length === memories.length) {
+      setSelectedForAI([])
+    } else {
+      setSelectedForAI(memories.map(m => m.id))
+    }
+  }
+
+  const copySelectedForAI = async () => {
+    if (selectedForAI.length === 0) return
+    
+    const filteredMemories = memories.filter(m => selectedForAI.includes(m.id))
+    
+    let markdownOutput = `# Project Context: "${project?.name}"\n\n`
+    
+    filteredMemories.forEach(mem => {
+      // Guess language for syntax highlighting
+      const ext = mem.file_name.split('.').pop()?.toLowerCase() || ''
+      let lang = ext
+      if (['ts', 'tsx'].includes(ext)) lang = 'typescript'
+      if (['js', 'jsx'].includes(ext)) lang = 'javascript'
+      if (['md'].includes(ext)) lang = 'markdown'
+      
+      markdownOutput += `### FILE: ${mem.file_name}\n\`\`\`${lang}\n${mem.content}\n\`\`\`\n\n`
+    })
+
+    await navigator.clipboard.writeText(markdownOutput)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -261,21 +296,36 @@ export default function ProjectDocPage() {
             </button>
           </header>
 
-          {/* LIST HEADER */}
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-lg font-medium text-gray-300">Project Files</h2>
+          {/* LIST HEADER WITH VIBE CODING CONTROLS */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-[#111111] border border-gray-800 p-4 rounded-xl">
+            <div className="flex items-center gap-4">
+              <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Project Files</h2>
+              {memories.length > 0 && (
+                <button 
+                  onClick={toggleAllFiles}
+                  className="text-xs flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors"
+                >
+                  {selectedForAI.length === memories.length ? <CheckSquare size={14}/> : <Square size={14}/>}
+                  {selectedForAI.length === memories.length ? 'Deselect All' : 'Select All'}
+                </button>
+              )}
+            </div>
+            
             <button 
-              onClick={copyNeuralContext} 
-              disabled={memories.length === 0}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all ${copied ? 'bg-green-600 text-white' : memories.length === 0 ? 'bg-gray-900 text-gray-600 cursor-not-allowed border border-gray-800' : 'bg-[#111111] border border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white'}`}
+              onClick={copySelectedForAI} 
+              disabled={selectedForAI.length === 0}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all w-full sm:w-auto justify-center
+                ${copied ? 'bg-green-600 text-white shadow-[0_0_15px_rgba(22,163,74,0.4)]' : 
+                  selectedForAI.length === 0 ? 'bg-[#0a0a0a] text-gray-600 cursor-not-allowed border border-gray-800' : 
+                  'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20'}`}
             >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-              {copied ? 'Context Copied' : 'Copy All Context'}
+              {copied ? <Check size={14} /> : <Terminal size={14} />}
+              {copied ? 'Markdown Copied!' : `Copy Selected (${selectedForAI.length}) for AI`}
             </button>
           </div>
 
           {/* PROFESSIONAL FILE LIST UI */}
-          <div className="space-y-4 pb-32">
+          <div className="space-y-3 pb-32">
             {memories.length === 0 && !loading ? (
               <div className="p-12 text-center border border-gray-800 border-dashed rounded-xl bg-gray-900/20">
                 <p className="text-sm text-gray-500 mb-4">No files synced yet. Connect a repository above to pull your code.</p>
@@ -287,49 +337,61 @@ export default function ProjectDocPage() {
                 </button>
               </div>
             ) : (
-              memories.map((mem) => (
-                <div 
-                  key={mem.id} 
-                  onClick={() => setSelectedFile(mem)} 
-                  className="bg-[#0e1117] border border-gray-800 rounded-lg overflow-hidden hover:border-gray-600 transition-colors cursor-pointer shadow-sm group"
-                >
-                  {/* File Header */}
-                  <div className="flex justify-between items-center px-4 py-3 border-b border-gray-800/50 bg-[#161b22]">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      <Terminal size={14} className="text-blue-400 flex-shrink-0"/>
-                      <h3 className="text-sm font-medium text-gray-200 truncate">{mem.file_name}</h3>
+              memories.map((mem) => {
+                const isSelected = selectedForAI.includes(mem.id)
+                return (
+                  <div 
+                    key={mem.id} 
+                    onClick={() => setSelectedFile(mem)} 
+                    className={`bg-[#0e1117] border rounded-lg overflow-hidden transition-colors cursor-pointer shadow-sm group
+                      ${isSelected ? 'border-blue-500/50 bg-blue-950/10' : 'border-gray-800 hover:border-gray-600'}`}
+                  >
+                    {/* File Header */}
+                    <div className={`flex justify-between items-center px-4 py-3 border-b transition-colors
+                      ${isSelected ? 'border-blue-500/20 bg-blue-900/10' : 'border-gray-800/50 bg-[#161b22]'}`}>
+                      
+                      <div className="flex items-center gap-3 overflow-hidden flex-1">
+                        {/* Custom Checkbox Hitbox to prevent modal open */}
+                        <div 
+                          onClick={(e) => toggleFileSelection(e, mem.id)}
+                          className="p-1 -ml-1 cursor-pointer text-gray-500 hover:text-white transition-colors"
+                        >
+                          {isSelected ? <CheckSquare size={16} className="text-blue-500"/> : <Square size={16}/>}
+                        </div>
+                        
+                        <h3 className={`text-sm font-medium truncate ${isSelected ? 'text-blue-100' : 'text-gray-200'}`}>
+                          {mem.file_name}
+                        </h3>
+                      </div>
+                      
+                      {/* Action Buttons */}
+                      <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={(e) => copyIndividualBlock(e, mem.content, mem.id)} 
+                          className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors bg-[#0a0a0a] border border-gray-800"
+                          title="Copy raw code"
+                        >
+                           {individualCopiedId === mem.id ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                        </button>
+                        <button 
+                          onClick={(e) => handleDeleteMemory(e, mem.id)} 
+                          className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#0a0a0a] border border-gray-800"
+                          title="Delete file"
+                        >
+                           <Trash2 size={14}/>
+                        </button>
+                      </div>
                     </div>
                     
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                      <span className="hidden sm:inline-block text-[10px] font-semibold px-2 py-1 rounded bg-green-500/10 border border-green-500/20 text-green-400 mr-2">
-                        Synced
-                      </span>
-                      <button 
-                        onClick={(e) => copyIndividualBlock(e, mem.content, mem.id)} 
-                        className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors"
-                        title="Copy code"
-                      >
-                         {individualCopiedId === mem.id ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-                      </button>
-                      <button 
-                        onClick={(e) => handleDeleteMemory(e, mem.id)} 
-                        className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors"
-                        title="Delete file"
-                      >
-                         <Trash2 size={14}/>
-                      </button>
+                    {/* Code Preview */}
+                    <div className="p-4 bg-[#0d1117] opacity-80">
+                      <pre className="text-xs font-mono text-gray-400 overflow-hidden line-clamp-2">
+                        <code>{mem.content}</code>
+                      </pre>
                     </div>
                   </div>
-                  
-                  {/* Code Preview */}
-                  <div className="p-4 bg-[#0d1117]">
-                    <pre className="text-xs font-mono text-gray-400 overflow-hidden line-clamp-3">
-                      <code>{mem.content}</code>
-                    </pre>
-                  </div>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
         </div>
@@ -376,7 +438,7 @@ export default function ProjectDocPage() {
                   autoFocus
                   value={repoName} 
                   onChange={(e) => setRepoName(e.target.value)} 
-                  placeholder="e.g., facebook/react"
+                  placeholder="e.g., owner/repo"
                   className="w-full bg-black border border-gray-800 rounded-lg px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all placeholder:text-gray-700"
                 />
               </div>
@@ -386,7 +448,7 @@ export default function ProjectDocPage() {
                 disabled={isSyncing || !repoName.trim()}
                 className={`w-full py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all ${isSyncing || !repoName.trim() ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20'}`}
               >
-                {isSyncing ? <><Loader2 size={16} className="animate-spin"/> Syncing Repository...</> : <><Zap size={16}/> Pull Files</>}
+                {isSyncing ? <><Loader2 size={16} className="animate-spin"/> Syncing...</> : <><Zap size={16}/> Pull Files</>}
               </button>
             </div>
           </div>
