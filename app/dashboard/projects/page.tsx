@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Star, Zap, Search, Loader2, X, Plus, Pencil, Trash2, Check, Github, Gitlab, Cloud, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Plus, FolderGit2, Trash2, ArrowRight, Loader2, X, AlertTriangle } from 'lucide-react'
 
-export default function ProjectVault() {
+export default function ProjectsDashboard() {
   const router = useRouter()
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,289 +14,187 @@ export default function ProjectVault() {
 
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [creating, setCreating] = useState(false)
   
-  // Custom Notification State
-  const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
+  // Custom Premium Alert/Confirm State
+  const [nodeToDelete, setNodeToDelete] = useState<{ id: string, name: string } | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
-  // Modals State
-  const [isNewNodeOpen, setIsNewNodeOpen] = useState(false)
-  const [newNodeName, setNewNodeName] = useState('')
-  
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [editingProject, setEditingProject] = useState<any>(null)
-  const [editName, setEditName] = useState('')
+  const fetchProjects = async () => {
+    // Fetch projects AND their associated memories to determine Active/Grounded state
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*, code_memories(id)')
+      .order('created_at', { ascending: false })
 
-  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
-  const [syncingProject, setSyncingProject] = useState<any>(null)
-  const [repoName, setRepoName] = useState('')
-  const [isSyncing, setIsSyncing] = useState(false)
-  const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
+    if (!error && data) {
+      setProjects(data)
+    }
+    setLoading(false)
+  }
 
   useEffect(() => {
     fetchProjects()
   }, [])
 
-  // Helper function for professional notifications
-  const showNotification = (message: string, type: 'success' | 'error') => {
-    setNotification({ message, type })
-    setTimeout(() => setNotification(null), 4000) // Auto-hide after 4 seconds
-  }
-
-  const fetchProjects = async () => {
+  const handleCreateProject = async () => {
+    setCreating(true)
     const { data, error } = await supabase
       .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
-    if (!error && data) setProjects(data)
-    setLoading(false)
-  }
-
-  const handleCreateNode = async () => {
-    if (!newNodeName.trim()) return
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return showNotification("Authentication required. Please log in.", "error")
-
-    const { data, error } = await supabase
-      .from('projects')
-      .insert([{ name: newNodeName, user_id: user.id, preferred_platform: 'Vercel' }])
+      .insert({ name: 'New Neural Node' })
       .select()
-    
+      .single()
+
     if (!error && data) {
-      setProjects([data[0], ...projects])
-      setNewNodeName('')
-      setIsNewNodeOpen(false)
-      showNotification(`Node '${data[0].name}' initialized successfully.`, "success")
+      router.push(`/dashboard/projects/${data.id}/doc`)
     } else {
-      showNotification("Failed to initialize node.", "error")
+      setCreating(false)
     }
   }
 
-  const handleUpdateProject = async () => {
-    if (!editName.trim() || editName === editingProject.name) {
-      setIsEditModalOpen(false)
-      return
+  const confirmDecommission = async () => {
+    if (!nodeToDelete) return
+    setIsDeleting(true)
+
+    const { error } = await supabase
+      .from('projects')
+      .delete()
+      .eq('id', nodeToDelete.id)
+
+    if (!error) {
+      setProjects(prev => prev.filter(p => p.id !== nodeToDelete.id))
     }
-
-    const { error } = await supabase.from('projects').update({ name: editName }).eq('id', editingProject.id)
-
-    if (error) {
-      showNotification("Update failed: " + error.message, "error")
-    } else {
-      setProjects(projects.map(p => p.id === editingProject.id ? { ...p, name: editName } : p))
-      setIsEditModalOpen(false)
-      showNotification("Node parameters updated.", "success")
-    }
-  }
-
-  const handleDeleteProject = async () => {
-    const confirmDelete = window.confirm(`Permanently decommission node: ${editingProject.name}?`)
-    if (!confirmDelete) return
-
-    const { error } = await supabase.from('projects').delete().eq('id', editingProject.id)
-
-    if (error) {
-      showNotification("Deletion failed: " + error.message, "error")
-    } else {
-      setProjects(projects.filter(p => p.id !== editingProject.id))
-      setIsEditModalOpen(false)
-      showNotification("Node successfully decommissioned.", "success")
-    }
-  }
-
-  const handleSyncTrigger = async () => {
-    if (!repoName.trim() || !syncingProject) return
-    setIsSyncing(true)
     
-    try {
-      const response = await fetch(`/api/sync/${activeProvider}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo: repoName, projectId: syncingProject.id })
-      })
-
-      const result = await response.json()
-      
-      if (result.success) {
-        showNotification(`${result.count} files synchronized to ${syncingProject.name}.`, "success")
-        setIsSyncModalOpen(false)
-        setRepoName('')
-      } else {
-        showNotification(`Sync Error: ${result.error}`, "error")
-      }
-    } catch (err) {
-      showNotification("Neural link failed to establish. Check connection.", "error")
-    } finally {
-      setIsSyncing(false)
-    }
+    setIsDeleting(false)
+    setNodeToDelete(null)
   }
 
-  if (loading) return <div className="h-screen bg-[#0a0b0e] flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" /></div>
+  if (loading) {
+    return (
+      <div className="h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <Loader2 className="animate-spin text-blue-500" size={32} />
+      </div>
+    )
+  }
 
   return (
-    <div className="max-w-7xl mx-auto p-12 min-h-screen bg-[#0a0b0e] text-white relative overflow-hidden">
-      <header className="mb-12 flex flex-col gap-6">
-        <div className="flex justify-between items-end">
+    <div className="min-h-screen bg-[#0a0a0a] text-gray-200 p-6 md:p-12 font-sans selection:bg-blue-500/30">
+      <div className="max-w-6xl mx-auto">
+        
+        {/* HEADER */}
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-12">
           <div>
-            <h1 className="text-7xl font-black italic uppercase tracking-tighter leading-none">PROJECT VAULT</h1>
-            <p className="text-blue-500 text-[9px] font-black uppercase tracking-[0.3em] mt-4">
-              NEURAL NODES ACTIVE: {projects.length}
-            </p>
+            <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight mb-2">Project Vault</h1>
+            <p className="text-sm text-gray-500">Manage and sync your AI context nodes.</p>
           </div>
-          <div className="flex items-center gap-4">
-            <input 
-              type="text" 
-              placeholder="SEARCH NODES..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-[#111319] border border-gray-800 rounded-xl px-4 py-3 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 w-64 transition-all"
-            />
-            <button onClick={() => setIsNewNodeOpen(true)} className="bg-blue-600 px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all flex items-center gap-2">
-              <Plus size={14} /> New Node
+          <button 
+            onClick={handleCreateProject}
+            disabled={creating}
+            className="flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-blue-900/20 disabled:opacity-50"
+          >
+            {creating ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+            Initialize Node
+          </button>
+        </header>
+
+        {/* PROJECT GRID */}
+        {projects.length === 0 ? (
+          <div className="border border-gray-800 border-dashed rounded-2xl p-16 flex flex-col items-center justify-center text-center bg-[#111111]/50">
+            <FolderGit2 size={48} className="text-gray-700 mb-4" />
+            <h3 className="text-xl font-semibold text-gray-300 mb-2">Vault Empty</h3>
+            <p className="text-gray-500 max-w-sm mb-6">Initialize your first neural node to start syncing code repositories for AI context.</p>
+            <button onClick={handleCreateProject} className="text-blue-500 hover:text-blue-400 font-medium text-sm flex items-center gap-2 transition-colors">
+              Create your first project <ArrowRight size={16} />
             </button>
           </div>
-        </div>
-      </header>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map((project) => {
+              // Determine status based on the joined code_memories array
+              const fileCount = project.code_memories?.length || 0
+              const isGrounded = fileCount === 0
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {projects.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())).map((project) => (
-          <div key={project.id} className="bg-[#111319] border border-gray-800/40 rounded-[2.5rem] p-10 hover:border-blue-600/40 transition-all group relative overflow-hidden">
-            <div className="flex justify-between items-start mb-10">
-              <h3 className="text-2xl font-black italic uppercase truncate pr-4">{project.name}</h3>
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => {
-                    setEditingProject(project)
-                    setEditName(project.name)
-                    setIsEditModalOpen(true)
-                  }}
-                  className="text-gray-600 hover:text-blue-500 transition-colors"
+              return (
+                <div 
+                  key={project.id} 
+                  onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)}
+                  className="bg-[#111111] border border-gray-800 hover:border-blue-500/50 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:shadow-[0_0_30px_rgba(37,99,235,0.1)] group relative flex flex-col h-full"
                 >
-                  <Pencil size={14} />
-                </button>
-                <Star size={14} className="text-gray-800 group-hover:text-blue-600 transition-colors" />
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)} className="flex-1 bg-transparent border border-gray-800 py-4 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">
-                Enter Node
-              </button>
-              <button 
-                onClick={() => {
-                  setSyncingProject(project)
-                  setIsSyncModalOpen(true)
-                }} 
-                className="bg-blue-600 p-4 rounded-xl hover:scale-105 transition-all"
-              >
-                <Zap size={18} fill="white" stroke="none" />
-              </button>
-            </div>
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="p-3 bg-white/5 rounded-lg text-blue-500 group-hover:scale-110 transition-transform">
+                      <FolderGit2 size={24} />
+                    </div>
+                    
+                    {/* CUSTOM PREMIUM DELETE BUTTON */}
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setNodeToDelete({ id: project.id, name: project.name })
+                      }}
+                      className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+
+                  <h3 className="text-xl font-semibold text-white mb-2 truncate pr-4">{project.name}</h3>
+                  
+                  {/* DYNAMIC STATUS TAGS */}
+                  <div className="mt-auto pt-6 flex items-center justify-between border-t border-gray-800/50">
+                    <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border flex items-center gap-1.5 ${isGrounded ? 'bg-gray-800/50 text-gray-400 border-gray-800' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
+                      <div className={`w-1.5 h-1.5 rounded-full ${isGrounded ? 'bg-gray-500' : 'bg-green-500'}`}></div>
+                      {isGrounded ? 'Grounded' : 'Active'}
+                    </span>
+                    <span className="text-xs text-gray-500 font-medium">
+                      {fileCount} {fileCount === 1 ? 'File' : 'Files'}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        ))}
+        )}
       </div>
 
-      {/* CREATE MODAL */}
-      {isNewNodeOpen && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
-          <div className="bg-[#111319] border border-gray-800 w-full max-w-sm rounded-[2.5rem] p-10 relative shadow-2xl">
-            <button onClick={() => setIsNewNodeOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white"><X size={18}/></button>
-            <h2 className="text-xl font-black italic uppercase mb-8">INITIALIZE NODE</h2>
-            <input 
-              autoFocus
-              value={newNodeName} 
-              onChange={(e) => setNewNodeName(e.target.value)} 
-              onKeyDown={(e) => e.key === 'Enter' && handleCreateNode()}
-              className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-4 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 mb-6"
-            />
-            <button onClick={handleCreateNode} className="w-full bg-blue-600 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">CREATE</button>
-          </div>
-        </div>
-      )}
-
-      {/* EDIT/DELETE MODAL */}
-      {isEditModalOpen && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
-          <div className="bg-[#111319] border border-gray-800 w-full max-w-sm rounded-[2.5rem] p-10 relative shadow-2xl">
-            <button onClick={() => setIsEditModalOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white"><X size={18}/></button>
-            <h2 className="text-xl font-black italic uppercase mb-8">MANAGE NODE</h2>
+      {/* PREMIUM CUSTOM CONFIRMATION MODAL */}
+      {nodeToDelete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200">
+          <div className="bg-[#0e1117] border border-red-900/30 w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl scale-in-95">
             
-            <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-2">Rename Project</p>
-            <input 
-              autoFocus
-              value={editName} 
-              onChange={(e) => setEditName(e.target.value)} 
-              onKeyDown={(e) => e.key === 'Enter' && handleUpdateProject()}
-              className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-4 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 mb-6"
-            />
-            
-            <div className="flex gap-3">
-              <button onClick={handleDeleteProject} className="flex-1 bg-red-900/20 border border-red-900/40 py-4 rounded-xl text-[9px] font-black uppercase text-red-500 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center gap-2">
-                <Trash2 size={14} /> DEPLOY DELETE
-              </button>
-              <button onClick={handleUpdateProject} className="flex-1 bg-blue-600 py-4 rounded-xl text-[9px] font-black uppercase text-white hover:bg-white hover:text-black transition-all flex items-center justify-center gap-2">
-                <Check size={14} /> SAVE CHANGES
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SYNC MODAL */}
-      {isSyncModalOpen && syncingProject && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
-          <div className="bg-[#111319] border border-gray-800 w-full max-w-sm rounded-[2.5rem] p-10 relative shadow-2xl">
-            <button onClick={() => setIsSyncModalOpen(false)} className="absolute top-8 right-8 text-gray-600 hover:text-white transition-colors">
-              <X size={18}/>
-            </button>
-            
-            <div className="flex gap-4 justify-center mb-6">
-              <button onClick={() => setActiveProvider('github')} className={`p-3 rounded-xl transition-all ${activeProvider === 'github' ? 'bg-white/10 text-blue-500 border border-blue-500/30' : 'bg-white/5 text-gray-500 hover:text-blue-500'}`}><Github size={20} /></button>
-              <button onClick={() => setActiveProvider('gitlab')} className={`p-3 rounded-xl transition-all ${activeProvider === 'gitlab' ? 'bg-white/10 text-orange-500 border border-orange-500/30' : 'bg-white/5 text-gray-500 hover:text-orange-500'}`}><Gitlab size={20} /></button>
-              <button onClick={() => setActiveProvider('bitbucket')} className={`p-3 rounded-xl transition-all ${activeProvider === 'bitbucket' ? 'bg-white/10 text-blue-400 border border-blue-400/30' : 'bg-white/5 text-gray-500 hover:text-blue-400'}`}><Cloud size={20} /></button>
+            <div className="p-6 md:p-8">
+              <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
+                <AlertTriangle className="text-red-500" size={24} />
+              </div>
+              
+              <h2 className="text-xl font-bold text-white mb-2">Decommission Node?</h2>
+              <p className="text-sm text-gray-400 mb-1">
+                You are about to permanently delete <strong className="text-gray-200">"{nodeToDelete.name}"</strong>.
+              </p>
+              <p className="text-sm text-gray-400">
+                This will destroy all synced memory files associated with it. This action cannot be undone.
+              </p>
             </div>
 
-            <h2 className="text-xl font-black italic uppercase mb-2 text-center">{activeProvider} SYNC</h2>
-            <p className="text-[9px] text-gray-500 font-black text-center uppercase tracking-widest mb-8 leading-relaxed truncate">Target Node: {syncingProject.name}</p>
+            <div className="flex gap-3 px-6 md:px-8 pb-6 md:pb-8">
+              <button 
+                onClick={() => setNodeToDelete(null)}
+                disabled={isDeleting}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] hover:bg-gray-800 text-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmDecommission}
+                disabled={isDeleting}
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/20 transition-colors flex items-center justify-center gap-2"
+              >
+                {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Confirm Deletion'}
+              </button>
+            </div>
             
-            <input 
-              autoFocus
-              value={repoName} 
-              onChange={(e) => setRepoName(e.target.value)} 
-              placeholder="e.g., owner/repository"
-              className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-4 text-[10px] font-black uppercase text-white outline-none focus:border-blue-600 mb-6 transition-all text-center"
-            />
-            
-            <button 
-              onClick={handleSyncTrigger} 
-              disabled={isSyncing || !repoName.trim()}
-              className={`w-full py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${isSyncing ? 'bg-blue-600/50 cursor-not-allowed' : 'bg-blue-600 hover:bg-white hover:text-black'}`}
-            >
-              {isSyncing ? <><Loader2 size={14} className="animate-spin"/> PULLING REPOSITORY...</> : <><Zap size={14}/> INJECT CODE TO NODE</>}
-            </button>
           </div>
         </div>
       )}
-
-      {/* CUSTOM PROFESSIONAL TOAST NOTIFICATION */}
-      {notification && (
-        <div className="fixed bottom-10 right-10 z-[200] transition-all animate-in slide-in-from-bottom-5 fade-in duration-300">
-          <div className={`flex items-center gap-4 px-6 py-5 rounded-2xl border backdrop-blur-md shadow-2xl ${
-            notification.type === 'success' 
-            ? 'bg-green-950/40 border-green-500/30 text-green-400' 
-            : 'bg-red-950/40 border-red-500/30 text-red-400'
-          }`}>
-            {notification.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
-            <p className="text-[11px] font-black uppercase tracking-widest leading-none mt-1">
-              {notification.message}
-            </p>
-            <button onClick={() => setNotification(null)} className="ml-4 opacity-50 hover:opacity-100 transition-opacity">
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
-
     </div>
   )
 }
