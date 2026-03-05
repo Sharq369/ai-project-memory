@@ -19,22 +19,36 @@ export default function ProjectsDashboard() {
   // Custom Premium Alert/Confirm State
   const [nodeToDelete, setNodeToDelete] = useState<{ id: string, name: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-
-  const fetchProjects = async () => {
+const fetchProjects = async () => {
     try {
-      const { data, error } = await supabase
+      // 1. Fetch just the projects first to guarantee the cards load
+      const { data: projData, error: projError } = await supabase
         .from('projects')
-        .select('*, code_memories(id)')
+        .select('*')
         .order('created_at', { ascending: false })
 
-      if (error) {
-        console.error("Supabase Fetch Error:", error.message)
-        // If RLS is blocking, it might return an error here.
-      } else if (data) {
-        setProjects(data)
+      if (projError) {
+        alert(`Failed to load projects: ${projError.message}`)
+        return
+      }
+
+      if (projData) {
+        // 2. Fetch memory counts separately so a missing relation doesn't break the whole page
+        const { data: memData } = await supabase
+          .from('code_memories')
+          .select('id, project_id')
+
+        // 3. Manually merge them together for the UI
+        const mergedProjects = projData.map(project => ({
+          ...project,
+          code_memories: memData ? memData.filter(m => m.project_id === project.id) : []
+        }))
+        
+        setProjects(mergedProjects)
       }
     } catch (err) {
       console.error("Network or unexpected error:", err)
+      alert("Network error while loading vault.")
     } finally {
       setLoading(false)
     }
