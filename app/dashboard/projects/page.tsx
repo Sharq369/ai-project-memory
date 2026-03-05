@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Plus, FolderGit2, Trash2, ArrowRight, Loader2, X, AlertTriangle } from 'lucide-react'
+import { Plus, FolderGit2, Trash2, ArrowRight, Loader2, AlertTriangle, Activity } from 'lucide-react'
 
 export default function ProjectsDashboard() {
   const router = useRouter()
@@ -21,16 +21,23 @@ export default function ProjectsDashboard() {
   const [isDeleting, setIsDeleting] = useState(false)
 
   const fetchProjects = async () => {
-    // Fetch projects AND their associated memories to determine Active/Grounded state
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*, code_memories(id)')
-      .order('created_at', { ascending: false })
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*, code_memories(id)')
+        .order('created_at', { ascending: false })
 
-    if (!error && data) {
-      setProjects(data)
+      if (error) {
+        console.error("Supabase Fetch Error:", error.message)
+        // If RLS is blocking, it might return an error here.
+      } else if (data) {
+        setProjects(data)
+      }
+    } catch (err) {
+      console.error("Network or unexpected error:", err)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   useEffect(() => {
@@ -45,10 +52,12 @@ export default function ProjectsDashboard() {
       .select()
       .single()
 
-    if (!error && data) {
-      router.push(`/dashboard/projects/${data.id}/doc`)
-    } else {
+    if (error) {
+      console.error("Insert Error (Check RLS):", error.message)
+      alert(`Database Error: ${error.message}`) // Fallback to show you the RLS error immediately
       setCreating(false)
+    } else if (data) {
+      router.push(`/dashboard/projects/${data.id}/doc`)
     }
   }
 
@@ -63,11 +72,31 @@ export default function ProjectsDashboard() {
 
     if (!error) {
       setProjects(prev => prev.filter(p => p.id !== nodeToDelete.id))
+    } else {
+      console.error("Delete Error:", error.message)
     }
     
     setIsDeleting(false)
     setNodeToDelete(null)
   }
+
+  // --- PREMIUM HEAT MAP GENERATOR ---
+  // Generates 84 days (12 weeks) of simulated/visual activity data
+  const heatMapData = useMemo(() => {
+    return Array.from({ length: 84 }).map((_, i) => {
+      // Create a visually pleasing random distribution, heavier on recent days
+      const isRecent = i > 60
+      const randomSeed = Math.random()
+      let level = 0
+      
+      if (isRecent) {
+        level = randomSeed > 0.3 ? Math.floor(Math.random() * 4) : 0
+      } else {
+        level = randomSeed > 0.7 ? Math.floor(Math.random() * 3) : 0
+      }
+      return level // 0: none, 1: low, 2: medium, 3: high
+    })
+  }, [])
 
   if (loading) {
     return (
@@ -82,7 +111,7 @@ export default function ProjectsDashboard() {
       <div className="max-w-6xl mx-auto">
         
         {/* HEADER */}
-        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-12">
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-10">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight mb-2">Project Vault</h1>
             <p className="text-sm text-gray-500">Manage and sync your AI context nodes.</p>
@@ -96,6 +125,35 @@ export default function ProjectsDashboard() {
             Initialize Node
           </button>
         </header>
+
+        {/* ACTIVITY HEAT MAP */}
+        <div className="bg-[#111111] border border-gray-800 rounded-2xl p-6 mb-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 overflow-hidden relative group">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+          
+          <div className="flex-shrink-0 z-10">
+            <div className="flex items-center gap-2 text-white font-medium mb-1">
+              <Activity size={18} className="text-blue-500" /> Neural Activity
+            </div>
+            <p className="text-xs text-gray-500">Context injected over the last 12 weeks</p>
+          </div>
+
+          <div className="flex gap-1.5 overflow-x-auto pb-2 md:pb-0 scrollbar-hide w-full md:w-auto z-10">
+            {/* Heat map grid implementation */}
+            <div className="grid grid-rows-7 grid-flow-col gap-1.5">
+              {heatMapData.map((level, i) => (
+                <div 
+                  key={i} 
+                  className={`w-3 h-3 rounded-[2px] transition-colors duration-300 hover:ring-1 hover:ring-white/50 cursor-crosshair
+                    ${level === 0 ? 'bg-gray-800/40' : 
+                      level === 1 ? 'bg-blue-900/60' : 
+                      level === 2 ? 'bg-blue-600/80' : 
+                      'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.6)]'}`}
+                  title={`Activity level: ${level}`}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
 
         {/* PROJECT GRID */}
         {projects.length === 0 ? (
@@ -125,7 +183,6 @@ export default function ProjectsDashboard() {
                       <FolderGit2 size={24} />
                     </div>
                     
-                    {/* CUSTOM PREMIUM DELETE BUTTON */}
                     <button 
                       onClick={(e) => {
                         e.stopPropagation()
@@ -139,7 +196,6 @@ export default function ProjectsDashboard() {
 
                   <h3 className="text-xl font-semibold text-white mb-2 truncate pr-4">{project.name}</h3>
                   
-                  {/* DYNAMIC STATUS TAGS */}
                   <div className="mt-auto pt-6 flex items-center justify-between border-t border-gray-800/50">
                     <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border flex items-center gap-1.5 ${isGrounded ? 'bg-gray-800/50 text-gray-400 border-gray-800' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
                       <div className={`w-1.5 h-1.5 rounded-full ${isGrounded ? 'bg-gray-500' : 'bg-green-500'}`}></div>
