@@ -3,7 +3,11 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { Plus, FolderGit2, Trash2, ArrowRight, Loader2, AlertTriangle, Activity } from 'lucide-react'
+import { 
+  Plus, FolderGit2, Trash2, ArrowRight, Loader2, 
+  AlertTriangle, Activity, RefreshCw, Github, Gitlab, 
+  Cloud, Zap, X, CheckCircle2, AlertCircle, Info 
+} from 'lucide-react'
 
 export default function ProjectsDashboard() {
   const router = useRouter()
@@ -19,26 +23,39 @@ export default function ProjectsDashboard() {
   // Custom Premium Alert/Confirm State
   const [nodeToDelete, setNodeToDelete] = useState<{ id: string, name: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-const fetchProjects = async () => {
+
+  // Premium UI States for Sync
+  const [notification, setNotification] = useState<{ visible: boolean, type: 'success' | 'error' | 'info', message: string }>({ visible: false, type: 'info', message: '' })
+  
+  // Sync Engine State
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
+  const [syncingProjectId, setSyncingProjectId] = useState<string | null>(null)
+  const [repoName, setRepoName] = useState('')
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
+
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    setNotification({ visible: true, type, message })
+    setTimeout(() => setNotification(prev => ({ ...prev, visible: false })), 4000)
+  }
+
+  const fetchProjects = async () => {
     try {
-      // 1. Fetch just the projects first to guarantee the cards load
       const { data: projData, error: projError } = await supabase
         .from('projects')
         .select('*')
         .order('created_at', { ascending: false })
 
       if (projError) {
-        alert(`Failed to load projects: ${projError.message}`)
+        showToast('error', `Failed to load projects: ${projError.message}`)
         return
       }
 
       if (projData) {
-        // 2. Fetch memory counts separately so a missing relation doesn't break the whole page
         const { data: memData } = await supabase
           .from('code_memories')
           .select('id, project_id')
 
-        // 3. Manually merge them together for the UI
         const mergedProjects = projData.map(project => ({
           ...project,
           code_memories: memData ? memData.filter(m => m.project_id === project.id) : []
@@ -48,7 +65,7 @@ const fetchProjects = async () => {
       }
     } catch (err) {
       console.error("Network or unexpected error:", err)
-      alert("Network error while loading vault.")
+      showToast('error', "Network error while loading vault.")
     } finally {
       setLoading(false)
     }
@@ -67,8 +84,7 @@ const fetchProjects = async () => {
       .single()
 
     if (error) {
-      console.error("Insert Error (Check RLS):", error.message)
-      alert(`Database Error: ${error.message}`) // Fallback to show you the RLS error immediately
+      showToast('error', `Database Error: ${error.message}`)
       setCreating(false)
     } else if (data) {
       router.push(`/dashboard/projects/${data.id}/doc`)
@@ -86,19 +102,56 @@ const fetchProjects = async () => {
 
     if (!error) {
       setProjects(prev => prev.filter(p => p.id !== nodeToDelete.id))
+      showToast('success', 'Node decommissioned.')
     } else {
-      console.error("Delete Error:", error.message)
+      showToast('error', `Delete Error: ${error.message}`)
     }
     
     setIsDeleting(false)
     setNodeToDelete(null)
   }
 
-  // --- PREMIUM HEAT MAP GENERATOR ---
-  // Generates 84 days (12 weeks) of simulated/visual activity data
+  // Handle Sync from Dashboard
+  const handleSyncTrigger = async () => {
+    if (!repoName.trim() || !syncingProjectId) return
+    setIsSyncing(true)
+    
+    try {
+      const projectToSync = projects.find(p => p.id === syncingProjectId)
+      if (projectToSync && projectToSync.code_memories?.length > 0) {
+        await supabase.from('code_memories').delete().eq('project_id', syncingProjectId)
+      }
+
+      const response = await fetch(`/api/sync/${activeProvider}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo: repoName, projectId: syncingProjectId })
+      })
+
+      const result = await response.json()
+      
+      if (result.success) {
+        if (result.count === 0) {
+           showToast('info', "Sync completed, but 0 files were pulled. Check repository name.")
+        } else {
+           showToast('success', `${result.count} files pulled. Node is up to date!`)
+        }
+        await fetchProjects() // Reload UI with fresh counts
+        setIsSyncModalOpen(false)
+        setRepoName('')
+        setSyncingProjectId(null)
+      } else {
+        showToast('error', `Sync API Error: ${result.error}`)
+      }
+    } catch (err: any) {
+      showToast('error', `Network Error: Failed to reach the sync API.`)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
   const heatMapData = useMemo(() => {
     return Array.from({ length: 84 }).map((_, i) => {
-      // Create a visually pleasing random distribution, heavier on recent days
       const isRecent = i > 60
       const randomSeed = Math.random()
       let level = 0
@@ -108,7 +161,7 @@ const fetchProjects = async () => {
       } else {
         level = randomSeed > 0.7 ? Math.floor(Math.random() * 3) : 0
       }
-      return level // 0: none, 1: low, 2: medium, 3: high
+      return level 
     })
   }, [])
 
@@ -121,7 +174,27 @@ const fetchProjects = async () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-gray-200 p-6 md:p-12 font-sans selection:bg-blue-500/30">
+    <div className="min-h-screen bg-[#0a0a0a] text-gray-200 p-6 md:p-12 font-sans selection:bg-blue-500/30 relative">
+      
+      {/* PREMIUM TOAST NOTIFICATION */}
+      <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[300] transition-all duration-300 pointer-events-none
+        ${notification.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'}`}
+      >
+        <div className={`flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto
+          ${notification.type === 'success' ? 'bg-green-950/80 border-green-500/30 text-green-200' :
+            notification.type === 'error' ? 'bg-red-950/80 border-red-500/30 text-red-200' :
+            'bg-blue-950/80 border-blue-500/30 text-blue-200'}`}
+        >
+          {notification.type === 'success' && <CheckCircle2 size={16} className="text-green-500" />}
+          {notification.type === 'error' && <AlertCircle size={16} className="text-red-500" />}
+          {notification.type === 'info' && <Info size={16} className="text-blue-500" />}
+          <span className="text-sm font-medium">{notification.message}</span>
+          <button onClick={() => setNotification(prev => ({...prev, visible: false}))} className="ml-2 opacity-60 hover:opacity-100 transition-opacity">
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+
       <div className="max-w-6xl mx-auto">
         
         {/* HEADER */}
@@ -152,7 +225,6 @@ const fetchProjects = async () => {
           </div>
 
           <div className="flex gap-1.5 overflow-x-auto pb-2 md:pb-0 scrollbar-hide w-full md:w-auto z-10">
-            {/* Heat map grid implementation */}
             <div className="grid grid-rows-7 grid-flow-col gap-1.5">
               {heatMapData.map((level, i) => (
                 <div 
@@ -182,7 +254,6 @@ const fetchProjects = async () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => {
-              // Determine status based on the joined code_memories array
               const fileCount = project.code_memories?.length || 0
               const isGrounded = fileCount === 0
 
@@ -197,15 +268,30 @@ const fetchProjects = async () => {
                       <FolderGit2 size={24} />
                     </div>
                     
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setNodeToDelete({ id: project.id, name: project.name })
-                      }}
-                      className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {/* ACTION BUTTONS ON CARD */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSyncingProjectId(project.id)
+                          setIsSyncModalOpen(true)
+                        }}
+                        className="p-2 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
+                        title="Sync Repository"
+                      >
+                        <RefreshCw size={16} />
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setNodeToDelete({ id: project.id, name: project.name })
+                        }}
+                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Delete Node"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
 
                   <h3 className="text-xl font-semibold text-white mb-2 truncate pr-4">{project.name}</h3>
@@ -226,16 +312,61 @@ const fetchProjects = async () => {
         )}
       </div>
 
+      {/* SYNC/UPDATE MODAL FOR DASHBOARD */}
+      {isSyncModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-[#111111] border border-gray-800 w-full max-w-md rounded-xl p-8 relative shadow-2xl scale-in-95">
+            <button onClick={() => { setIsSyncModalOpen(false); setSyncingProjectId(null); }} className="absolute top-6 right-6 text-gray-500 hover:text-white transition-colors">
+              <X size={20}/>
+            </button>
+            
+            <div className="flex items-center gap-3 mb-6">
+              {activeProvider === 'github' && <Github className="text-gray-200" size={24}/>}
+              {activeProvider === 'gitlab' && <Gitlab className="text-orange-500" size={24}/>}
+              {activeProvider === 'bitbucket' && <Cloud className="text-blue-400" size={24}/>}
+              <h2 className="text-xl font-semibold capitalize text-white">Project Sync</h2>
+            </div>
+            
+            <div className="flex gap-2 mb-6">
+              <button onClick={() => setActiveProvider('github')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors ${activeProvider === 'github' ? 'bg-white/10 border-gray-500 text-white' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:text-gray-300'}`}>GitHub</button>
+              <button onClick={() => setActiveProvider('gitlab')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors ${activeProvider === 'gitlab' ? 'bg-white/10 border-orange-500 text-white' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:text-gray-300'}`}>GitLab</button>
+              <button onClick={() => setActiveProvider('bitbucket')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors ${activeProvider === 'bitbucket' ? 'bg-white/10 border-blue-500 text-white' : 'bg-[#0f1117] border-gray-800 text-gray-500 hover:text-gray-300'}`}>Bitbucket</button>
+            </div>
+
+            <p className="text-sm text-gray-400 mb-6">Enter the repository name to pull its code into this neural node. This will replace any existing context.</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Repository</label>
+                <input 
+                  autoFocus
+                  value={repoName} 
+                  onChange={(e) => setRepoName(e.target.value)} 
+                  placeholder="e.g., owner/repo"
+                  className="w-full bg-black border border-gray-800 rounded-lg px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all placeholder:text-gray-700"
+                />
+              </div>
+              
+              <button 
+                onClick={handleSyncTrigger} 
+                disabled={isSyncing || !repoName.trim()}
+                className={`w-full py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all ${isSyncing || !repoName.trim() ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20'}`}
+              >
+                {isSyncing ? <><Loader2 size={16} className="animate-spin"/> Syncing...</> : <><Zap size={16}/> Pull Files</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PREMIUM CUSTOM CONFIRMATION MODAL */}
       {nodeToDelete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200">
           <div className="bg-[#0e1117] border border-red-900/30 w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl scale-in-95">
-            
             <div className="p-6 md:p-8">
               <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
                 <AlertTriangle className="text-red-500" size={24} />
               </div>
-              
               <h2 className="text-xl font-bold text-white mb-2">Decommission Node?</h2>
               <p className="text-sm text-gray-400 mb-1">
                 You are about to permanently delete <strong className="text-gray-200">"{nodeToDelete.name}"</strong>.
@@ -244,7 +375,6 @@ const fetchProjects = async () => {
                 This will destroy all synced memory files associated with it. This action cannot be undone.
               </p>
             </div>
-
             <div className="flex gap-3 px-6 md:px-8 pb-6 md:pb-8">
               <button 
                 onClick={() => setNodeToDelete(null)}
@@ -261,7 +391,6 @@ const fetchProjects = async () => {
                 {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Confirm Deletion'}
               </button>
             </div>
-            
           </div>
         </div>
       )}
