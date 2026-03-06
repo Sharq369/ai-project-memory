@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
-  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2, CheckSquare, Square, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle, Info
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2, CheckSquare, Square, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle, Info, FileCode
 } from 'lucide-react'
 
 export default function ProjectDocPage() {
@@ -34,7 +34,9 @@ export default function ProjectDocPage() {
   const [editName, setEditName] = useState('')
   const [copied, setCopied] = useState(false)
   const [individualCopiedId, setIndividualCopiedId] = useState<string | null>(null)
-  const [selectedFile, setSelectedFile] = useState<any | null>(null)
+  
+  // --- EXPANDABLE FILE STATE ---
+  const [expandedFileId, setExpandedFileId] = useState<string | null>(null)
 
   // --- PREMIUM UI STATE ---
   const [notification, setNotification] = useState<{ visible: boolean, type: 'success' | 'error' | 'info', message: string }>({ visible: false, type: 'info', message: '' })
@@ -105,7 +107,7 @@ export default function ProjectDocPage() {
       showToast('error', `Delete Failed: ${error.message}`)
     } else {
       setMemories(prev => prev.filter(m => m.id !== fileToDelete.id))
-      setSelectedForAI(prev => prev.filter(id => id !== fileToDelete.id))
+      setSelectedForAI(prev => prev.filter(selectedId => selectedId !== fileToDelete.id))
       showToast('success', 'File permanently deleted.')
     }
     
@@ -153,7 +155,7 @@ export default function ProjectDocPage() {
   // --- VIBE CODING LOGIC ---
   const toggleFileSelection = (e: React.MouseEvent, memoryId: string) => {
     e.stopPropagation()
-    setSelectedForAI(prev => prev.includes(memoryId) ? prev.filter(id => id !== memoryId) : [...prev, memoryId])
+    setSelectedForAI(prev => prev.includes(memoryId) ? prev.filter(selectedId => selectedId !== memoryId) : [...prev, memoryId])
   }
 
   const toggleAllFiles = () => {
@@ -162,6 +164,10 @@ export default function ProjectDocPage() {
     } else {
       setSelectedForAI(memories.map(m => m.id))
     }
+  }
+
+  const toggleFile = (fileId: string) => {
+    setExpandedFileId(prev => prev === fileId ? null : fileId)
   }
 
   const copySelectedForAI = async () => {
@@ -235,9 +241,7 @@ export default function ProjectDocPage() {
           {notification.type === 'success' && <CheckCircle2 size={16} className="text-green-500" />}
           {notification.type === 'error' && <AlertCircle size={16} className="text-red-500" />}
           {notification.type === 'info' && <Info size={16} className="text-blue-500" />}
-          
           <span className="text-sm font-medium">{notification.message}</span>
-          
           <button onClick={() => setNotification(prev => ({...prev, visible: false}))} className="ml-2 opacity-60 hover:opacity-100 transition-opacity">
             <X size={14} />
           </button>
@@ -273,7 +277,7 @@ export default function ProjectDocPage() {
                       <Check size={18} />
                     </button>
                   </div>
-                ) : (
+                 ) : (
                   <div className="flex items-center gap-3 flex-wrap">
                     <h1 className="text-3xl md:text-4xl font-semibold text-white tracking-tight">{project?.name}</h1>
                     
@@ -289,7 +293,7 @@ export default function ProjectDocPage() {
                 )}
               </div>
 
-              <div className="flex flex-col md:flex-row gap-10 md:gap-16">
+               <div className="flex flex-col md:flex-row gap-10 md:gap-16">
                 <div className="space-y-3">
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Sync Source</p>
                   <div className="flex gap-3">
@@ -305,13 +309,13 @@ export default function ProjectDocPage() {
                   </div>
                 </div>
 
-                <div className="hidden md:block w-px bg-gray-800"></div>
+                 <div className="hidden md:block w-px bg-gray-800"></div>
 
                 <div className="flex-1">
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Deployments</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {deployTargets.map((target) => (
-                      <div key={target.name} className="flex items-center justify-between px-3 py-2 bg-black/50 border border-gray-800 rounded-lg">
+                       <div key={target.name} className="flex items-center justify-between px-3 py-2 bg-black/50 border border-gray-800 rounded-lg">
                         <span className="text-xs font-medium text-gray-400">{target.name}</span>
                         <div className={`w-1.5 h-1.5 rounded-full ${target.status === 'Active' ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]' : 'bg-gray-700'}`}></div>
                       </div>
@@ -319,21 +323,21 @@ export default function ProjectDocPage() {
                   </div>
                 </div>
               </div>
-            </div>
+             </div>
 
             {/* CHAT TOGGLE */}
             <button 
               onClick={() => setChatOpen(!chatOpen)} 
               className="mt-6 md:mt-0 bg-blue-600 p-4 rounded-xl hover:bg-blue-500 transition-all shadow-lg flex items-center justify-center relative group"
             >
-              <MessageSquare size={24} className="text-white" />
+               <MessageSquare size={24} className="text-white" />
               <div className="absolute -top-1.5 -right-1.5 bg-red-500 text-[10px] font-bold px-1.5 py-0.5 rounded-md border-2 border-[#111111] text-white">AI</div>
             </button>
           </header>
 
           {/* VIBE CODING CONTROLS */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-[#111111] border border-gray-800 p-4 rounded-xl">
-            <div className="flex items-center gap-4">
+             <div className="flex items-center gap-4">
               <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Project Files</h2>
               {memories.length > 0 && (
                 <button 
@@ -348,7 +352,7 @@ export default function ProjectDocPage() {
             
             <div className="flex w-full sm:w-auto gap-2">
               <button 
-                onClick={copySelectedForAI} 
+                 onClick={copySelectedForAI} 
                 disabled={selectedForAI.length === 0}
                 className={`flex-1 sm:flex-none flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all justify-center
                   ${copied ? 'bg-green-600 text-white shadow-[0_0_15px_rgba(22,163,74,0.4)]' : 
@@ -376,16 +380,22 @@ export default function ProjectDocPage() {
             ) : (
               memories.map((mem) => {
                 const isSelected = selectedForAI.includes(mem.id)
+                const isExpanded = expandedFileId === mem.id
+
                 return (
                   <div 
                     key={mem.id} 
-                    onClick={() => setSelectedFile(mem)} 
-                    className={`bg-[#0e1117] border rounded-lg overflow-hidden transition-colors cursor-pointer shadow-sm group
+                    className={`bg-[#0e1117] border rounded-lg overflow-hidden transition-colors shadow-sm group
                       ${isSelected ? 'border-blue-500/50 bg-blue-950/10' : 'border-gray-800 hover:border-gray-600'}`}
                   >
-                    <div className={`flex justify-between items-center px-4 py-3 border-b transition-colors
-                      ${isSelected ? 'border-blue-500/20 bg-blue-900/10' : 'border-gray-800/50 bg-[#161b22]'}`}>
-                      
+                    {/* Clickable Header for Expanding */}
+                    <div 
+                      onClick={() => toggleFile(mem.id)}
+                      className={`flex justify-between items-center px-4 py-3 cursor-pointer transition-colors
+                        ${isSelected ? 'bg-blue-900/10' : 'bg-[#161b22] hover:bg-gray-800/30'}
+                        ${(isExpanded && !isSelected) ? 'border-b border-gray-800/50' : ''}
+                        ${(isExpanded && isSelected) ? 'border-b border-blue-500/20' : ''}`}
+                    >
                       <div className="flex items-center gap-3 overflow-hidden flex-1">
                         <div 
                           onClick={(e) => toggleFileSelection(e, mem.id)}
@@ -393,6 +403,8 @@ export default function ProjectDocPage() {
                         >
                           {isSelected ? <CheckSquare size={16} className="text-blue-500"/> : <Square size={16}/>}
                         </div>
+                        
+                        <FileCode className="text-blue-500 flex-shrink-0" size={16} />
                         
                         <h3 className={`text-sm font-medium truncate ${isSelected ? 'text-blue-100' : 'text-gray-200'}`}>
                           {mem.file_name}
@@ -412,19 +424,22 @@ export default function ProjectDocPage() {
                           onClick={(e) => {
                             e.stopPropagation()
                             setFileToDelete({ id: mem.id, name: mem.file_name })
-                          }} 
+                           }} 
                           className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#0a0a0a] border border-gray-800"
                         >
-                           <Trash2 size={14}/>
+                          <Trash2 size={14}/>
                         </button>
                       </div>
                     </div>
                     
-                    <div className="p-4 bg-[#0d1117] opacity-80">
-                      <pre className="text-xs font-mono text-gray-400 overflow-hidden line-clamp-2">
-                        <code>{mem.content}</code>
-                      </pre>
-                    </div>
+                    {/* Expanded Code View */}
+                    {isExpanded && (
+                      <div className="p-4 bg-[#0d1117] overflow-x-auto">
+                        <pre className="text-xs font-mono text-gray-400 whitespace-pre-wrap">
+                          <code>{mem.content}</code>
+                        </pre>
+                      </div>
+                    )}
                   </div>
                 )
               })
@@ -440,7 +455,7 @@ export default function ProjectDocPage() {
             <button onClick={() => setIsSyncModalOpen(false)} className="absolute top-6 right-6 text-gray-500 hover:text-white transition-colors">
               <X size={20}/>
             </button>
-            
+             
             <div className="flex items-center gap-3 mb-6">
               {activeProvider === 'github' && <Github className="text-gray-200" size={24}/>}
               {activeProvider === 'gitlab' && <Gitlab className="text-orange-500" size={24}/>}
@@ -450,7 +465,7 @@ export default function ProjectDocPage() {
             
             <p className="text-sm text-gray-400 mb-6">
               {memories.length > 0 
-                ? "This will replace your current project files with the latest version from the repository." 
+                ? "This will replace your current project files with the latest version from the repository."
                 : "Enter the repository name to pull its code into this project."}
             </p>
             
@@ -486,7 +501,7 @@ export default function ProjectDocPage() {
               <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
                 <AlertTriangle className="text-red-500" size={24} />
               </div>
-              <h2 className="text-xl font-bold text-white mb-2">Delete File?</h2>
+               <h2 className="text-xl font-bold text-white mb-2">Delete File?</h2>
               <p className="text-sm text-gray-400 mb-1">
                 You are about to permanently remove <strong className="text-gray-200">{fileToDelete.name}</strong> from this node's memory.
               </p>
@@ -496,7 +511,7 @@ export default function ProjectDocPage() {
               <button 
                 onClick={() => setFileToDelete(null)}
                 disabled={isDeletingFile}
-                className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] hover:bg-gray-800 text-gray-300 transition-colors"
+                 className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] hover:bg-gray-800 text-gray-300 transition-colors"
               >
                 Cancel
               </button>
@@ -520,13 +535,13 @@ export default function ProjectDocPage() {
             <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div> AI Assistant
             </h3>
-            <button onClick={() => setChatOpen(false)} className="p-1.5 hover:bg-gray-800 rounded-md transition-colors"><X size={18} className="text-gray-400 hover:text-white" /></button>
+             <button onClick={() => setChatOpen(false)} className="p-1.5 hover:bg-gray-800 rounded-md transition-colors"><X size={18} className="text-gray-400 hover:text-white" /></button>
           </div>
           
           <div className="flex-1 overflow-y-auto space-y-4 mb-6 pr-2">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center opacity-50 space-y-3">
-                <MessageSquare size={32} className="text-gray-500" />
+                 <MessageSquare size={32} className="text-gray-500" />
                 <p className="text-sm text-gray-400">Ask questions about your synced code files.</p>
               </div>
             )}
@@ -539,14 +554,13 @@ export default function ProjectDocPage() {
             ))}
             {isThinking && (
               <div className="flex justify-start">
-                <div className="bg-[#111111] border border-gray-800 p-4 rounded-xl rounded-bl-sm">
+                 <div className="bg-[#111111] border border-gray-800 p-4 rounded-xl rounded-bl-sm">
                   <Loader2 size={16} className="animate-spin text-gray-500" />
                 </div>
               </div>
             )}
           </div>
-          
-          <div className="relative mt-auto">
+           <div className="relative mt-auto">
             <input 
               value={query} 
               onChange={(e) => setQuery(e.target.value)} 
