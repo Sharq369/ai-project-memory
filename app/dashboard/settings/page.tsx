@@ -1,13 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import { createBrowserClient } from '@supabase/ssr'
 import { 
   Check, Settings, Github, CreditCard, AlertTriangle, 
   Download, Key, Palette, HardDrive, Loader2, CheckCircle2, AlertCircle, Info, X, ShieldAlert
 } from 'lucide-react'
 
-// Your existing plans, untouched
+// Your existing plans
 const plans = [
   { name: 'Free', price: '$0', features: ['3 Project Limit', 'Basic AI Sync'], current: true, highlight: false },
   { name: 'Premium', price: '$19', features: ['Unlimited Projects', 'Deep Analysis'], current: false, highlight: true },
@@ -22,6 +22,15 @@ export default function SettingsPage() {
   const [isSavingToken, setIsSavingToken] = useState(false)
   const [notification, setNotification] = useState<{ visible: boolean, type: 'success' | 'error' | 'info', message: string }>({ visible: false, type: 'info', message: '' })
 
+  // --- NEW: Crypto Checkout State ---
+  const [isCheckingOut, setIsCheckingOut] = useState<string | null>(null)
+
+  // --- NEW: Supabase Client (To grab the logged-in User ID) ---
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ visible: true, type, message })
     setTimeout(() => setNotification(prev => ({ ...prev, visible: false })), 4000)
@@ -30,7 +39,6 @@ export default function SettingsPage() {
   const handleSaveToken = () => {
     if (!githubToken.trim()) return
     setIsSavingToken(true)
-    // Simulate API call to save securely to Supabase
     setTimeout(() => {
       setIsSavingToken(false)
       showToast('success', 'GitHub Personal Access Token securely stored.')
@@ -41,10 +49,54 @@ export default function SettingsPage() {
     showToast('info', 'Compiling knowledge base... Your download will begin shortly.')
   }
 
+  // --- NEW: Crypto Checkout Handler ---
+  const handleCryptoCheckout = async (planName: string, priceStr: string) => {
+    setIsCheckingOut(planName)
+    
+    // Convert "$19" to 19
+    const numericPrice = parseFloat(priceStr.replace('$', ''))
+
+    try {
+      // 1. Get the securely logged-in user from Supabase
+      const { data: { session } } = await supabase.auth.getSession()
+      const userId = session?.user?.id
+
+      if (!userId) {
+        showToast('error', 'Authentication error: Please log in again to upgrade.')
+        setIsCheckingOut(null)
+        return
+      }
+
+      // 2. Ping our new backend route to generate the invoice
+      const res = await fetch('/api/nowpayments/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          planName, 
+          price: numericPrice, 
+          userId 
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.checkout_url) {
+        // 3. Redirect the user to the secure crypto payment screen
+        window.location.href = data.checkout_url
+      } else {
+        showToast('error', data.error || 'Failed to initialize payment gateway.')
+        setIsCheckingOut(null)
+      }
+    } catch (error) {
+      showToast('error', 'Network error. Please try again.')
+      setIsCheckingOut(null)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-gray-200 p-6 md:p-12 font-sans selection:bg-blue-500/30">
       
-      {/* PREMIUM TOAST NOTIFICATION */}
+      {/* TOAST NOTIFICATION */}
       <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[300] transition-all duration-300 pointer-events-none
         ${notification.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'}`}
       >
@@ -104,7 +156,7 @@ export default function SettingsPage() {
 
           {/* MAIN CONTENT AREA */}
           <div className="flex-1 min-w-0">
-            
+             
             {/* INTEGRATIONS TAB */}
             {activeTab === 'integrations' && (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -118,7 +170,6 @@ export default function SettingsPage() {
                       <p className="text-sm text-gray-500">Required to sync private repositories to your Neural Nodes.</p>
                     </div>
                   </div>
-                  
                   <div className="space-y-4">
                     <div className="relative">
                       <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600" size={16} />
@@ -145,7 +196,7 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* BILLING TAB (Your original code beautifully integrated) */}
+            {/* BILLING TAB */}
             {activeTab === 'billing' && (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div>
@@ -164,19 +215,25 @@ export default function SettingsPage() {
                         </div>
                         
                         <ul className="space-y-3 mb-8 flex-1">
-                          {plan.features.map(f => (
+                           {plan.features.map(f => (
                             <li key={f} className="flex items-center gap-2 text-xs text-gray-400">
                               <Check size={14} className="text-blue-500" /> {f}
                             </li>
                           ))}
                         </ul>
                         
-                        <Link 
-                          href={plan.current ? '#' : `/dashboard/checkout/${plan.name.toLowerCase()}`} 
-                          className={`w-full py-3 rounded-xl font-black text-[10px] text-center uppercase tracking-widest transition-all ${plan.current ? 'bg-[#16181e] text-gray-500 cursor-default' : plan.highlight ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-white text-black hover:bg-gray-200'}`}
+                        {/* --- NEW: Crypto Checkout Button --- */}
+                        <button 
+                          onClick={() => handleCryptoCheckout(plan.name, plan.price)}
+                          disabled={plan.current || isCheckingOut === plan.name}
+                          className={`w-full py-3 rounded-xl font-black text-[10px] text-center uppercase tracking-widest transition-all flex items-center justify-center gap-2
+                            ${plan.current ? 'bg-[#16181e] text-gray-500 cursor-default' : 
+                              plan.highlight ? 'bg-blue-600 text-white hover:bg-blue-500' : 
+                              'bg-white text-black hover:bg-gray-200'}`}
                         >
-                          {plan.current ? 'Active Plan' : 'Select Plan'}
-                        </Link>
+                          {isCheckingOut === plan.name ? <Loader2 size={14} className="animate-spin" /> : 
+                           plan.current ? 'Active Plan' : 'Pay with Crypto'}
+                        </button>
                       </div>
                     ))}
                   </div>
