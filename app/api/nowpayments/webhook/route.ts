@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase with the Service Role Key to bypass RLS in the background
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -10,20 +9,21 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   try {
-    // 1. Get the IPN signature from the headers
     const signature = req.headers.get('x-nowpayments-sig');
     if (!signature) {
       return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
     }
 
-    // 2. Read the raw text body for verification
     const bodyText = await req.text();
     const payload = JSON.parse(bodyText);
 
-    // 3. Verify the signature using your NOWPayments IPN Secret
+    // NOWPayments requires signature verified against SORTED JSON keys
     const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET!;
+    const sortedPayload = JSON.stringify(
+      Object.fromEntries(Object.entries(payload).sort())
+    );
     const hmac = crypto.createHmac('sha512', ipnSecret);
-    hmac.update(bodyText);
+    hmac.update(sortedPayload);
     const calculatedSignature = hmac.digest('hex');
 
     if (signature !== calculatedSignature) {
@@ -31,31 +31,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log(`Crypto Payment Update: ${payload.payment_status} for Order: ${payload.order_id}`);
+    console.log(`Crypto Payment: ${payload.payment_status} for Order: ${payload.order_id}`);
 
-    // 4. Process the payment ONLY if it is completely finished
     if (payload.payment_status === 'finished') {
-      
-      // The order_id should be the user's ID that we pass when creating the payment link
-      const userId = payload.order_id; 
+      const userId = payload.order_id;
 
-      // 5. UPDATE YOUR DATABASE
-      // 👇 IMPORTANT: Change 'profiles' to your actual table name from the screenshot
-      // 👇 Change 'plan_type' to your actual premium status column name
       const { error } = await supabase
-        .from('profiles') 
-        .update({ 
-          plan_type: 'premium', // Or is_premium: true, etc.
+        .from('profiles')
+        .upsert({ 
+          id: userId,
+          plan_type: 'premium',
           updated_at: new Date().toISOString()
-        })
-        .eq('id', userId);
+        }, { onConflict: 'id' });
 
-      if (error) throw error;
+      if (error) {
+        console.error('DB Update Error:', error);
+        throw error;
+      }
 
       console.log(`Successfully upgraded user: ${userId}`);
     }
 
-    // Always return a 200 OK so NOWPayments knows you received the webhook
     return NextResponse.json({ status: 'OK' }, { status: 200 });
 
   } catch (error) {
