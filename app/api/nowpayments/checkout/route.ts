@@ -8,7 +8,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'User must be logged in' }, { status: 401 });
     }
 
-    // Call NOWPayments API to create an invoice
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://ai-project-memory.vercel.app';
+
     const response = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
       headers: {
@@ -18,11 +19,11 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         price_amount: price,
         price_currency: 'usd',
-        order_id: userId, // CRITICAL: This tells the webhook who to upgrade later!
+        order_id: userId,
         order_description: `Neural Capacity - ${planName} Plan`,
-        ipn_callback_url: 'https://your-domain.com/api/nowpayments/webhook',
-        success_url: 'https://your-domain.com/dashboard/settings?payment=success',
-        cancel_url: 'https://your-domain.com/dashboard/settings?payment=cancelled',
+        ipn_callback_url: `${siteUrl}/api/nowpayments/webhook`,
+        success_url: `${siteUrl}/dashboard/settings?payment=success`,
+        cancel_url: `${siteUrl}/dashboard/settings?payment=cancelled`,
       }),
     });
 
@@ -32,7 +33,6 @@ export async function POST(req: Request) {
       throw new Error(data.message || 'Failed to create invoice');
     }
 
-    // Return the secure checkout link to the frontend
     return NextResponse.json({ checkout_url: data.invoice_url });
 
   } catch (error: any) {
