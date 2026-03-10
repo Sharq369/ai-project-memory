@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
-  Check, Settings, Github, CreditCard, AlertTriangle, 
+  Check, Settings as SettingsIcon, Github, CreditCard, AlertTriangle, 
   Download, Key, Palette, HardDrive, Loader2, CheckCircle2, AlertCircle, Info, X, ShieldAlert
 } from 'lucide-react'
 
@@ -14,7 +15,7 @@ const plans = [
   { name: 'Platinum', price: '$49', features: ['Team Access', 'API Access'], current: false, highlight: false }
 ]
 
-export default function SettingsPage() {
+function SettingsPageInner() {
   const [activeTab, setActiveTab] = useState<'general' | 'integrations' | 'billing' | 'danger'>('integrations')
   
   // States for interactive elements
@@ -22,10 +23,12 @@ export default function SettingsPage() {
   const [isSavingToken, setIsSavingToken] = useState(false)
   const [notification, setNotification] = useState<{ visible: boolean, type: 'success' | 'error' | 'info', message: string }>({ visible: false, type: 'info', message: '' })
 
-  // --- NEW: Crypto Checkout State ---
+  // Crypto Checkout State
   const [isCheckingOut, setIsCheckingOut] = useState<string | null>(null)
 
-  // --- NEW: Supabase Client (To grab the logged-in User ID) ---
+  const searchParams = useSearchParams()
+
+  // Supabase Client
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -35,6 +38,21 @@ export default function SettingsPage() {
     setNotification({ visible: true, type, message })
     setTimeout(() => setNotification(prev => ({ ...prev, visible: false })), 4000)
   }
+
+  // --- NEW: Handle payment redirect feedback ---
+  useEffect(() => {
+    const paymentStatus = searchParams.get('payment')
+    if (paymentStatus === 'success') {
+      setActiveTab('billing')
+      showToast('success', '🎉 Payment received! Your plan upgrades within minutes.')
+      // Clean up the URL so the toast doesn't trigger again on refresh
+      window.history.replaceState({}, '', '/dashboard/settings')
+    } else if (paymentStatus === 'cancelled') {
+      setActiveTab('billing')
+      showToast('info', 'Payment cancelled. You can try again anytime.')
+      window.history.replaceState({}, '', '/dashboard/settings')
+    }
+  }, [searchParams])
 
   const handleSaveToken = () => {
     if (!githubToken.trim()) return
@@ -49,15 +67,12 @@ export default function SettingsPage() {
     showToast('info', 'Compiling knowledge base... Your download will begin shortly.')
   }
 
-  // --- NEW: Crypto Checkout Handler ---
+  // Crypto Checkout Handler
   const handleCryptoCheckout = async (planName: string, priceStr: string) => {
     setIsCheckingOut(planName)
-    
-    // Convert "$19" to 19
     const numericPrice = parseFloat(priceStr.replace('$', ''))
 
     try {
-      // 1. Get the securely logged-in user from Supabase
       const { data: { session } } = await supabase.auth.getSession()
       const userId = session?.user?.id
 
@@ -67,21 +82,15 @@ export default function SettingsPage() {
         return
       }
 
-      // 2. Ping our new backend route to generate the invoice
       const res = await fetch('/api/nowpayments/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          planName, 
-          price: numericPrice, 
-          userId 
-        }),
+        body: JSON.stringify({ planName, price: numericPrice, userId }),
       })
 
       const data = await res.json()
 
       if (data.checkout_url) {
-        // 3. Redirect the user to the secure crypto payment screen
         window.location.href = data.checkout_url
       } else {
         showToast('error', data.error || 'Failed to initialize payment gateway.')
@@ -118,7 +127,7 @@ export default function SettingsPage() {
       <div className="max-w-6xl mx-auto">
         <header className="mb-10 border-b border-gray-800 pb-8">
           <h1 className="text-3xl md:text-4xl font-black text-white tracking-tighter uppercase italic flex items-center gap-3">
-            <Settings className="text-blue-500" size={32} />
+            <SettingsIcon className="text-blue-500" size={32} />
             System Preferences
           </h1>
           <p className="text-gray-500 mt-2 text-sm">Manage your integrations, billing, and global workspace parameters.</p>
@@ -222,7 +231,6 @@ export default function SettingsPage() {
                           ))}
                         </ul>
                         
-                        {/* --- NEW: Crypto Checkout Button --- */}
                         <button 
                           onClick={() => handleCryptoCheckout(plan.name, plan.price)}
                           disabled={plan.current || isCheckingOut === plan.name}
@@ -302,5 +310,18 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+// Wrap the main component in Suspense to safely use useSearchParams in Next.js 14
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <Loader2 className="animate-spin text-blue-500" size={32} />
+      </div>
+    }>
+      <SettingsPageInner />
+    </Suspense>
   )
 }
