@@ -2,70 +2,48 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase admin client (Needs Service Role for background webhook tasks ideally, 
-// but ANON key works if your RLS policies allow it)
+// FIX: SERVICE_ROLE_KEY — webhooks have no user session
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Helper function to verify GitHub's cryptographic signature
 function verifyGitHubSignature(payload: string, signature: string | null) {
   const secret = process.env.WEBHOOK_SECRET;
-  
-  if (!secret) {
-    console.error("Missing WEBHOOK_SECRET in Vercel environment variables.");
-    return false;
-  }
-  if (!signature) {
-    console.error("Missing x-hub-signature-256 header from GitHub.");
-    return false;
-  }
+  if (!secret || !signature) return false;
 
-  // GitHub uses HMAC hex digest with SHA-256
   const hmac = crypto.createHmac('sha256', secret);
   const digest = 'sha256=' + hmac.update(payload).digest('hex');
   
-  // Use crypto.timingSafeEqual to prevent timing attacks
   try {
     return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature));
-  } catch (err) {
+  } catch {
     return false;
   }
 }
 
 export async function POST(req: Request) {
   try {
-    // 1. Get the raw text body for signature verification
     const bodyText = await req.text();
     const signature = req.headers.get('x-hub-signature-256');
 
-    // 2. Verify the handshake
-    const isValid = verifyGitHubSignature(bodyText, signature);
-    if (!isValid) {
-      console.error("Neural Sync Failed: Invalid Signature or Secret Mismatch.");
+    if (!verifyGitHubSignature(bodyText, signature)) {
       return NextResponse.json({ error: 'Unauthorized Handshake' }, { status: 401 });
     }
 
-    // 3. Parse the payload now that it's verified
     const payload = JSON.parse(bodyText);
     const repoName = payload.repository?.name;
 
-    console.log(`Neural Sync Authorized for Node: ${repoName}`);
-
-    // 4. Find the matching project in your Vault
     const { data: project, error: projectError } = await supabase
       .from('projects')
       .select('id')
-      .ilike('name', repoName) // case-insensitive match
+      .ilike('name', repoName)
       .single();
 
     if (projectError || !project) {
-      console.log(`No active node found in Vault for repo: ${repoName}`);
-      return NextResponse.json({ message: 'Node not found in Vault, ignoring.' }, { status: 200 });
+      return NextResponse.json({ message: 'Node not found, ignoring.' }, { status: 200 });
     }
 
-    // 5. Update the grounded state of your code memories
     await supabase
       .from('code_memories')
       .update({ 
@@ -74,7 +52,6 @@ export async function POST(req: Request) {
       })
       .eq('project_id', project.id);
 
-    // Update the project's last sync time
     await supabase
       .from('projects')
       .update({ updated_at: new Date().toISOString() })
