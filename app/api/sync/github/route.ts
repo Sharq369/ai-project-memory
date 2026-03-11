@@ -3,7 +3,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getLimits, PlanType } from '../../../lib/plans'
+import { getLimits, PlanType } from '../../../../lib/plans'
 
 export async function POST(req: Request) {
   try {
