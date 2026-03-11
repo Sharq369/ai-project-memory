@@ -115,42 +115,59 @@ export default function ProjectDocPage() {
     setFileToDelete(null)
   }
 
-  const handleSyncTrigger = async () => {
-    if (!repoName.trim()) return
-    setIsSyncing(true)
-    
-    try {
-      if (memories.length > 0) {
-        await supabase.from('code_memories').delete().eq('project_id', id)
-      }
+ // PASTE THIS INSIDE app/dashboard/projects/[id]/doc/page.tsx
 
-      const response = await fetch(`/api/sync/${activeProvider}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo: repoName, projectId: id })
-      })
+const handleSyncTrigger = async () => {
+  if (!repoName.trim()) return
+  setIsSyncing(true)
 
-      const result = await response.json()
-      
-      if (result.success) {
-        if (result.count === 0) {
-           showToast('info', "Sync completed, but 0 files were pulled. Check repository name.")
-        } else {
-           showToast('success', `${result.count} files pulled. Node is up to date!`)
-        }
-        await loadData()
-        setIsSyncModalOpen(false)
-        setRepoName('')
-        setSelectedForAI([])
-      } else {
-        showToast('error', `Sync API Error: ${result.error}`)
-      }
-    } catch (err: any) {
-      showToast('error', `Network Error: Failed to reach the sync API.`)
-    } finally {
-      setIsSyncing(false)
+  try {
+    // Get userId so sync routes can read the user's plan
+    const { data: { session } } = await supabase.auth.getSession()
+    const userId = session?.user?.id
+
+    if (memories.length > 0) {
+      await supabase.from('code_memories').delete().eq('project_id', id)
     }
+
+    const response = await fetch(`/api/sync/${activeProvider}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: repoName, projectId: id, userId })
+    })
+
+    const result = await response.json()
+
+    // Free plan blocked from GitLab or Bitbucket
+    if (result.upgrade) {
+      showToast('error', result.error)
+      setIsSyncing(false)
+      setIsSyncModalOpen(false)
+      return
+    }
+
+    if (result.success) {
+      if (result.capped) {
+        // Files were cut off by plan limit
+        showToast('info', `Only ${result.limit} files pulled — upgrade your plan to sync more.`)
+      } else if (result.count === 0) {
+        showToast('info', 'Sync complete but 0 files pulled. Check repo name.')
+      } else {
+        showToast('success', `${result.count} files synced. Node is up to date!`)
+      }
+      await loadData()
+      setIsSyncModalOpen(false)
+      setRepoName('')
+      setSelectedForAI([])
+    } else {
+      showToast('error', `Sync Error: ${result.error}`)
+    }
+  } catch {
+    showToast('error', 'Network Error: Could not reach sync API.')
+  } finally {
+    setIsSyncing(false)
   }
+}
 
   // --- VIBE CODING LOGIC ---
   const toggleFileSelection = (e: React.MouseEvent, memoryId: string) => {
