@@ -75,21 +75,49 @@ export default function ProjectsDashboard() {
     fetchProjects()
   }, [])
 
-  const handleCreateProject = async () => {
-    setCreating(true)
-    const { data, error } = await supabase
-      .from('projects')
-      .insert({ name: 'New Neural Node' })
-      .select()
-      .single()
+  // PASTE THIS INSIDE app/dashboard/projects/page.tsx
 
-    if (error) {
-      showToast('error', `Database Error: ${error.message}`)
-      setCreating(false)
-    } else if (data) {
-      router.push(`/dashboard/projects/${data.id}/doc`)
-    }
+const handleCreateProject = async () => {
+  setCreating(true)
+
+  // 1. Get logged in user
+  const { data: { session } } = await supabase.auth.getSession()
+  const userId = session?.user?.id
+
+  if (!userId) {
+    showToast('error', 'You must be logged in.')
+    setCreating(false)
+    return
   }
+
+  // 2. Check plan limit before creating
+  const check = await fetch('/api/enforce', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, action: 'create_project' })
+  })
+  const result = await check.json()
+
+  if (!result.allowed) {
+    showToast('error', result.reason)
+    setCreating(false)
+    return
+  }
+
+  // 3. Create the project
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({ name: 'New Neural Node', user_id: userId })
+    .select()
+    .single()
+
+  if (error) {
+    showToast('error', `Database Error: ${error.message}`)
+    setCreating(false)
+  } else if (data) {
+    router.push(`/dashboard/projects/${data.id}/doc`)
+  }
+}
 
   const confirmDecommission = async () => {
     if (!nodeToDelete) return
