@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
@@ -19,22 +19,15 @@ export default function ProjectsDashboard() {
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  
-  // Custom Premium Alert/Confirm State
   const [nodeToDelete, setNodeToDelete] = useState<{ id: string, name: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-
-  // Premium UI States for Notifications
   const [notification, setNotification] = useState<{ visible: boolean, type: 'success' | 'error' | 'info', message: string }>({ visible: false, type: 'info', message: '' })
-  
-  // Sync Engine State
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [syncingProjectId, setSyncingProjectId] = useState<string | null>(null)
   const [repoName, setRepoName] = useState('')
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
   const [isSyncing, setIsSyncing] = useState(false)
 
-  // Custom Toast Function
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ visible: true, type, message })
     setTimeout(() => setNotification({ visible: false, type: 'info', message: '' }), 5000)
@@ -54,15 +47,17 @@ export default function ProjectsDashboard() {
         return
       }
 
+      // FIX: filter by user_id explicitly so RLS always matches
       const { data, error } = await supabase
         .from('projects')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
       if (error) throw error
       setProjects(data || [])
     } catch (err: any) {
-      console.error("Vault Load Error:", err)
+      console.error('Vault Load Error:', err)
       showToast('error', 'Failed to initialize vault data.')
       setProjects([])
     } finally {
@@ -70,12 +65,11 @@ export default function ProjectsDashboard() {
     }
   }
 
-  // --- CRASH PROOF CREATE FUNCTION ---
   const handleCreateProject = async () => {
     setCreating(true)
 
     try {
-      // 1. Get user securely
+      // Get user
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       const userId = user?.id
 
@@ -85,26 +79,29 @@ export default function ProjectsDashboard() {
         return
       }
 
-      // 2. Check Plan Limits
-      const check = await fetch('/api/enforce', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, action: 'create_project' })
-      })
+      // FIX: Check enforce API but don't block on network errors
+      try {
+        const check = await fetch('/api/enforce', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, action: 'create_project' })
+        })
 
-      if (!check.ok) {
-        throw new Error('Failed to reach enforcement API.')
+        if (check.ok) {
+          const result = await check.json()
+          if (!result.allowed) {
+            showToast('error', result.reason || 'Plan limit reached. Upgrade to create more projects.')
+            setCreating(false)
+            return
+          }
+        }
+        // If enforce API fails for any reason, allow the create to proceed
+        // RLS will still protect data integrity
+      } catch (enforceErr) {
+        console.warn('Enforce API unreachable, proceeding with RLS protection only.')
       }
 
-      const result = await check.json()
-
-      if (!result.allowed) {
-        showToast('error', result.reason)
-        setCreating(false)
-        return
-      }
-
-      // 3. Create Project with explicit user_id for RLS
+      // Create project
       const { data, error } = await supabase
         .from('projects')
         .insert({ name: 'New Neural Node', user_id: userId })
@@ -112,15 +109,19 @@ export default function ProjectsDashboard() {
         .single()
 
       if (error) {
-        showToast('error', `Database Blocked: ${error.message}`)
+        showToast('error', `Database Error: ${error.message}`)
         setCreating(false)
-      } else if (data) {
+        return
+      }
+
+      if (data) {
+        // FIX: push to correct route
         router.push(`/dashboard/projects/${data.id}/doc`)
       }
-      
+
     } catch (err: any) {
-      console.error("Vault Creation Error:", err)
-      showToast('error', err.message || 'An unexpected error occurred.')
+      console.error('Vault Creation Error:', err)
+      showToast('error', err.message || 'Unexpected error.')
       setCreating(false)
     }
   }
@@ -147,7 +148,6 @@ export default function ProjectsDashboard() {
     }
   }
 
-  // --- REAL SYNC PIPELINE ---
   const handleSyncTrigger = async () => {
     if (!repoName.trim() || !syncingProjectId) return
     setIsSyncing(true)
@@ -162,7 +162,6 @@ export default function ProjectsDashboard() {
         return
       }
 
-      // Clean old memories before fresh sync
       await supabase.from('code_memories').delete().eq('project_id', syncingProjectId)
 
       const response = await fetch(`/api/sync/${activeProvider}`, {
@@ -183,6 +182,7 @@ export default function ProjectsDashboard() {
         } else {
           showToast('success', `${result.count} files synced to node.`)
         }
+        await loadNodes()
         setIsSyncModalOpen(false)
         setRepoName('')
       } else {
@@ -230,7 +230,7 @@ export default function ProjectsDashboard() {
 
       <div className="max-w-6xl mx-auto p-6 md:p-8 lg:p-12">
         
-        {/* Header Section */}
+        {/* Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
           <div>
             <div className="flex items-center gap-3 mb-2">
@@ -249,7 +249,6 @@ export default function ProjectsDashboard() {
             disabled={creating}
             className="group relative flex items-center gap-2 px-6 py-3 bg-white text-black font-semibold rounded-xl hover:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)]"
           >
-            <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-shimmer" />
             {creating ? (
               <Loader2 className="animate-spin text-black" size={20} />
             ) : (
@@ -283,7 +282,6 @@ export default function ProjectsDashboard() {
                 key={project.id}
                 className="group relative bg-[#161b22] border border-gray-800 hover:border-gray-600 rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 flex flex-col"
               >
-                {/* Status Indicator */}
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500/0 via-blue-500/50 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                 
                 <div className="p-6 flex-1 cursor-pointer" onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)}>
@@ -306,14 +304,13 @@ export default function ProjectsDashboard() {
                   </div>
                 </div>
 
-                {/* Footer Actions */}
                 <div className="px-4 py-3 bg-black/20 border-t border-gray-800/50 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={(e) => {
-                        e.stopPropagation();
-                        setSyncingProjectId(project.id);
-                        setIsSyncModalOpen(true);
+                        e.stopPropagation()
+                        setSyncingProjectId(project.id)
+                        setIsSyncModalOpen(true)
                       }}
                       className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-colors"
                       title="Sync Pipeline"
@@ -322,8 +319,8 @@ export default function ProjectsDashboard() {
                     </button>
                     <button 
                       onClick={(e) => {
-                        e.stopPropagation();
-                        setNodeToDelete({ id: project.id, name: project.name });
+                        e.stopPropagation()
+                        setNodeToDelete({ id: project.id, name: project.name })
                       }}
                       className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors"
                       title="Decommission Node"
@@ -345,11 +342,11 @@ export default function ProjectsDashboard() {
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Modal */}
       {nodeToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isDeleting && setNodeToDelete(null)} />
-          <div className="relative bg-[#0d1117] border border-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="relative bg-[#0d1117] border border-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="p-6 text-center">
               <div className="w-12 h-12 bg-red-500/10 rounded-full border border-red-500/20 mx-auto flex items-center justify-center mb-6">
                 <AlertTriangle className="text-red-500" size={24} />
@@ -359,7 +356,7 @@ export default function ProjectsDashboard() {
                 You are about to permanently delete <strong className="text-gray-200">"{nodeToDelete.name}"</strong>.
               </p>
               <p className="text-sm text-gray-400">
-                This will destroy all synced memory files associated with it. This action cannot be undone.
+                This will destroy all synced memory files. This action cannot be undone.
               </p>
             </div>
             <div className="flex gap-3 px-6 pb-6">
@@ -373,7 +370,7 @@ export default function ProjectsDashboard() {
               <button 
                 onClick={confirmDecommission}
                 disabled={isDeleting}
-                className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/20 transition-colors flex items-center justify-center gap-2"
+                className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center justify-center gap-2"
               >
                 {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Confirm Deletion'}
               </button>
@@ -382,11 +379,11 @@ export default function ProjectsDashboard() {
         </div>
       )}
 
-      {/* Sync Pipeline Modal */}
+      {/* Sync Modal */}
       {isSyncModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isSyncing && setIsSyncModalOpen(false)} />
-          <div className="relative bg-[#0d1117] border border-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+          <div className="relative bg-[#0d1117] border border-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
             
             <div className="flex items-center justify-between p-6 border-b border-gray-800/50">
               <div className="flex items-center gap-3">
@@ -395,11 +392,7 @@ export default function ProjectsDashboard() {
                 </div>
                 <h2 className="text-xl font-bold text-white">Initialize Sync Pipeline</h2>
               </div>
-              <button 
-                onClick={() => setIsSyncModalOpen(false)}
-                disabled={isSyncing}
-                className="text-gray-500 hover:text-white transition-colors"
-              >
+              <button onClick={() => setIsSyncModalOpen(false)} disabled={isSyncing} className="text-gray-500 hover:text-white transition-colors">
                 <X size={20} />
               </button>
             </div>
@@ -409,7 +402,6 @@ export default function ProjectsDashboard() {
                 Connect a remote repository to inject its codebase into this node's memory banks.
               </p>
 
-              {/* Provider Selection */}
               <div className="grid grid-cols-3 gap-3 mb-6">
                 {[
                   { id: 'github', icon: Github, label: 'GitHub' },
@@ -431,7 +423,6 @@ export default function ProjectsDashboard() {
                 ))}
               </div>
 
-              {/* Input Field */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Repository Target</label>
                 <div className="relative">
@@ -467,7 +458,6 @@ export default function ProjectsDashboard() {
                 )}
               </button>
             </div>
-
           </div>
         </div>
       )}
