@@ -58,10 +58,11 @@ export default function ProjectDocPage() {
     if (!id) return
 
     try {
-      // FIX: Auth check first — if no user, redirect instead of crashing
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/auth')
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      // FIX: Changed from /auth to your actual /login route
+      if (!user || authError) {
+        router.push('/login')
         return
       }
 
@@ -69,11 +70,10 @@ export default function ProjectDocPage() {
         .from('projects')
         .select('*')
         .eq('id', id)
-        .eq('user_id', user.id) // FIX: explicit user_id filter
+        .eq('user_id', user.id) 
         .single()
 
       if (projError || !proj) {
-        // Project not found or doesn't belong to user — go back
         router.push('/dashboard/projects')
         return
       }
@@ -94,7 +94,7 @@ export default function ProjectDocPage() {
     } finally {
       setLoading(false)
     }
-  }, [id])
+  }, [id, router, supabase])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -139,6 +139,7 @@ export default function ProjectDocPage() {
       if (!userId) {
         showToast('error', 'Authentication error.')
         setIsSyncing(false)
+        router.push('/login')
         return
       }
 
@@ -236,9 +237,14 @@ export default function ProjectDocPage() {
         body: JSON.stringify({ query: userMsg.content, projectId: id })
       })
       const data = await res.json()
-      setMessages(prev => [...prev, { role: 'ai', content: data.response || data.error }])
-    } catch {
-      setMessages(prev => [...prev, { role: 'ai', content: 'SYSTEM ERROR: Assistant unreachable.' }])
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Terminal disruption.')
+      }
+      
+      setMessages(prev => [...prev, { role: 'ai', content: data.response }])
+    } catch (err: any) {
+      setMessages(prev => [...prev, { role: 'ai', content: `[SYSTEM ERROR]: ${err.message}` }])
     } finally {
       setIsThinking(false)
     }
