@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
@@ -11,20 +11,21 @@ import {
 
 export default function ProjectsDashboard() {
   const router = useRouter()
+  
+  // Initialize Supabase Client
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
+  // Core State
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   
-  // Custom Premium Alert/Confirm State
+  // UI States
   const [nodeToDelete, setNodeToDelete] = useState<{ id: string, name: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-
-  // Premium UI States for Notifications
   const [notification, setNotification] = useState<{ visible: boolean, type: 'success' | 'error' | 'info', message: string }>({ visible: false, type: 'info', message: '' })
   
   // Sync Engine State
@@ -34,12 +35,13 @@ export default function ProjectsDashboard() {
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
   const [isSyncing, setIsSyncing] = useState(false)
 
-  // Custom Toast Function
+  // Custom Toast System
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ visible: true, type, message })
     setTimeout(() => setNotification({ visible: false, type: 'info', message: '' }), 5000)
   }
 
+  // Initial Load
   useEffect(() => {
     loadNodes()
   }, [])
@@ -47,14 +49,17 @@ export default function ProjectsDashboard() {
   const loadNodes = async () => {
     try {
       setLoading(true)
+      
+      // Strict server-side auth check
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       
       if (!user || authError) {
-        // 👇 THIS WAS CAUSING THE 404. Change '/login' to '/' if your login is the homepage.
+        // 🚨 404 FIX: Redirects exactly to your Route Group login page
         router.push('/login') 
         return
       }
 
+      // Fetch user's projects
       const { data, error } = await supabase
         .from('projects')
         .select('*')
@@ -62,6 +67,7 @@ export default function ProjectsDashboard() {
 
       if (error) throw error
       setProjects(data || [])
+      
     } catch (err: any) {
       console.error("Vault Load Error:", err)
       showToast('error', 'Failed to initialize vault data.')
@@ -71,20 +77,23 @@ export default function ProjectsDashboard() {
     }
   }
 
-  // --- CRASH PROOF CREATE FUNCTION ---
+  // --- NODE CREATION & PLAN ENFORCEMENT ---
   const handleCreateProject = async () => {
     setCreating(true)
 
     try {
+      // 1. Verify Auth Securely
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       const userId = user?.id
 
       if (!userId || authError) {
-        showToast('error', 'Auth sync failed. Please log in again.')
+        showToast('error', 'Session disconnected. Please log in again.')
         setCreating(false)
+        router.push('/login')
         return
       }
 
+      // 2. Enforce SaaS Plan Limits via API
       const check = await fetch('/api/enforce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -92,7 +101,7 @@ export default function ProjectsDashboard() {
       })
 
       if (!check.ok) {
-        throw new Error('Failed to reach enforcement API.')
+        throw new Error('Failed to reach Node limits API.')
       }
 
       const result = await check.json()
@@ -103,6 +112,9 @@ export default function ProjectsDashboard() {
         return
       }
 
+      // 3. Insert Database Record
+      // NOTE: We do NOT generate an ID here. The database handles UUID generation automatically.
+      // We pass user_id to satisfy your Row Level Security (RLS) policies.
       const { data, error } = await supabase
         .from('projects')
         .insert({ name: 'New Neural Node', user_id: userId })
@@ -110,7 +122,7 @@ export default function ProjectsDashboard() {
         .single()
 
       if (error) {
-        showToast('error', `Database Blocked: ${error.message}`)
+        showToast('error', `Security Blocked: ${error.message}`)
         setCreating(false)
       } else if (data) {
         router.push(`/dashboard/projects/${data.id}/doc`)
@@ -123,11 +135,13 @@ export default function ProjectsDashboard() {
     }
   }
 
+  // --- NODE DECOMMISSIONING ---
   const confirmDecommission = async () => {
     if (!nodeToDelete) return
     setIsDeleting(true)
     
     try {
+      // Must pass RLS check automatically via auth session
       const { error } = await supabase
         .from('projects')
         .delete()
@@ -145,7 +159,7 @@ export default function ProjectsDashboard() {
     }
   }
 
-  // --- REAL SYNC PIPELINE ---
+  // --- REAL SYNC PIPELINE & LIMITS ---
   const handleSyncTrigger = async () => {
     if (!repoName.trim() || !syncingProjectId) return
     setIsSyncing(true)
@@ -160,8 +174,10 @@ export default function ProjectsDashboard() {
         return
       }
 
+      // Clean old memories before fresh sync
       await supabase.from('code_memories').delete().eq('project_id', syncingProjectId)
 
+      // Hit our newly upgraded Sync APIs
       const response = await fetch(`/api/sync/${activeProvider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -171,6 +187,7 @@ export default function ProjectsDashboard() {
       const result = await response.json()
 
       if (result.upgrade) {
+        // Free plan trying to use GitLab/Bitbucket
         showToast('error', result.error)
       } else if (result.success) {
         if (result.capped) {
@@ -192,6 +209,7 @@ export default function ProjectsDashboard() {
     }
   }
 
+  // --- RENDER STATES ---
   if (loading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center min-h-[80vh]">
@@ -208,6 +226,7 @@ export default function ProjectsDashboard() {
 
   return (
     <div className="flex-1 overflow-y-auto max-h-screen custom-scrollbar relative">
+      
       {/* Toast Notification */}
       <div className={`fixed top-6 right-6 z-50 transition-all duration-300 transform ${notification.visible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0 pointer-events-none'}`}>
         <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl backdrop-blur-md ${
@@ -280,7 +299,6 @@ export default function ProjectsDashboard() {
                 key={project.id}
                 className="group relative bg-[#161b22] border border-gray-800 hover:border-gray-600 rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 flex flex-col"
               >
-                {/* Status Indicator */}
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500/0 via-blue-500/50 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                 
                 <div className="p-6 flex-1 cursor-pointer" onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)}>
@@ -303,7 +321,6 @@ export default function ProjectsDashboard() {
                   </div>
                 </div>
 
-                {/* Footer Actions */}
                 <div className="px-4 py-3 bg-black/20 border-t border-gray-800/50 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <button 
@@ -342,7 +359,7 @@ export default function ProjectsDashboard() {
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Modal */}
       {nodeToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isDeleting && setNodeToDelete(null)} />
@@ -406,7 +423,6 @@ export default function ProjectsDashboard() {
                 Connect a remote repository to inject its codebase into this node's memory banks.
               </p>
 
-              {/* Provider Selection */}
               <div className="grid grid-cols-3 gap-3 mb-6">
                 {[
                   { id: 'github', icon: Github, label: 'GitHub' },
@@ -428,7 +444,6 @@ export default function ProjectsDashboard() {
                 ))}
               </div>
 
-              {/* Input Field */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Repository Target</label>
                 <div className="relative">
