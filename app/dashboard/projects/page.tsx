@@ -301,7 +301,7 @@ export default function ProjectsDashboard() {
               
               // Simulated Completion Logic for the UI
               // Creates a stable but dynamic percentage based on file counts
-              const codebaseMaturity = isGrounded ? 0 : Math.min(Math.max(Math.round((fileCount * 2.8) + (project.name.length * 1.5)), 12), 100);
+              const codebaseMaturity = isGrounded ? 0 : (project.maturity_score || 0);
 
               return (
                 <div 
