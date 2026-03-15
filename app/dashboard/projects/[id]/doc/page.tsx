@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
+import ReactMarkdown from 'react-markdown'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
   X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2, CheckSquare, Square, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle, Info, FileCode
@@ -49,18 +50,13 @@ export default function ProjectDocPage() {
 
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ visible: true, type, message })
-    setTimeout(() => {
-      setNotification(prev => ({ ...prev, visible: false }))
-    }, 4000)
+    setTimeout(() => setNotification(prev => ({ ...prev, visible: false })), 4000)
   }
 
   const loadData = useCallback(async () => {
     if (!id) return
-
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser()
-      
-      // FIX: Changed from /auth to your actual /login route
       if (!user || authError) {
         router.push('/login')
         return
@@ -79,17 +75,10 @@ export default function ProjectDocPage() {
       }
 
       setProject(proj)
-
-      const { data: mems } = await supabase
-        .from('code_memories')
-        .select('*')
-        .eq('project_id', id)
-        .order('file_name', { ascending: true })
-
+      const { data: mems } = await supabase.from('code_memories').select('*').eq('project_id', id).order('file_name', { ascending: true })
       if (mems) setMemories(mems)
 
     } catch (err: any) {
-      console.error('loadData error:', err)
       router.push('/dashboard/projects')
     } finally {
       setLoading(false)
@@ -99,16 +88,13 @@ export default function ProjectDocPage() {
   useEffect(() => { loadData() }, [loadData])
 
   const handleRename = async () => {
-    if (!editName.trim() || editName === project?.name) {
-      setIsEditing(false)
-      return
-    }
+    if (!editName.trim() || editName === project?.name) return setIsEditing(false)
     const { error } = await supabase.from('projects').update({ name: editName }).eq('id', id)
     if (!error) {
       setProject({ ...project, name: editName })
-      showToast('success', 'Project renamed successfully.')
+      showToast('success', 'Project renamed.')
     } else {
-      showToast('error', 'Failed to rename project.')
+      showToast('error', 'Rename failed.')
     }
     setIsEditing(false)
   }
@@ -117,12 +103,10 @@ export default function ProjectDocPage() {
     if (!fileToDelete) return
     setIsDeletingFile(true)
     const { error } = await supabase.from('code_memories').delete().eq('id', fileToDelete.id)
-    if (error) {
-      showToast('error', `Delete Failed: ${error.message}`)
-    } else {
+    if (!error) {
       setMemories(prev => prev.filter(m => m.id !== fileToDelete.id))
       setSelectedForAI(prev => prev.filter(sid => sid !== fileToDelete.id))
-      showToast('success', 'File permanently deleted.')
+      showToast('success', 'File deleted.')
     }
     setIsDeletingFile(false)
     setFileToDelete(null)
@@ -131,50 +115,29 @@ export default function ProjectDocPage() {
   const handleSyncTrigger = async () => {
     if (!repoName.trim()) return
     setIsSyncing(true)
-
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id
+      if (!user?.id) return router.push('/login')
 
-      if (!userId) {
-        showToast('error', 'Authentication error.')
-        setIsSyncing(false)
-        router.push('/login')
-        return
-      }
-
-      if (memories.length > 0) {
-        await supabase.from('code_memories').delete().eq('project_id', id)
-      }
+      await supabase.from('code_memories').delete().eq('project_id', id)
 
       const response = await fetch(`/api/sync/${activeProvider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo: repoName, projectId: id, userId })
+        body: JSON.stringify({ repo: repoName, projectId: id, userId: user.id })
       })
-
       const result = await response.json()
 
-      if (result.upgrade) {
-        showToast('error', result.error)
-        setIsSyncModalOpen(false)
-      } else if (result.success) {
-        if (result.capped) {
-          showToast('info', `Only ${result.limit} files pulled — upgrade your plan to sync more.`)
-        } else if (result.count === 0) {
-          showToast('info', 'Sync complete but 0 files pulled. Check repo name.')
-        } else {
-          showToast('success', `${result.count} files synced. Node is up to date!`)
-        }
+      if (result.success) {
+        showToast('success', `${result.count} files synced!`)
         await loadData()
         setIsSyncModalOpen(false)
         setRepoName('')
-        setSelectedForAI([])
       } else {
-        showToast('error', `Sync Error: ${result.error}`)
+        showToast('error', result.error || 'Sync failed')
       }
     } catch {
-      showToast('error', 'Network Error: Could not reach sync API.')
+      showToast('error', 'Network Error')
     } finally {
       setIsSyncing(false)
     }
@@ -182,21 +145,7 @@ export default function ProjectDocPage() {
 
   const toggleFileSelection = (e: React.MouseEvent, memoryId: string) => {
     e.stopPropagation()
-    setSelectedForAI(prev =>
-      prev.includes(memoryId) ? prev.filter(sid => sid !== memoryId) : [...prev, memoryId]
-    )
-  }
-
-  const toggleAllFiles = () => {
-    if (selectedForAI.length === memories.length) {
-      setSelectedForAI([])
-    } else {
-      setSelectedForAI(memories.map(m => m.id))
-    }
-  }
-
-  const toggleFile = (fileId: string) => {
-    setExpandedFileId(prev => prev === fileId ? null : fileId)
+    setSelectedForAI(prev => prev.includes(memoryId) ? prev.filter(sid => sid !== memoryId) : [...prev, memoryId])
   }
 
   const copySelectedForAI = async () => {
@@ -205,15 +154,11 @@ export default function ProjectDocPage() {
     let output = `# Project Context: "${project?.name}"\n\n`
     filtered.forEach(mem => {
       const ext = mem.file_name.split('.').pop()?.toLowerCase() || ''
-      let lang = ext
-      if (['ts', 'tsx'].includes(ext)) lang = 'typescript'
-      if (['js', 'jsx'].includes(ext)) lang = 'javascript'
-      if (ext === 'md') lang = 'markdown'
-      output += `### FILE: ${mem.file_name}\n\`\`\`${lang}\n${mem.content}\n\`\`\`\n\n`
+      output += `### FILE: ${mem.file_name}\n\`\`\`${ext}\n${mem.content}\n\`\`\`\n\n`
     })
     await navigator.clipboard.writeText(output)
     setCopied(true)
-    showToast('success', `Copied ${selectedForAI.length} files to clipboard!`)
+    showToast('success', `Copied ${selectedForAI.length} files!`)
     setTimeout(() => setCopied(false), 2000)
   }
 
@@ -237,11 +182,7 @@ export default function ProjectDocPage() {
         body: JSON.stringify({ query: userMsg.content, projectId: id })
       })
       const data = await res.json()
-      
-      if (!res.ok) {
-        throw new Error(data.error || 'Terminal disruption.')
-      }
-      
+      if (!res.ok) throw new Error(data.error || 'Terminal disruption.')
       setMessages(prev => [...prev, { role: 'ai', content: data.response }])
     } catch (err: any) {
       setMessages(prev => [...prev, { role: 'ai', content: `[SYSTEM ERROR]: ${err.message}` }])
@@ -250,81 +191,45 @@ export default function ProjectDocPage() {
     }
   }
 
-  if (loading) return (
-    <div className="h-screen bg-[#0a0a0a] flex items-center justify-center">
-      <Loader2 className="animate-spin text-blue-500" size={32} />
-    </div>
-  )
-
-  if (!project) return (
-    <div className="h-screen bg-[#0a0a0a] flex items-center justify-center">
-      <p className="text-gray-500">Project not found.</p>
-    </div>
-  )
-
-  const projectStatus = memories.length === 0 ? 'Grounded' : 'Active'
+  if (loading) return <div className="h-screen bg-[#050505] flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" size={32} /></div>
+  if (!project) return <div className="h-screen bg-[#050505] flex items-center justify-center text-gray-500">Project not found.</div>
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-gray-200 flex overflow-hidden font-sans selection:bg-blue-500/30">
-      
-      {/* TOAST */}
-      <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[300] transition-all duration-300 pointer-events-none
-        ${notification.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'}`}
-      >
-        <div className={`flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto
-          ${notification.type === 'success' ? 'bg-green-950/80 border-green-500/30 text-green-200' :
-            notification.type === 'error' ? 'bg-red-950/80 border-red-500/30 text-red-200' :
-            'bg-blue-950/80 border-blue-500/30 text-blue-200'}`}
-        >
+    <div className="min-h-screen bg-[#050505] text-gray-200 flex overflow-hidden font-sans selection:bg-blue-500/30">
+      {/* Toast */}
+      <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[300] transition-all duration-300 pointer-events-none ${notification.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'}`}>
+        <div className={`flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto ${notification.type === 'success' ? 'bg-green-950/80 border-green-500/30 text-green-200' : notification.type === 'error' ? 'bg-red-950/80 border-red-500/30 text-red-200' : 'bg-blue-950/80 border-blue-500/30 text-blue-200'}`}>
           {notification.type === 'success' && <CheckCircle2 size={16} className="text-green-500" />}
           {notification.type === 'error' && <AlertCircle size={16} className="text-red-500" />}
-          {notification.type === 'info' && <Info size={16} className="text-blue-500" />}
           <span className="text-sm font-medium">{notification.message}</span>
-          <button onClick={() => setNotification(prev => ({...prev, visible: false}))} className="ml-2 opacity-60 hover:opacity-100 transition-opacity">
-            <X size={14} />
-          </button>
         </div>
       </div>
 
-      {/* MAIN */}
-      <div className={`flex-1 p-6 md:p-12 transition-all duration-500 overflow-y-auto ${chatOpen ? 'mr-[400px]' : ''}`}>
-        <button 
-          onClick={() => router.push('/dashboard/projects')} 
-          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 mb-8 transition-colors group"
-        >
-          <ChevronLeft size={16} className="group-hover:-translate-x-1 transition-transform"/> Back to Projects
+      {/* MAIN VIEW */}
+      <div className={`flex-1 p-6 md:p-12 transition-all duration-500 overflow-y-auto ${chatOpen ? 'mr-[450px]' : ''}`}>
+        <button onClick={() => router.push('/dashboard/projects')} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 mb-8 transition-colors group">
+          <ChevronLeft size={16} className="group-hover:-translate-x-1 transition-transform"/> Back to Vault
         </button>
 
         <div className="max-w-5xl mx-auto">
-          
           {/* HEADER */}
-          <header className="bg-[#111111] border border-gray-800 p-8 rounded-2xl flex flex-col md:flex-row justify-between items-start mb-10 shadow-sm">
-            <div className="flex-1 w-full">
-              
+          <header className="bg-[#0a0a0a] border border-gray-800 p-8 rounded-2xl flex flex-col md:flex-row justify-between items-start mb-10 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-blue-500/50 to-transparent opacity-50" />
+            <div className="flex-1 w-full relative z-10">
               <div className="flex items-center gap-4 mb-8">
                 {isEditing ? (
                   <div className="flex items-center gap-3 w-full max-w-md">
-                    <input 
-                      autoFocus 
-                      value={editName} 
-                      onChange={(e) => setEditName(e.target.value)} 
-                      onKeyDown={(e) => e.key === 'Enter' && handleRename()} 
-                      className="bg-black border border-blue-500/50 rounded-lg px-4 py-2 text-2xl font-semibold text-white outline-none w-full focus:border-blue-500 transition-colors"
-                    />
-                    <button onClick={handleRename} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                      <Check size={18} />
-                    </button>
+                    <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRename()} className="bg-black border border-blue-500/50 rounded-lg px-4 py-2 text-2xl font-semibold text-white outline-none w-full focus:border-blue-500 transition-colors"/>
+                    <button onClick={handleRename} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"><Check size={18} /></button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3 flex-wrap">
                     <h1 className="text-3xl md:text-4xl font-semibold text-white tracking-tight">{project?.name}</h1>
-                    <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border flex items-center gap-1.5 ${projectStatus === 'Grounded' ? 'bg-gray-800/80 text-gray-400 border-gray-700' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
-                      <div className={`w-1.5 h-1.5 rounded-full ${projectStatus === 'Grounded' ? 'bg-gray-500' : 'bg-green-500'}`}></div>
-                      {projectStatus}
+                    <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border flex items-center gap-1.5 ${memories.length === 0 ? 'bg-gray-900/50 text-gray-400 border-gray-800' : 'bg-green-500/10 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]'}`}>
+                      <div className={`w-1.5 h-1.5 rounded-full ${memories.length === 0 ? 'bg-gray-500' : 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.8)]'}`}></div>
+                      {memories.length === 0 ? 'Grounded' : 'Active'}
                     </span>
-                    <button onClick={() => { setEditName(project?.name); setIsEditing(true); }} className="p-1.5 text-gray-500 hover:text-white rounded-md hover:bg-white/5 transition-colors">
-                      <Pencil size={14} />
-                    </button>
+                    <button onClick={() => { setEditName(project?.name); setIsEditing(true); }} className="p-1.5 text-gray-500 hover:text-white rounded-md hover:bg-white/5 transition-colors"><Pencil size={14} /></button>
                   </div>
                 )}
               </div>
@@ -333,120 +238,67 @@ export default function ProjectDocPage() {
                 <div className="space-y-3">
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Sync Source</p>
                   <div className="flex gap-3">
-                    <button onClick={() => { setActiveProvider('github'); setIsSyncModalOpen(true); }} className="p-2.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-gray-500 transition-all text-gray-300 hover:text-white" title="Sync GitHub">
-                      <Github size={18} />
-                    </button>
-                    <button onClick={() => { setActiveProvider('gitlab'); setIsSyncModalOpen(true); }} className="p-2.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-orange-500 transition-all text-gray-300 hover:text-white" title="Sync GitLab">
-                      <Gitlab size={18} />
-                    </button>
-                    <button onClick={() => { setActiveProvider('bitbucket'); setIsSyncModalOpen(true); }} className="p-2.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-blue-400 transition-all text-gray-300 hover:text-white" title="Sync Bitbucket">
-                      <Cloud size={18} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="hidden md:block w-px bg-gray-800"></div>
-
-                <div className="flex-1">
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Deployments</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {deployTargets.map((target) => (
-                      <div key={target.name} className="flex items-center justify-between px-3 py-2 bg-black/50 border border-gray-800 rounded-lg">
-                        <span className="text-xs font-medium text-gray-400">{target.name}</span>
-                        <div className={`w-1.5 h-1.5 rounded-full ${target.status === 'Active' ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]' : 'bg-gray-700'}`}></div>
-                      </div>
-                    ))}
+                    <button onClick={() => { setActiveProvider('github'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-white/30 transition-all text-gray-400 hover:text-white"><Github size={18} /></button>
+                    <button onClick={() => { setActiveProvider('gitlab'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-orange-500/50 transition-all text-gray-400 hover:text-orange-400"><Gitlab size={18} /></button>
+                    <button onClick={() => { setActiveProvider('bitbucket'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-blue-500/50 transition-all text-gray-400 hover:text-blue-400"><Cloud size={18} /></button>
                   </div>
                 </div>
               </div>
             </div>
 
-            <button 
-              onClick={() => setChatOpen(!chatOpen)} 
-              className="mt-6 md:mt-0 bg-blue-600 p-4 rounded-xl hover:bg-blue-500 transition-all shadow-lg flex items-center justify-center relative group"
-            >
+            <button onClick={() => setChatOpen(!chatOpen)} className="mt-6 md:mt-0 bg-blue-600 p-4 rounded-xl hover:bg-blue-500 transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] flex items-center justify-center relative group z-10">
               <MessageSquare size={24} className="text-white" />
               <div className="absolute -top-1.5 -right-1.5 bg-red-500 text-[10px] font-bold px-1.5 py-0.5 rounded-md border-2 border-[#111111] text-white">AI</div>
             </button>
           </header>
 
           {/* VIBE CODING CONTROLS */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-[#111111] border border-gray-800 p-4 rounded-xl">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-[#0a0a0a] border border-gray-800 p-4 rounded-xl shadow-lg">
             <div className="flex items-center gap-4">
               <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Project Files</h2>
               {memories.length > 0 && (
-                <button onClick={toggleAllFiles} className="text-xs flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors">
-                  {selectedForAI.length === memories.length ? <CheckSquare size={14}/> : <Square size={14}/>}
-                  {selectedForAI.length === memories.length ? 'Deselect All' : 'Select All'}
+                <button onClick={() => setSelectedForAI(selectedForAI.length === memories.length ? [] : memories.map(m => m.id))} className="text-xs flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors">
+                  {selectedForAI.length === memories.length ? <CheckSquare size={14}/> : <Square size={14}/>} Select All
                 </button>
               )}
             </div>
-            <div className="flex w-full sm:w-auto gap-2">
-              <button 
-                onClick={copySelectedForAI} 
-                disabled={selectedForAI.length === 0}
-                className={`flex-1 sm:flex-none flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all justify-center
-                  ${copied ? 'bg-green-600 text-white' : 
-                    selectedForAI.length === 0 ? 'bg-[#0a0a0a] text-gray-600 cursor-not-allowed border border-gray-800' : 
-                    'bg-blue-600 text-white hover:bg-blue-500'}`}
-              >
-                {copied ? <Check size={14} /> : <Terminal size={14} />}
-                {copied ? 'Copied!' : `Copy Selected (${selectedForAI.length})`}
-              </button>
-            </div>
+            <button onClick={copySelectedForAI} disabled={selectedForAI.length === 0} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all ${copied ? 'bg-green-600 text-white shadow-[0_0_10px_rgba(34,197,94,0.3)]' : selectedForAI.length === 0 ? 'bg-[#111] text-gray-600 cursor-not-allowed border border-gray-800' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.3)]'}`}>
+              {copied ? <Check size={14} /> : <Terminal size={14} />} {copied ? 'Copied!' : `Copy Selected (${selectedForAI.length})`}
+            </button>
           </div>
 
           {/* FILE LIST */}
           <div className="space-y-3 pb-32">
             {memories.length === 0 ? (
-              <div className="p-12 text-center border border-gray-800 border-dashed rounded-xl bg-gray-900/20">
+              <div className="p-12 text-center border border-gray-800 border-dashed rounded-xl bg-gray-900/10">
                 <p className="text-sm text-gray-500 mb-4">No files synced yet. Connect a repository above to pull your code.</p>
-                <button 
-                  onClick={() => setIsSyncModalOpen(true)} 
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-2"
-                >
-                  <Zap size={16} /> Sync First Repository
-                </button>
               </div>
             ) : (
               memories.map((mem) => {
                 const isSelected = selectedForAI.includes(mem.id)
                 const isExpanded = expandedFileId === mem.id
                 return (
-                  <div 
-                    key={mem.id} 
-                    className={`bg-[#0e1117] border rounded-lg overflow-hidden transition-colors shadow-sm group
-                      ${isSelected ? 'border-blue-500/50 bg-blue-950/10' : 'border-gray-800 hover:border-gray-600'}`}
-                  >
-                    <div 
-                      onClick={() => toggleFile(mem.id)}
-                      className={`flex justify-between items-center px-4 py-3 cursor-pointer transition-colors
-                        ${isSelected ? 'bg-blue-900/10' : 'bg-[#161b22] hover:bg-gray-800/30'}
-                        ${isExpanded ? 'border-b border-gray-800/50' : ''}`}
-                    >
+                  <div key={mem.id} className={`bg-[#0a0a0a] border rounded-lg overflow-hidden transition-colors shadow-sm group ${isSelected ? 'border-blue-500/50 bg-blue-950/10 shadow-[0_0_15px_rgba(37,99,235,0.1)]' : 'border-gray-800 hover:border-gray-600'}`}>
+                    <div onClick={() => setExpandedFileId(prev => prev === mem.id ? null : mem.id)} className={`flex justify-between items-center px-4 py-3 cursor-pointer transition-colors ${isSelected ? 'bg-blue-900/10' : 'bg-[#111] hover:bg-gray-800/50'} ${isExpanded ? 'border-b border-gray-800/50' : ''}`}>
                       <div className="flex items-center gap-3 overflow-hidden flex-1">
                         <div onClick={(e) => toggleFileSelection(e, mem.id)} className="p-1 -ml-1 cursor-pointer text-gray-500 hover:text-white transition-colors">
                           {isSelected ? <CheckSquare size={16} className="text-blue-500"/> : <Square size={16}/>}
                         </div>
                         <FileCode className="text-blue-500 flex-shrink-0" size={16} />
-                        <h3 className={`text-sm font-medium truncate ${isSelected ? 'text-blue-100' : 'text-gray-200'}`}>
-                          {mem.file_name}
-                        </h3>
+                        <h3 className={`text-sm font-medium truncate ${isSelected ? 'text-blue-100' : 'text-gray-300'}`}>{mem.file_name}</h3>
                       </div>
                       <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                        <button onClick={(e) => copyIndividualBlock(e, mem.content, mem.id)} className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors bg-[#0a0a0a] border border-gray-800">
+                        <button onClick={(e) => copyIndividualBlock(e, mem.content, mem.id)} className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors bg-[#050505] border border-gray-800">
                           {individualCopiedId === mem.id ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); setFileToDelete({ id: mem.id, name: mem.file_name }) }} className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#0a0a0a] border border-gray-800">
+                        <button onClick={(e) => { e.stopPropagation(); setFileToDelete({ id: mem.id, name: mem.file_name }) }} className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#050505] border border-gray-800">
                           <Trash2 size={14}/>
                         </button>
                       </div>
                     </div>
                     {isExpanded && (
-                      <div className="p-4 bg-[#0d1117] overflow-x-auto">
-                        <pre className="text-xs font-mono text-gray-400 whitespace-pre-wrap">
-                          <code>{mem.content}</code>
-                        </pre>
+                      <div className="p-4 bg-[#050505] overflow-x-auto">
+                        <pre className="text-xs font-mono text-gray-400 whitespace-pre-wrap"><code>{mem.content}</code></pre>
                       </div>
                     )}
                   </div>
@@ -457,104 +309,71 @@ export default function ProjectDocPage() {
         </div>
       </div>
 
-      {/* SYNC MODAL */}
-      {isSyncModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-[#111111] border border-gray-800 w-full max-w-md rounded-xl p-8 relative shadow-2xl">
-            <button onClick={() => setIsSyncModalOpen(false)} className="absolute top-6 right-6 text-gray-500 hover:text-white transition-colors">
-              <X size={20}/>
-            </button>
-            <div className="flex items-center gap-3 mb-6">
-              {activeProvider === 'github' && <Github className="text-gray-200" size={24}/>}
-              {activeProvider === 'gitlab' && <Gitlab className="text-orange-500" size={24}/>}
-              {activeProvider === 'bitbucket' && <Cloud className="text-blue-400" size={24}/>}
-              <h2 className="text-xl font-semibold capitalize text-white">{memories.length > 0 ? 'Update Sync' : `${activeProvider} Sync`}</h2>
-            </div>
-            <p className="text-sm text-gray-400 mb-6">
-              {memories.length > 0 
-                ? 'This will replace your current project files with the latest from the repository.'
-                : 'Enter the repository name to pull its code into this project.'}
-            </p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Repository</label>
-                <input 
-                  autoFocus
-                  value={repoName} 
-                  onChange={(e) => setRepoName(e.target.value)} 
-                  onKeyDown={(e) => e.key === 'Enter' && !isSyncing && repoName.trim() && handleSyncTrigger()}
-                  placeholder="e.g., owner/repo"
-                  className="w-full bg-black border border-gray-800 rounded-lg px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all placeholder:text-gray-700"
-                />
-              </div>
-              <button 
-                onClick={handleSyncTrigger} 
-                disabled={isSyncing || !repoName.trim()}
-                className={`w-full py-3 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all ${isSyncing || !repoName.trim() ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
-              >
-                {isSyncing ? <><Loader2 size={16} className="animate-spin"/> Syncing...</> : memories.length > 0 ? <><RefreshCw size={16}/> Pull Updates</> : <><Zap size={16}/> Pull Files</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* FILE DELETE MODAL */}
-      {fileToDelete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
-          <div className="bg-[#0e1117] border border-red-900/30 w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl">
-            <div className="p-6 md:p-8">
-              <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
-                <AlertTriangle className="text-red-500" size={24} />
-              </div>
-              <h2 className="text-xl font-bold text-white mb-2">Delete File?</h2>
-              <p className="text-sm text-gray-400 mb-1">
-                You are about to permanently remove <strong className="text-gray-200">{fileToDelete.name}</strong> from this node's memory.
-              </p>
-              <p className="text-sm text-gray-400">This action cannot be undone.</p>
-            </div>
-            <div className="flex gap-3 px-6 md:px-8 pb-6 md:pb-8">
-              <button onClick={() => setFileToDelete(null)} disabled={isDeletingFile} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] hover:bg-gray-800 text-gray-300 transition-colors">
-                Cancel
-              </button>
-              <button onClick={confirmDeleteMemory} disabled={isDeletingFile} className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center justify-center gap-2">
-                {isDeletingFile ? <Loader2 size={16} className="animate-spin" /> : 'Confirm Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CHAT SIDEBAR */}
-      <div className={`fixed right-0 top-0 h-full w-full sm:w-[400px] bg-[#0a0a0a] border-l border-gray-800 shadow-2xl transition-transform duration-300 z-50 ${chatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      {/* --- UPGRADED CHAT SIDEBAR WITH MARKDOWN SUPPORT --- */}
+      <div className={`fixed right-0 top-0 h-full w-full sm:w-[450px] bg-[#0a0a0a] border-l border-gray-800 shadow-2xl transition-transform duration-300 z-50 ${chatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="h-full flex flex-col p-6 sm:p-8">
           <div className="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
             <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div> AI Assistant
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.8)]"></div> AI Assistant
             </h3>
-            <button onClick={() => setChatOpen(false)} className="p-1.5 hover:bg-gray-800 rounded-md transition-colors">
-              <X size={18} className="text-gray-400 hover:text-white" />
-            </button>
+            <button onClick={() => setChatOpen(false)} className="p-1.5 hover:bg-gray-800 rounded-md transition-colors"><X size={18} className="text-gray-400 hover:text-white" /></button>
           </div>
           
-          <div className="flex-1 overflow-y-auto space-y-4 mb-6 pr-2">
+          <div className="flex-1 overflow-y-auto space-y-5 mb-6 pr-2 custom-scrollbar">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center opacity-50 space-y-3">
                 <MessageSquare size={32} className="text-gray-500" />
-                <p className="text-sm text-gray-400">Ask questions about your synced code files.</p>
+                <p className="text-sm text-gray-400">Ask strict technical questions about your synced code.</p>
               </div>
             )}
+            
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] p-4 rounded-xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-[#111111] border border-gray-800 text-gray-300 rounded-bl-sm'}`}>
-                  {msg.content}
+                <div className={`max-w-[90%] p-4 rounded-xl text-sm leading-relaxed overflow-x-auto shadow-lg ${
+                  msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-[#111111] border border-gray-800 text-gray-300 rounded-bl-sm'
+                }`}>
+                  {msg.role === 'user' ? (
+                    msg.content
+                  ) : (
+                    /* MARKDOWN RENDERER FOR BEAUTIFUL AI CODE BLOCKS */
+                    <ReactMarkdown 
+                      components={{
+                        code({node, inline, className, children, ...props}: any) {
+                          const match = /language-(\w+)/.exec(className || '')
+                          return !inline ? (
+                            <div className="bg-[#050505] border border-gray-700/50 rounded-lg my-4 overflow-hidden shadow-2xl">
+                              <div className="bg-[#161b22] px-4 py-1.5 text-[10px] font-mono text-gray-400 border-b border-gray-700/50 uppercase tracking-wider">
+                                {match ? match[1] : 'code'}
+                              </div>
+                              <pre className="p-4 overflow-x-auto text-xs text-blue-300 font-mono custom-scrollbar">
+                                <code className={className} {...props}>{children}</code>
+                              </pre>
+                            </div>
+                          ) : (
+                            <code className="bg-[#1a1a1a] text-blue-400 px-1.5 py-0.5 rounded text-xs border border-gray-800 font-mono shadow-sm" {...props}>
+                              {children}
+                            </code>
+                          )
+                        },
+                        p: ({children}) => <p className="mb-4 last:mb-0 leading-relaxed text-gray-300">{children}</p>,
+                        ul: ({children}) => <ul className="list-disc pl-5 mb-4 space-y-1.5 text-gray-300">{children}</ul>,
+                        ol: ({children}) => <ol className="list-decimal pl-5 mb-4 space-y-1.5 text-gray-300">{children}</ol>,
+                        h3: ({children}) => <h3 className="text-white font-bold text-sm mt-5 mb-2">{children}</h3>,
+                        strong: ({children}) => <strong className="text-white font-semibold">{children}</strong>
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
+                  )}
                 </div>
               </div>
             ))}
+            
             {isThinking && (
               <div className="flex justify-start">
-                <div className="bg-[#111111] border border-gray-800 p-4 rounded-xl rounded-bl-sm">
-                  <Loader2 size={16} className="animate-spin text-gray-500" />
+                <div className="bg-[#111111] border border-gray-800 p-4 rounded-xl rounded-bl-sm flex items-center gap-3 shadow-lg">
+                  <Loader2 size={16} className="animate-spin text-blue-500" />
+                  <span className="text-xs text-gray-500 font-mono animate-pulse">Analyzing architecture...</span>
                 </div>
               </div>
             )}
@@ -565,19 +384,32 @@ export default function ProjectDocPage() {
               value={query} 
               onChange={(e) => setQuery(e.target.value)} 
               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} 
-              placeholder="Ask about this project..." 
-              className="w-full bg-[#111111] border border-gray-800 rounded-lg py-3.5 pl-4 pr-12 text-sm text-white outline-none focus:border-blue-500 transition-colors"
+              placeholder="Query the codebase..." 
+              className="w-full bg-[#111] border border-gray-800 rounded-xl py-4 pl-4 pr-12 text-sm text-white outline-none focus:border-blue-500 focus:bg-[#161b22] transition-all shadow-inner"
             />
-            <button 
-              onClick={handleSendMessage} 
-              disabled={!query.trim() || isThinking}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-blue-500 disabled:opacity-50 transition-colors"
-            >
-              <Send size={18} />
+            <button onClick={handleSendMessage} disabled={!query.trim() || isThinking} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-blue-600 rounded-lg text-white hover:bg-blue-500 disabled:opacity-50 disabled:bg-gray-800 disabled:text-gray-500 transition-all shadow-md">
+              <Send size={16} />
             </button>
           </div>
         </div>
       </div>
+      
+      {/* File Delete Modal */}
+      {fileToDelete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[400] flex items-center justify-center p-4">
+          <div className="bg-[#0e1117] border border-red-900/30 w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl">
+            <div className="p-8 text-center">
+              <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-6 mx-auto"><AlertTriangle className="text-red-500" size={24} /></div>
+              <h2 className="text-xl font-bold text-white mb-2">Delete File?</h2>
+              <p className="text-sm text-gray-400 mb-1">Permanently remove <strong className="text-gray-200">{fileToDelete.name}</strong>?</p>
+            </div>
+            <div className="flex gap-3 px-8 pb-8">
+              <button onClick={() => setFileToDelete(null)} disabled={isDeletingFile} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] hover:bg-gray-800 text-gray-300 transition-colors">Cancel</button>
+              <button onClick={confirmDeleteMemory} disabled={isDeletingFile} className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center justify-center gap-2">{isDeletingFile ? <Loader2 size={16} className="animate-spin" /> : 'Delete'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
