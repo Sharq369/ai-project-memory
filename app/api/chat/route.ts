@@ -1,96 +1,78 @@
-// app/api/chat/route.ts
-// FULL REPLACEMENT — adds AI message daily limit per plan
-
-import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
-import { GoogleGenerativeAI } from '@google/generative-ai'
-import { getLimits, PlanType } from '../../../lib/plans'
-
-const adminSupabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
 export async function POST(req: Request) {
   try {
-    const { query, projectId } = await req.json()
+    const { query, projectId } = await req.json();
 
-    const cookieStore = cookies()
-    const supabase = createServerClient(
+    if (!query || !projectId) {
+      return NextResponse.json({ error: 'Missing query or project ID' }, { status: 400 });
+    }
+
+    const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get(name) { return cookieStore.get(name)?.value } } }
-    )
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
-    // 1. Auth check
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-    }
-
-    // 2. Get plan + check daily limit
-    const { data: profile } = await adminSupabase
-      .from('profiles')
-      .select('plan_type')
-      .eq('id', user.id)
-      .single()
-
-    const plan = (profile?.plan_type as PlanType) || 'free'
-    const limits = getLimits(plan)
-
-    if (limits.aiMessagesPerDay !== Infinity) {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-
-      const { count } = await adminSupabase
-        .from('ai_message_log')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('created_at', today.toISOString())
-
-      if ((count ?? 0) >= limits.aiMessagesPerDay) {
-        return NextResponse.json({
-          error: `Daily limit reached: ${limits.aiMessagesPerDay} messages/day on ${plan} plan. Upgrade for more.`
-        }, { status: 429 })
-      }
-
-      // Log this message
-      await adminSupabase.from('ai_message_log').insert({ user_id: user.id })
-    }
-
-    // 3. Fetch code memories
-    const { data: memories, error } = await supabase
+    // 1. Fetch relevant project context from the vault
+    const { data: memories, error: dbError } = await supabase
       .from('code_memories')
       .select('file_name, content')
-      .eq('project_id', projectId)
+      .eq('project_id', projectId);
 
-    if (error) throw error
+    if (dbError) throw new Error('Database context retrieval failed.');
 
-    const contextString = memories?.length
-      ? memories.map(m => `### FILE: ${m.file_name}\n${m.content}`).join('\n\n')
-      : 'No code files found in this node archive.'
+    // Assemble the code files into a readable context string
+    let contextString = 'No files synced yet.';
+    if (memories && memories.length > 0) {
+      contextString = memories
+        .map(m => `### FILE: ${m.file_name}\n\`\`\`\n${m.content}\n\`\`\``)
+        .join('\n\n');
+    }
 
-    // 4. Call Gemini
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    // 2. The Ruthless "No BS" System Prompt
+    const systemPrompt = `You are a senior, highly technical software engineer assisting a colleague.
+You are answering questions strictly based on the provided CODEBASE CONTEXT.
 
-    const systemPrompt = `
-      YOU ARE THE "NEURAL TERMINAL" FOR A VIBE CODER.
-      YOUR SOURCE OF TRUTH IS THE FOLLOWING CODEBASE:
+CRITICAL INSTRUCTIONS:
+- DO NOT use preambles, greetings, or conversational filler.
+- NEVER say "Here is the rewritten code", "Certainly!", "Sure thing", or "I can help with that."
+- If the user asks for code, output ONLY the code blocks and brief, technical inline comments explaining the changes.
+- Do not wrap the code block in unnecessary explanations before or after.
+- Be ruthlessly concise, direct, and authoritative. 
 
-      ${contextString}
+CODEBASE CONTEXT:
+${contextString}`;
 
-      STRICT RULES:
-      1. Base all answers on the existing files above.
-      2. Keep responses concise, technical, and aligned with the Vibe Coder aesthetic.
-    `
+    // 3. Call the AI Provider (Using standard OpenAI-compatible fetch)
+    // IMPORTANT: Ensure process.env.OPENAI_API_KEY is set in Vercel!
+    const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini', // Update if you are using a different specific model
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: query }
+        ],
+        temperature: 0.1, // Extremely low temperature forces direct, deterministic, non-creative responses
+      })
+    });
 
-    const result = await model.generateContent([systemPrompt, query])
-    return NextResponse.json({ response: result.response.text() })
+    const data = await aiResponse.json();
 
-  } catch (err: any) {
-    return NextResponse.json({ error: 'Neural Link Disrupted: ' + err.message }, { status: 500 })
+    if (!aiResponse.ok) {
+      throw new Error(data.error?.message || 'Failed to reach AI Provider.');
+    }
+
+    // 4. Return the direct response to the UI
+    return NextResponse.json({ response: data.choices[0].message.content });
+
+  } catch (error: any) {
+    console.error('Chat API Error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
