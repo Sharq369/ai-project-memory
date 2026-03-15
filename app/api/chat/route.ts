@@ -74,7 +74,7 @@ export async function POST(req: Request) {
 
     // 4. Call Gemini (USING CORRECTED MODEL NAME)
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    const model = genAI.getGenerativeModel({ model: "models/gemini-1.5-flash" })
 
     const systemPrompt = `You are a senior, highly technical software engineer assisting a colleague.
 You are answering questions strictly based on the provided CODEBASE CONTEXT.
