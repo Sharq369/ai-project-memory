@@ -1,17 +1,17 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import ReactMarkdown from 'react-markdown'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
-  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Zap, Trash2, CheckSquare, Square, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle, Info, FileCode
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Trash2, CheckSquare, Square, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle, Info, FileCode, Download
 } from 'lucide-react'
 
 export default function ProjectDocPage() {
   const { id } = useParams()
   const router = useRouter()
+  const chatEndRef = useRef<HTMLDivElement>(null)
   
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,17 +36,13 @@ export default function ProjectDocPage() {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [repoName, setRepoName] = useState('')
   const [isSyncing, setIsSyncing] = useState(false)
-  const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
+  const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'cloud'>('github')
   const [selectedForAI, setSelectedForAI] = useState<string[]>([])
 
-  const deployTargets = [
-    { name: 'Vercel', status: 'Active' },
-    { name: 'AWS', status: 'Ready' },
-    { name: 'Azure', status: 'Idle' },
-    { name: 'GCP', status: 'Idle' },
-    { name: 'Netlify', status: 'Ready' },
-    { name: 'Railway', status: 'Idle' }
-  ]
+  // Auto-scroll for the chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, isThinking])
 
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ visible: true, type, message })
@@ -102,6 +98,7 @@ export default function ProjectDocPage() {
   const confirmDeleteMemory = async () => {
     if (!fileToDelete) return
     setIsDeletingFile(true)
+    
     const { error } = await supabase.from('code_memories').delete().eq('id', fileToDelete.id)
     if (!error) {
       setMemories(prev => prev.filter(m => m.id !== fileToDelete.id))
@@ -143,6 +140,19 @@ export default function ProjectDocPage() {
     }
   }
 
+  // File Download Logic
+  const handleDownloadFile = (e: React.MouseEvent, fileName: string, content: string) => {
+    e.stopPropagation()
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    a.click()
+    window.URL.revokeObjectURL(url)
+    showToast('info', `Downloading ${fileName}...`)
+  }
+
   const toggleFileSelection = (e: React.MouseEvent, memoryId: string) => {
     e.stopPropagation()
     setSelectedForAI(prev => prev.includes(memoryId) ? prev.filter(sid => sid !== memoryId) : [...prev, memoryId])
@@ -181,6 +191,7 @@ export default function ProjectDocPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: userMsg.content, projectId: id })
       })
+      
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Terminal disruption.')
       setMessages(prev => [...prev, { role: 'ai', content: data.response }])
@@ -190,6 +201,33 @@ export default function ProjectDocPage() {
       setIsThinking(false)
     }
   }
+
+  // Native Premium Code Formatter (No packages required)
+  const renderPremiumText = (text: string) => {
+    const parts = text.split(/(```[\s\S]*?```)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('```') && part.endsWith('```')) {
+        const codeContent = part.substring(3, part.length - 3);
+        const firstNewLine = codeContent.indexOf('\n');
+        const lang = firstNewLine !== -1 ? codeContent.substring(0, firstNewLine).trim() : '';
+        const code = firstNewLine !== -1 ? codeContent.substring(firstNewLine + 1) : codeContent;
+        
+        return (
+          <div key={index} className="bg-[#050505] border border-gray-700/50 rounded-lg my-3 overflow-hidden shadow-xl">
+            {lang && (
+              <div className="bg-[#161b22] px-3 py-1.5 text-[10px] font-mono text-gray-400 border-b border-gray-700/50 uppercase tracking-wider">
+                {lang}
+              </div>
+            )}
+            <pre className="p-3 overflow-x-auto text-xs text-blue-300 font-mono">
+              <code>{code}</code>
+            </pre>
+          </div>
+        );
+      }
+      return <span key={index} className="whitespace-pre-wrap leading-relaxed">{part}</span>;
+    });
+  };
 
   if (loading) return <div className="h-screen bg-[#050505] flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" size={32} /></div>
   if (!project) return <div className="h-screen bg-[#050505] flex items-center justify-center text-gray-500">Project not found.</div>
@@ -201,30 +239,31 @@ export default function ProjectDocPage() {
         <div className={`flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto ${notification.type === 'success' ? 'bg-green-950/80 border-green-500/30 text-green-200' : notification.type === 'error' ? 'bg-red-950/80 border-red-500/30 text-red-200' : 'bg-blue-950/80 border-blue-500/30 text-blue-200'}`}>
           {notification.type === 'success' && <CheckCircle2 size={16} className="text-green-500" />}
           {notification.type === 'error' && <AlertCircle size={16} className="text-red-500" />}
+          {(notification.type === 'info' || !notification.type) && <Info size={16} className="text-blue-500" />}
           <span className="text-sm font-medium">{notification.message}</span>
         </div>
       </div>
 
       {/* MAIN VIEW */}
-      <div className={`flex-1 p-6 md:p-12 transition-all duration-500 overflow-y-auto ${chatOpen ? 'mr-[450px]' : ''}`}>
+      <div className={`flex-1 p-6 md:p-12 transition-all duration-500 overflow-y-auto ${chatOpen ? 'hidden md:block md:mr-[450px]' : ''}`}>
         <button onClick={() => router.push('/dashboard/projects')} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 mb-8 transition-colors group">
           <ChevronLeft size={16} className="group-hover:-translate-x-1 transition-transform"/> Back to Vault
         </button>
 
         <div className="max-w-5xl mx-auto">
           {/* HEADER */}
-          <header className="bg-[#0a0a0a] border border-gray-800 p-8 rounded-2xl flex flex-col md:flex-row justify-between items-start mb-10 shadow-xl relative overflow-hidden">
+          <header className="bg-[#0a0a0a] border border-gray-800 p-6 md:p-8 rounded-2xl flex flex-col md:flex-row justify-between items-start mb-10 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-blue-500/50 to-transparent opacity-50" />
             <div className="flex-1 w-full relative z-10">
               <div className="flex items-center gap-4 mb-8">
                 {isEditing ? (
                   <div className="flex items-center gap-3 w-full max-w-md">
-                    <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRename()} className="bg-black border border-blue-500/50 rounded-lg px-4 py-2 text-2xl font-semibold text-white outline-none w-full focus:border-blue-500 transition-colors"/>
+                    <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRename()} className="bg-black border border-blue-500/50 rounded-lg px-4 py-2 text-xl md:text-2xl font-semibold text-white outline-none w-full focus:border-blue-500 transition-colors"/>
                     <button onClick={handleRename} className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"><Check size={18} /></button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3 flex-wrap">
-                    <h1 className="text-3xl md:text-4xl font-semibold text-white tracking-tight">{project?.name}</h1>
+                    <h1 className="text-2xl md:text-4xl font-semibold text-white tracking-tight">{project?.name}</h1>
                     <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border flex items-center gap-1.5 ${memories.length === 0 ? 'bg-gray-900/50 text-gray-400 border-gray-800' : 'bg-green-500/10 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]'}`}>
                       <div className={`w-1.5 h-1.5 rounded-full ${memories.length === 0 ? 'bg-gray-500' : 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.8)]'}`}></div>
                       {memories.length === 0 ? 'Grounded' : 'Active'}
@@ -234,25 +273,25 @@ export default function ProjectDocPage() {
                 )}
               </div>
 
-              <div className="flex flex-col md:flex-row gap-10 md:gap-16">
+              <div className="flex flex-col md:flex-row gap-6 md:gap-16">
                 <div className="space-y-3">
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Sync Source</p>
                   <div className="flex gap-3">
                     <button onClick={() => { setActiveProvider('github'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-white/30 transition-all text-gray-400 hover:text-white"><Github size={18} /></button>
                     <button onClick={() => { setActiveProvider('gitlab'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-orange-500/50 transition-all text-gray-400 hover:text-orange-400"><Gitlab size={18} /></button>
-                    <button onClick={() => { setActiveProvider('bitbucket'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-blue-500/50 transition-all text-gray-400 hover:text-blue-400"><Cloud size={18} /></button>
+                    <button onClick={() => { setActiveProvider('cloud'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-blue-500/50 transition-all text-gray-400 hover:text-blue-400"><Cloud size={18} /></button>
                   </div>
                 </div>
               </div>
             </div>
 
-            <button onClick={() => setChatOpen(!chatOpen)} className="mt-6 md:mt-0 bg-blue-600 p-4 rounded-xl hover:bg-blue-500 transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] flex items-center justify-center relative group z-10">
-              <MessageSquare size={24} className="text-white" />
+            <button onClick={() => setChatOpen(!chatOpen)} className="absolute top-6 right-6 md:relative md:top-0 md:right-0 bg-blue-600 p-3 md:p-4 rounded-xl hover:bg-blue-500 transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] flex items-center justify-center group z-10">
+              <MessageSquare size={20} className="text-white md:w-6 md:h-6" />
               <div className="absolute -top-1.5 -right-1.5 bg-red-500 text-[10px] font-bold px-1.5 py-0.5 rounded-md border-2 border-[#111111] text-white">AI</div>
             </button>
           </header>
 
-          {/* VIBE CODING CONTROLS */}
+          {/* PROJECT FILES HEADER */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-[#0a0a0a] border border-gray-800 p-4 rounded-xl shadow-lg">
             <div className="flex items-center gap-4">
               <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Project Files</h2>
@@ -287,11 +326,16 @@ export default function ProjectDocPage() {
                         <FileCode className="text-blue-500 flex-shrink-0" size={16} />
                         <h3 className={`text-sm font-medium truncate ${isSelected ? 'text-blue-100' : 'text-gray-300'}`}>{mem.file_name}</h3>
                       </div>
-                      <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                        <button onClick={(e) => copyIndividualBlock(e, mem.content, mem.id)} className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors bg-[#050505] border border-gray-800">
+                      
+                      {/* ACTION BUTTONS */}
+                      <div className="flex items-center gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                        <button onClick={(e) => handleDownloadFile(e, mem.file_name, mem.content)} className="p-1.5 text-gray-400 hover:text-blue-400 rounded-md hover:bg-blue-500/10 transition-colors bg-[#050505] border border-gray-800" title="Download Code">
+                          <Download size={14} />
+                        </button>
+                        <button onClick={(e) => copyIndividualBlock(e, mem.content, mem.id)} className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors bg-[#050505] border border-gray-800" title="Copy Block">
                           {individualCopiedId === mem.id ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); setFileToDelete({ id: mem.id, name: mem.file_name }) }} className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#050505] border border-gray-800">
+                        <button onClick={(e) => { e.stopPropagation(); setFileToDelete({ id: mem.id, name: mem.file_name }) }} className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#050505] border border-gray-800" title="Delete File">
                           <Trash2 size={14}/>
                         </button>
                       </div>
@@ -309,9 +353,9 @@ export default function ProjectDocPage() {
         </div>
       </div>
 
-      {/* --- UPGRADED CHAT SIDEBAR WITH MARKDOWN SUPPORT --- */}
-      <div className={`fixed right-0 top-0 h-full w-full sm:w-[450px] bg-[#0a0a0a] border-l border-gray-800 shadow-2xl transition-transform duration-300 z-50 ${chatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="h-full flex flex-col p-6 sm:p-8">
+      {/* --- PREMIUM CHAT SIDEBAR (NATIVE STYLING) --- */}
+      <div className={`fixed right-0 top-0 h-full w-full md:w-[450px] bg-[#0a0a0a] border-l border-gray-800 shadow-2xl transition-transform duration-300 z-50 ${chatOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="h-full flex flex-col p-6 sm:p-8 pt-12 md:pt-8">
           <div className="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
             <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.8)]"></div> AI Assistant
@@ -319,7 +363,7 @@ export default function ProjectDocPage() {
             <button onClick={() => setChatOpen(false)} className="p-1.5 hover:bg-gray-800 rounded-md transition-colors"><X size={18} className="text-gray-400 hover:text-white" /></button>
           </div>
           
-          <div className="flex-1 overflow-y-auto space-y-5 mb-6 pr-2 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto space-y-5 mb-6 pr-2">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center opacity-50 space-y-3">
                 <MessageSquare size={32} className="text-gray-500" />
@@ -329,41 +373,15 @@ export default function ProjectDocPage() {
             
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[90%] p-4 rounded-xl text-sm leading-relaxed overflow-x-auto shadow-lg ${
+                <div className={`max-w-[90%] p-4 rounded-xl text-sm shadow-lg ${
                   msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-[#111111] border border-gray-800 text-gray-300 rounded-bl-sm'
                 }`}>
                   {msg.role === 'user' ? (
-                    msg.content
+                    <span className="whitespace-pre-wrap">{msg.content}</span>
                   ) : (
-                    /* MARKDOWN RENDERER FOR BEAUTIFUL AI CODE BLOCKS */
-                    <ReactMarkdown 
-                      components={{
-                        code({node, inline, className, children, ...props}: any) {
-                          const match = /language-(\w+)/.exec(className || '')
-                          return !inline ? (
-                            <div className="bg-[#050505] border border-gray-700/50 rounded-lg my-4 overflow-hidden shadow-2xl">
-                              <div className="bg-[#161b22] px-4 py-1.5 text-[10px] font-mono text-gray-400 border-b border-gray-700/50 uppercase tracking-wider">
-                                {match ? match[1] : 'code'}
-                              </div>
-                              <pre className="p-4 overflow-x-auto text-xs text-blue-300 font-mono custom-scrollbar">
-                                <code className={className} {...props}>{children}</code>
-                              </pre>
-                            </div>
-                          ) : (
-                            <code className="bg-[#1a1a1a] text-blue-400 px-1.5 py-0.5 rounded text-xs border border-gray-800 font-mono shadow-sm" {...props}>
-                              {children}
-                            </code>
-                          )
-                        },
-                        p: ({children}) => <p className="mb-4 last:mb-0 leading-relaxed text-gray-300">{children}</p>,
-                        ul: ({children}) => <ul className="list-disc pl-5 mb-4 space-y-1.5 text-gray-300">{children}</ul>,
-                        ol: ({children}) => <ol className="list-decimal pl-5 mb-4 space-y-1.5 text-gray-300">{children}</ol>,
-                        h3: ({children}) => <h3 className="text-white font-bold text-sm mt-5 mb-2">{children}</h3>,
-                        strong: ({children}) => <strong className="text-white font-semibold">{children}</strong>
-                      }}
-                    >
-                      {msg.content}
-                    </ReactMarkdown>
+                    <div className="text-gray-300">
+                      {renderPremiumText(msg.content)}
+                    </div>
                   )}
                 </div>
               </div>
@@ -377,6 +395,7 @@ export default function ProjectDocPage() {
                 </div>
               </div>
             )}
+            <div ref={chatEndRef} />
           </div>
 
           <div className="relative mt-auto">
@@ -394,6 +413,36 @@ export default function ProjectDocPage() {
         </div>
       </div>
       
+      {/* --- SYNC MODAL --- */}
+      {isSyncModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[400] flex items-center justify-center p-4">
+          <div className="bg-[#0e1117] border border-gray-800 w-full max-w-md rounded-2xl flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-gray-800 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-white capitalize">Sync {activeProvider}</h3>
+              <button onClick={() => setIsSyncModalOpen(false)} className="text-gray-400 hover:text-white transition-colors"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-gray-400 uppercase mb-2 block">Repository Name (e.g., owner/repo)</label>
+                <input
+                  value={repoName}
+                  onChange={(e) => setRepoName(e.target.value)}
+                  placeholder="username/repository"
+                  className="w-full bg-[#111] border border-gray-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all"
+                />
+              </div>
+            </div>
+            <div className="p-6 bg-[#050505] border-t border-gray-800 flex justify-end gap-3">
+              <button onClick={() => setIsSyncModalOpen(false)} className="px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-800 text-gray-300 transition-colors">Cancel</button>
+              <button onClick={handleSyncTrigger} disabled={!repoName.trim() || isSyncing} className="px-5 py-2.5 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center gap-2 disabled:opacity-50">
+                {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                Sync Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* File Delete Modal */}
       {fileToDelete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[400] flex items-center justify-center p-4">
