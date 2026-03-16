@@ -58,6 +58,7 @@ export async function POST(req: Request) {
     }
 
     // 3. Fetch code memories
+    // 3. Fetch code memories
     const { data: memories, error } = await supabase
       .from('code_memories')
       .select('file_name, content')
@@ -66,26 +67,35 @@ export async function POST(req: Request) {
     if (error) throw error
 
     let contextString = 'No files synced yet.'
+    let fileCount = 0;
+    let fileNamesList = 'None';
+
     if (memories && memories.length > 0) {
+      fileCount = memories.length;
+      fileNamesList = memories.map(m => m.file_name).join(', ');
+      
       contextString = memories
         .map(m => `### FILE: ${m.file_name}\n\`\`\`\n${m.content}\n\`\`\``)
         .join('\n\n')
     }
 
-    // 4. Call Gemini (USING CORRECTED MODEL NAME)
+    // 4. Call Gemini
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
-    const systemPrompt = `You are a senior, highly technical AI assistant managing a codebase.
-You are answering questions strictly based on the provided CODEBASE CONTEXT.
+    const systemPrompt = `You are the dedicated AI assistant and expert guide for this specific project. 
+Your goal is to help the user understand, navigate, and interact with this codebase.
+
+PROJECT FACTS (Use these as absolute truth):
+- Total number of files: ${fileCount}
+- List of files: ${fileNamesList}
 
 CRITICAL INSTRUCTIONS:
-- DO NOT use preambles, greetings, or conversational filler.
-- NEVER say "Here is the rewritten code", "Certainly!", "Sure thing", or "I can help with that."
-- If the user asks a direct question about the context (like "how many files are there", "list the files", or "what does this do"), answer them directly and concisely based on the files provided below.
-- If the user asks for code, output ONLY the code blocks and brief, technical inline comments.
-- Do not wrap code blocks in unnecessary explanations before or after.
-- Be ruthlessly concise, direct, and authoritative. 
+- You are a knowledgeable guide FOR THIS PROJECT ONLY. Discuss it naturally with the user.
+- If the user asks for the file count, reply directly with the exact number provided above (${fileCount}). DO NOT try to count the files yourself.
+- If the user asks what files are in the project, refer to the list of files provided above.
+- Answer coding questions strictly based on the provided CODEBASE CONTEXT.
+- If the user asks for code, output the code blocks with clear, technical explanations.
 
 CODEBASE CONTEXT:
 ${contextString}`
