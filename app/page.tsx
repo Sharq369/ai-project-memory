@@ -1,11 +1,67 @@
+"use client";
+
+import { useState } from 'react';
 import Link from 'next/link';
-import { Shield, Brain, Zap, ChevronRight } from 'lucide-react';
+import { Shield, Brain, Zap, ChevronRight, Loader2, FileCode, CheckCircle } from 'lucide-react';
+import puter from "@heyputer/puter.js"; 
+import { PHASE_1_PROMPT, PHASE_2_PROMPT } from '@/lib/prompts';
+import { chunkTasks, compileMarkdown } from '@/lib/mdGenerator';
 
 export default function Home() {
-  return (
-    <main className="min-h-screen bg-[#050505] text-white selection:bg-white/20 overflow-hidden font-sans">
+  const [prd, setPrd] = useState('');
+  const [files, setFiles] = useState<{fileName: string, content: string}[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleDecompose = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      // Phase 1: Requirement Extraction (Locked to OpenAI gpt-4o)
+      const phase1Res = await puter.ai.chat(
+        `${PHASE_1_PROMPT}\n\nPRD CONTENT:\n${prd}`, 
+        { model: 'gpt-4o' }
+      );
+      const cleanPhase1 = phase1Res.replace(/```json|```/g, '').trim();
+      const requirements = JSON.parse(cleanPhase1);
+
+      // Phase 2: Task Decomposition (Locked to OpenAI gpt-4o)
+      const frontendRaw = await puter.ai.chat(
+        `${PHASE_2_PROMPT}\n\nREQUIREMENTS:\n${JSON.stringify(requirements.frontend || [])}`, 
+        { model: 'gpt-4o' }
+      );
       
-      {/* VIP Spotlights (from your image) */}
+      const backendRaw = await puter.ai.chat(
+        `${PHASE_2_PROMPT}\n\nREQUIREMENTS:\n${JSON.stringify(requirements.backend || [])}`, 
+        { model: 'gpt-4o' }
+      );
+
+      const frontendTasks = JSON.parse(frontendRaw.replace(/```json|```/g, '').trim());
+      const backendTasks = JSON.parse(backendRaw.replace(/```json|```/g, '').trim());
+
+      // Task Density Governance
+      const frontendChunks = chunkTasks(frontendTasks, 20);
+      const backendChunks = chunkTasks(backendTasks, 20);
+
+      const generatedFiles = [
+        ...compileMarkdown('frontend', frontendChunks),
+        ...compileMarkdown('backend', backendChunks)
+      ];
+
+      setFiles(generatedFiles);
+    } catch (err: any) {
+      console.error(err);
+      setError('Decomposition Error: Ensure your PRD text is valid and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#050505] text-white selection:bg-white/20 overflow-x-hidden font-sans">
+      
+      {/* Background Visuals */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute -top-24 -left-24 w-96 h-96 bg-white/5 blur-[120px] rounded-full" />
         <div className="absolute -top-24 -right-24 w-96 h-96 bg-white/5 blur-[120px] rounded-full" />
@@ -21,43 +77,35 @@ export default function Home() {
         </div>
         
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-400">
+          <Link href="#decomposer" className="hover:text-white transition-colors">Decomposer</Link>
           <Link href="#features" className="hover:text-white transition-colors">Features</Link>
-          <Link href="#pricing" className="hover:text-white transition-colors">Pricing</Link>
-          <Link href="#about" className="hover:text-white transition-colors">Resources</Link>
+          <Link href="/login" className="hover:text-white transition-colors">Login</Link>
         </div>
 
-        <div className="flex items-center gap-4">
-          <Link href="/login" className="text-sm font-medium text-gray-400 hover:text-white">Login</Link>
-          <Link href="/login" className="bg-white text-black px-5 py-2 rounded-full text-sm font-bold hover:bg-gray-200 transition-all active:scale-95">
-            Start Creating
-          </Link>
-        </div>
+        <Link href="/login" className="bg-white text-black px-5 py-2 rounded-full text-sm font-bold hover:bg-gray-200 transition-all active:scale-95">
+          Start Creating
+        </Link>
       </nav>
 
       {/* Hero Section */}
-      <section className="relative z-10 flex flex-col items-center justify-center text-center px-6 pt-20 pb-32">
+      <section className="relative z-10 flex flex-col items-center justify-center text-center px-6 pt-20 pb-20">
         <h1 className="max-w-4xl text-5xl md:text-8xl font-bold tracking-tighter leading-[0.9] mb-8">
           Secure. Integrate. <br />
-          <span className="text-gray-500">AI Memory Vault.</span>
+          <span className="text-gray-500 font-medium">AI Memory Vault.</span>
         </h1>
 
         <p className="max-w-2xl text-gray-400 text-lg md:text-xl mb-12 leading-relaxed">
           The ultra-secure infrastructure for your AI context. <br className="hidden md:block" />
-          Store complex project data and retrieve it with millisecond latency.
+          Store data and decompose PRDs using serverless Puter AI.
         </p>
 
-        {/* The Central Image / Vault Concept */}
-        <div className="relative w-full max-w-4xl mx-auto mt-12 group">
-          {/* Glowing Aura behind the vault */}
+        <div className="relative w-full max-w-4xl mx-auto group mb-16">
           <div className="absolute inset-0 bg-white/5 blur-[100px] rounded-full transform scale-75 group-hover:scale-100 transition-transform duration-700" />
-          
           <div className="relative aspect-video rounded-3xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent backdrop-blur-sm flex flex-col items-center justify-center overflow-hidden">
-             {/* Large "Vault" Iconography */}
              <div className="relative">
                 <Shield className="w-32 h-32 text-white/20 stroke-[1px]" />
                 <Brain className="absolute inset-0 m-auto w-12 h-12 text-white animate-pulse" />
              </div>
-             
              <div className="mt-8 flex flex-col items-center">
                 <div className="px-4 py-2 rounded-full border border-white/10 bg-white/5 text-sm font-mono flex items-center gap-2">
                   <span className="w-2 h-2 bg-green-500 rounded-full animate-ping" />
@@ -66,16 +114,67 @@ export default function Home() {
              </div>
           </div>
         </div>
-
-        {/* CTA Section */}
-        <div className="mt-16">
-          <button className="group flex items-center gap-2 bg-white/5 border border-white/10 px-8 py-4 rounded-2xl hover:bg-white/10 transition-all">
-            <span className="font-semibold">Get a Paal Bot</span>
-            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </button>
-        </div>
       </section>
 
+      {/* Decomposer Tool Section */}
+      <section id="decomposer" className="relative z-10 max-w-6xl mx-auto px-6 pb-32">
+        <div className="p-8 rounded-3xl border border-white/10 bg-white/[0.02] backdrop-blur-md">
+          <div className="flex items-center gap-3 mb-6">
+            <Zap className="text-yellow-400 w-6 h-6" />
+            <h2 className="text-2xl font-bold tracking-tight">PRD Decomposer</h2>
+          </div>
+
+          <textarea 
+            className="w-full h-64 p-5 bg-black/40 border border-white/10 rounded-2xl font-mono text-sm text-gray-300 focus:outline-none focus:border-white/20 transition-colors mb-6 resize-none"
+            placeholder="Paste your PRD content here..."
+            value={prd}
+            onChange={(e) => setPrd(e.target.value)}
+          />
+          
+          {error && <p className="text-red-400 text-sm mb-4 font-medium italic">!! {error}</p>}
+          
+          <button 
+            onClick={handleDecompose}
+            disabled={loading || !prd}
+            className="w-full flex items-center justify-center gap-3 bg-white text-black px-8 py-4 rounded-2xl font-bold hover:bg-gray-200 disabled:opacity-50 transition-all active:scale-[0.98]"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Processing with OpenAI via Puter...
+              </>
+            ) : (
+              <>
+                Generate Build Steps
+                <ChevronRight className="w-5 h-5" />
+              </>
+            )}
+          </button>
+
+          {/* Results Display */}
+          {files.length > 0 && (
+            <div className="mt-12 space-y-10 border-t border-white/10 pt-10">
+              <div className="flex items-center gap-2 text-green-400">
+                <CheckCircle className="w-5 h-5" />
+                <span className="font-bold uppercase text-xs tracking-widest">Decomposition Successful</span>
+              </div>
+              <div className="grid grid-cols-1 gap-8">
+                {files.map((file, idx) => (
+                  <div key={idx} className="rounded-2xl border border-white/5 bg-white/[0.01] overflow-hidden">
+                    <div className="bg-white/5 px-6 py-3 border-b border-white/5 flex items-center gap-2">
+                      <FileCode className="w-4 h-4 text-gray-400" />
+                      <span className="text-xs font-mono text-gray-400 font-bold">{file.fileName}</span>
+                    </div>
+                    <pre className="p-8 text-sm font-mono text-gray-400 overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                      {file.content}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
     </main>
   );
 }
