@@ -5,11 +5,11 @@ import { createBrowserClient } from '@supabase/ssr'
 import { Settings, CreditCard, ShieldAlert, Check, Loader2, Zap, Download, Database } from 'lucide-react'
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('general') // Defaulting to the new General tab
+  const [activeTab, setActiveTab] = useState('general')
   const [loading, setLoading] = useState(true)
   const [isCheckingOut, setIsCheckingOut] = useState<string | null>(null)
   const [isNuking, setIsNuking] = useState(false)
-  const [isExporting, setIsExporting] = useState(false) // New export state
+  const [isExporting, setIsExporting] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [subscription, setSubscription] = useState<any>(null)
 
@@ -31,7 +31,6 @@ export default function SettingsPage() {
     loadUser()
   }, [supabase])
 
-  // --- NEW: DATA EXPORT LOGIC ---
   const handleExportData = async () => {
     setIsExporting(true)
     try {
@@ -66,7 +65,6 @@ export default function SettingsPage() {
     }
   }
 
-  // --- EXISTING: CRYPTO CHECKOUT LOGIC ---
   const handleCheckout = async (planName: string, price: number) => {
     setIsCheckingOut(planName)
     try {
@@ -93,7 +91,6 @@ export default function SettingsPage() {
     }
   }
 
-  // --- EXISTING: NUKE VAULT LOGIC ---
   const handleNukeVault = async () => {
     if (!confirm("WARNING: This will permanently delete all your projects and memories. Are you absolutely sure?")) return
     
@@ -120,9 +117,30 @@ export default function SettingsPage() {
     { id: 'danger', label: 'Danger Zone', icon: ShieldAlert },
   ]
 
+  // NEW DRAFTED PLANS
   const plans = [
-    { name: 'Pro', price: 15, desc: 'Advanced neural capacity for professionals.', features: ['Unlimited Projects', 'GPT-4 / Claude 3 Access', 'Priority Sync'] },
-    { name: 'Ultra', price: 40, desc: 'Maximum computational power for power users.', features: ['Everything in Pro', 'Custom AI Models', '24/7 Support'] }
+    { 
+      name: 'Pro', 
+      price: 15, 
+      desc: 'Advanced neural capacity for professionals.', 
+      features: [
+        'Unlimited Project Nodes', 
+        'AI PRD Decomposer (GPT-4o)', 
+        'Full JSON Data Exports',
+        'Priority Memory Sync'
+      ] 
+    },
+    { 
+      name: 'Ultra', 
+      price: 40, 
+      desc: 'Maximum computational power for power users.', 
+      features: [
+        'Everything in Pro', 
+        'Unlimited Serverless AI Tasks', 
+        'Custom AI Model Routing', 
+        '24/7 Priority Support'
+      ] 
+    }
   ]
 
   if (loading) return <div className="h-screen bg-[#050505] flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" size={32} /></div>
@@ -166,7 +184,7 @@ export default function SettingsPage() {
           {/* CONTENT AREA */}
           <div className="flex-1 space-y-6">
             
-            {/* NEW GENERAL TAB */}
+            {/* GENERAL TAB */}
             {activeTab === 'general' && (
               <div className="space-y-6">
                 <div className="p-6 md:p-8 rounded-2xl border border-gray-800 bg-[#0A0A0A] shadow-lg">
@@ -203,7 +221,7 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* PRESERVED BILLING TAB */}
+            {/* BILLING TAB */}
             {activeTab === 'billing' && (
               <div className="space-y-6">
                 <div className="p-6 md:p-8 rounded-2xl border border-gray-800 bg-[#0A0A0A] shadow-lg">
@@ -255,7 +273,7 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* PRESERVED DANGER ZONE TAB */}
+            {/* DANGER ZONE TAB */}
             {activeTab === 'danger' && (
               <div className="p-6 md:p-8 rounded-2xl border border-red-900/30 bg-[#1a0505] shadow-lg">
                 <div className="flex items-center gap-3 mb-2">
