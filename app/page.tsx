@@ -69,21 +69,36 @@ export default function Home() {
         `${PHASE_1_PROMPT}\n\nPRD CONTENT:\n${prd}`, 
         { model: 'gpt-4o' }
       );
-      const cleanPhase1 = phase1Res.replace(/```json|```/g, '').trim();
+      
+      // SAFELY EXTRACT TEXT FROM PUTER'S CHATRESPONSE OBJECT
+      const phase1Text = typeof phase1Res === 'string' 
+        ? phase1Res 
+        : (phase1Res as any)?.message?.content || String(phase1Res);
+        
+      const cleanPhase1 = phase1Text.replace(/```json|```/g, '').trim();
       const requirements = JSON.parse(cleanPhase1);
 
-      const frontendRaw = await puter.ai.chat(
+      const frontendRes = await puter.ai.chat(
         `${PHASE_2_PROMPT}\n\nREQUIREMENTS:\n${JSON.stringify(requirements.frontend || [])}`, 
         { model: 'gpt-4o' }
       );
       
-      const backendRaw = await puter.ai.chat(
+      const backendRes = await puter.ai.chat(
         `${PHASE_2_PROMPT}\n\nREQUIREMENTS:\n${JSON.stringify(requirements.backend || [])}`, 
         { model: 'gpt-4o' }
       );
 
-      const frontendTasks = JSON.parse(frontendRaw.replace(/```json|```/g, '').trim());
-      const backendTasks = JSON.parse(backendRaw.replace(/```json|```/g, '').trim());
+      // SAFELY EXTRACT TEXT FROM PUTER'S CHATRESPONSE OBJECT
+      const frontendText = typeof frontendRes === 'string' 
+        ? frontendRes 
+        : (frontendRes as any)?.message?.content || String(frontendRes);
+        
+      const backendText = typeof backendRes === 'string' 
+        ? backendRes 
+        : (backendRes as any)?.message?.content || String(backendRes);
+
+      const frontendTasks = JSON.parse(frontendText.replace(/```json|```/g, '').trim());
+      const backendTasks = JSON.parse(backendText.replace(/```json|```/g, '').trim());
 
       const frontendChunks = chunkTasks(frontendTasks, 20);
       const backendChunks = chunkTasks(backendTasks, 20);
