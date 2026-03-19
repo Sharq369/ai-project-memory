@@ -4,8 +4,55 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Shield, Brain, Zap, ChevronRight, Loader2, FileCode, CheckCircle } from 'lucide-react';
 import puter from "@heyputer/puter.js"; 
-import { PHASE_1_PROMPT, PHASE_2_PROMPT } from '@/lib/prompts';
-import { chunkTasks, compileMarkdown } from '@/lib/mdGenerator';
+
+// ==========================================
+// INTERNALIZED LOGIC (Bypasses missing files)
+// ==========================================
+const PHASE_1_PROMPT = `You are an elite Technical Product Manager. 
+Analyze the provided PRD content and extract the core requirements.
+You MUST respond with strictly valid JSON only. Do not wrap in markdown blocks like \`\`\`json.
+
+Expected JSON format:
+{
+  "frontend": ["Feature 1", "Feature 2"],
+  "backend": ["Requirement 1", "Requirement 2"]
+}`;
+
+const PHASE_2_PROMPT = `You are a Senior Software Engineer. 
+Decompose the provided list of requirements into atomic, highly technical implementation tasks.
+You MUST respond with strictly valid JSON only. Do not wrap in markdown blocks like \`\`\`json.
+
+Expected JSON format (an array of objects):
+[
+  {
+    "task": "Component Name / Action",
+    "description": "Technical implementation details, required props, or API endpoints.",
+    "estimated_hours": 2
+  }
+]`;
+
+function chunkTasks(tasks: any[], size: number) {
+  const chunks = [];
+  for (let i = 0; i < tasks.length; i += size) {
+    chunks.push(tasks.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function compileMarkdown(type: 'frontend' | 'backend', chunks: any[][]) {
+  return chunks.map((chunk, index) => {
+    let content = `# ${type.toUpperCase()} Implementation Pipeline - Part ${index + 1}\n\n`;
+    chunk.forEach((task: any, i: number) => {
+      content += `### [ ] Task ${i + 1}: ${task.task || 'Untitled Task'}\n`;
+      content += `**Technical Description:**\n${task.description || 'No description provided.'}\n\n`;
+      content += `**Estimated Effort:** ${task.estimated_hours || 0} hours\n\n`;
+      content += `---\n\n`;
+    });
+    return { fileName: `${type}-implementation-pt${index + 1}.md`, content };
+  });
+}
+// ==========================================
+
 
 export default function Home() {
   const [prd, setPrd] = useState('');
@@ -18,7 +65,6 @@ export default function Home() {
     setError('');
     
     try {
-      // Phase 1: Requirement Extraction (Locked to OpenAI gpt-4o)
       const phase1Res = await puter.ai.chat(
         `${PHASE_1_PROMPT}\n\nPRD CONTENT:\n${prd}`, 
         { model: 'gpt-4o' }
@@ -26,7 +72,6 @@ export default function Home() {
       const cleanPhase1 = phase1Res.replace(/```json|```/g, '').trim();
       const requirements = JSON.parse(cleanPhase1);
 
-      // Phase 2: Task Decomposition (Locked to OpenAI gpt-4o)
       const frontendRaw = await puter.ai.chat(
         `${PHASE_2_PROMPT}\n\nREQUIREMENTS:\n${JSON.stringify(requirements.frontend || [])}`, 
         { model: 'gpt-4o' }
@@ -40,7 +85,6 @@ export default function Home() {
       const frontendTasks = JSON.parse(frontendRaw.replace(/```json|```/g, '').trim());
       const backendTasks = JSON.parse(backendRaw.replace(/```json|```/g, '').trim());
 
-      // Task Density Governance
       const frontendChunks = chunkTasks(frontendTasks, 20);
       const backendChunks = chunkTasks(backendTasks, 20);
 
@@ -61,13 +105,11 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#050505] text-white selection:bg-white/20 overflow-x-hidden font-sans">
       
-      {/* Background Visuals */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute -top-24 -left-24 w-96 h-96 bg-white/5 blur-[120px] rounded-full" />
         <div className="absolute -top-24 -right-24 w-96 h-96 bg-white/5 blur-[120px] rounded-full" />
       </div>
 
-      {/* Navigation */}
       <nav className="relative z-10 flex items-center justify-between max-w-7xl mx-auto px-6 py-8">
         <div className="flex items-center gap-2 group cursor-pointer">
           <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center group-hover:rotate-12 transition-transform">
@@ -87,7 +129,6 @@ export default function Home() {
         </Link>
       </nav>
 
-      {/* Hero Section */}
       <section className="relative z-10 flex flex-col items-center justify-center text-center px-6 pt-20 pb-20">
         <h1 className="max-w-4xl text-5xl md:text-8xl font-bold tracking-tighter leading-[0.9] mb-8">
           Secure. Integrate. <br />
@@ -116,7 +157,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Decomposer Tool Section */}
       <section id="decomposer" className="relative z-10 max-w-6xl mx-auto px-6 pb-32">
         <div className="p-8 rounded-3xl border border-white/10 bg-white/[0.02] backdrop-blur-md">
           <div className="flex items-center gap-3 mb-6">
@@ -151,7 +191,6 @@ export default function Home() {
             )}
           </button>
 
-          {/* Results Display */}
           {files.length > 0 && (
             <div className="mt-12 space-y-10 border-t border-white/10 pt-10">
               <div className="flex items-center gap-2 text-green-400">
