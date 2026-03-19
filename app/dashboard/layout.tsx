@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Folder, Brain, Search, Settings, Menu, X } from 'lucide-react'
+import { LayoutDashboard, Folder, Brain, Search, Settings, Menu, X, Zap } from 'lucide-react'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -14,6 +14,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: 'Memories', href: '/dashboard/memories', icon: Brain },
     { name: 'Projects', href: '/dashboard/projects', icon: Folder },
     { name: 'AI Search', href: '/dashboard/ai-search', icon: Search },
+    { name: 'Decomposer', href: '/decomposer', icon: Zap },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
   ]
 
