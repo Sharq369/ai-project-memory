@@ -2,131 +2,171 @@
 
 import { useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { 
-  Zap, ChevronRight, Loader2, FileCode, CheckCircle, Save, 
-  Copy, Check, BrainCircuit, ShieldCheck, AlertCircle 
+import {
+  Zap, ChevronRight, Loader2, FileCode, CheckCircle,
+  Save, Copy, Check, BrainCircuit, ShieldCheck, AlertCircle
 } from 'lucide-react';
-import puter from "@heyputer/puter.js"; 
+import puter from "@heyputer/puter.js";
 
 // =======================
-// PHASE 1: REQUIREMENTS EXTRACTION
+// SAFE AI CALL (RETRY)
 // =======================
-const PHASE_1_PROMPT = `You are an elite Technical Product Manager.
-Analyze the PRD and extract:
-1. ALL explicitly mentioned technologies (NO assumptions)
-2. Frontend requirements
-3. Backend requirements
-
-STRICT RULES:
-- DO NOT hallucinate technologies
-- DO NOT add common SaaS tools
-- ONLY extract what is explicitly written
-
-Return ONLY valid JSON:
-{
-  "allowed_technologies": ["Tech 1", "Tech 2"],
-  "frontend": ["Feature 1"],
-  "backend": ["Requirement 1"]
-}`;
-
-// =======================
-// PHASE 2: BACKEND GENERATION
-// =======================
-const BACKEND_PROMPT = `You are a strict Backend Architect.
-Decompose requirements into atomic backend tasks.
-
-STRICT RULES:
-0. SETUP PHASE (MANDATORY FIRST): Initialize Node.js, folder structure, env vars, DB connection.
-1. NO FRONTEND TASKS
-2. ATOMIC TASKS (MANDATORY): Split ALL CRUD (POST, GET, PUT, DELETE).
-3. DEPENDENCIES: Each task depends ONLY on what it needs.
-4. ERROR HANDLING (MANDATORY): Input validation, auth failure, API errors.
-5. PHASES: Phase 1: Setup, Phase 2: Core Backend, Phase 3: Integration.
-6. NO HALLUCINATED TECH: Only use ALLOWED_TECH.
-
-Return ONLY valid JSON array:
-[
-  {
-    "step_id": "Backend Step 1",
-    "title": "",
-    "phase": "",
-    "depends_on": [],
-    "goal": "",
-    "tasks": [],
-    "requirements": [],
-    "output": ""
+async function aiCall(prompt: string, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await puter.ai.chat(prompt);
+      return res;
+    } catch (e) {
+      if (i === retries) throw e;
+    }
   }
-]`;
+}
 
 // =======================
-// PHASE 3: FRONTEND GENERATION
+// SAFE JSON PARSER
 // =======================
-const FRONTEND_PROMPT = `You are a strict Frontend Architect.
-Decompose into frontend tasks.
-
-STRICT RULES:
-0. SETUP PHASE (MANDATORY FIRST): Initialize Next.js, TailwindCSS, routing.
-1. NO BACKEND TASKS
-2. CROSS-LAYER DEPENDENCIES: You are given backend pipeline. If using API/auth → MUST reference exact Backend Step ID.
-3. ATOMIC TASKS: Each task = ONE UI or interaction.
-4. ERROR HANDLING: loading states, error boundaries, API failure UI.
-5. PHASES: Phase 1: Setup, Phase 2: Foundation, Phase 3: Features, Phase 4: Integration.
-6. NO HALLUCINATED TECH.
-
-Return ONLY valid JSON array.`;
+function safeParse(input: any) {
+  try {
+    return JSON.parse(String(input).replace(/```json|```/g, '').trim());
+  } catch {
+    throw new Error("AI returned invalid JSON");
+  }
+}
 
 // =======================
-// PHASE 4: VALIDATION
+// SCHEMA ENFORCER
 // =======================
-const VALIDATION_PROMPT = `You are a strict system validator.
-Validate and FIX the pipeline.
+function enforceSchema(tasks: any[], type: 'frontend' | 'backend') {
+  return tasks.map((task, index) => {
+    const prefix = type === 'frontend' ? 'Frontend Step' : 'Backend Step';
 
-RULES:
-1. No duplicate step_ids
-2. All dependencies must exist
-3. No fake linear dependencies
-4. Tasks must be atomic
-5. Only allowed technologies used
-6. No frontend/backend mixing
-
-Return corrected JSON only.`;
+    return {
+      step_id: task.step_id || `${prefix} ${index + 1}`,
+      title: task.title || 'Untitled Step',
+      phase: task.phase || (type === 'frontend'
+        ? 'Phase 2: Foundation'
+        : 'Phase 2: Core Backend'),
+      depends_on: Array.isArray(task.depends_on) ? task.depends_on : [],
+      goal: task.goal && task.goal.trim() !== '' ? task.goal : 'Define implementation goal',
+      tasks: Array.isArray(task.tasks) && task.tasks.length > 0
+        ? task.tasks
+        : ['Define implementation task'],
+      requirements: Array.isArray(task.requirements) ? task.requirements : [],
+      output: task.output && task.output.trim() !== ''
+        ? task.output
+        : 'Expected output not defined'
+    };
+  });
+}
 
 // =======================
-// UTILITIES
+// SORT TASKS (DEPENDENCY ORDER)
 // =======================
 function sortTasks(tasks: any[]) {
   const map = new Map(tasks.map(t => [t.step_id, t]));
   const visited = new Set();
   const result: any[] = [];
+
   function visit(task: any) {
     if (visited.has(task.step_id)) return;
     visited.add(task.step_id);
-    (task.depends_on || []).forEach((dep: string) => { if (map.has(dep)) visit(map.get(dep)); });
+    (task.depends_on || []).forEach((dep: string) => {
+      if (map.has(dep)) visit(map.get(dep));
+    });
     result.push(task);
   }
+
   tasks.forEach(visit);
   return result;
 }
 
+// =======================
+// CHUNK TASKS
+// =======================
 function chunkTasks(tasks: any[], size: number) {
   const chunks = [];
-  for (let i = 0; i < tasks.length; i += size) chunks.push(tasks.slice(i, i + size));
+  for (let i = 0; i < tasks.length; i += size) {
+    chunks.push(tasks.slice(i, i + size));
+  }
   return chunks;
 }
 
+// =======================
+// MARKDOWN COMPILER
+// =======================
 function compileMarkdown(type: 'frontend' | 'backend', chunks: any[][]) {
   return chunks.map((chunk, index) => {
     let content = `# ${type.toUpperCase()} Implementation Pipeline - Part ${index + 1}\n\n`;
+
     chunk.forEach((task: any) => {
       content += `### ${task.step_id}: ${task.title}\n`;
-      content += `**Pipeline:** ${type}\n**Phase:** ${task.phase}\n`;
+      content += `**Pipeline:** ${type}\n`;
+      content += `**Phase:** ${task.phase}\n`;
       content += `**depends_on:** [${(task.depends_on || []).join(', ')}]\n`;
-      content += `**Goal:** ${task.goal}\n**Tasks:**\n${(task.tasks || []).map((t: string) => `- ${t}`).join('\n')}\n`;
-      content += `**Requirements:** ${(task.requirements || []).join(', ')}\n**Output:** ${task.output}\n\n---\n\n`;
+      content += `**Goal:** ${task.goal}\n`;
+      content += `**Tasks:**\n${task.tasks.map((t: string) => `- ${t}`).join('\n')}\n`;
+      content += `**Requirements:** ${task.requirements.join(', ')}\n`;
+      content += `**Output:** ${task.output}\n\n---\n\n`;
     });
-    return { fileName: `${type}-pipeline-pt${index + 1}.md`, content };
+
+    return {
+      fileName: `${type}-pipeline-pt${index + 1}.md`,
+      content
+    };
   });
 }
+
+// =======================
+// PROMPTS
+// =======================
+
+const PHASE_1_PROMPT = `
+Extract ONLY what exists in the PRD.
+
+Return JSON:
+{
+  "allowed_technologies": [],
+  "frontend": [],
+  "backend": []
+}
+`;
+
+const BACKEND_PROMPT = `
+Generate backend pipeline.
+
+RULES:
+- Include Setup first
+- CRUD must be atomic
+- Include auth, validation, error handling
+- Use ONLY allowed tech
+- Min 6 steps
+
+Return JSON array
+`;
+
+const FRONTEND_PROMPT = `
+Generate frontend pipeline.
+
+RULES:
+- Step 1 = Next.js setup
+- Min 8 steps
+- Include UI, auth, dashboard, analytics, payments
+- Include loading + error states
+- Reference backend steps when needed
+- No backend logic
+
+Return JSON array
+`;
+
+const VALIDATION_PROMPT = `
+Fix pipeline:
+- Ensure all fields exist
+- Fix dependencies
+- No duplicates
+- No empty values
+
+Return JSON only
+`;
 
 // =======================
 // MAIN COMPONENT
@@ -135,7 +175,6 @@ export default function DecomposerPage() {
   const [prd, setPrd] = useState('');
   const [files, setFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -148,27 +187,29 @@ export default function DecomposerPage() {
     setLoading(true);
     setError('');
     setFiles([]);
-    
+
     try {
-      // 1. Extract requirements
-      const p1 = await puter.ai.chat(`${PHASE_1_PROMPT}\n\n${prd}`);
-      const req = JSON.parse(String(p1).replace(/```json|```/g, '').trim());
+      // Phase 1
+      const p1 = await aiCall(`${PHASE_1_PROMPT}\n\n${prd}`);
+      const req = safeParse(p1);
 
-      // 2. Backend & Validate
-      const bRaw = await puter.ai.chat(`${BACKEND_PROMPT}\n\nALLOWED_TECH:${JSON.stringify(req.allowed_technologies)}\n${JSON.stringify(req.backend)}`);
-      let backend = JSON.parse(String(bRaw).replace(/```json|```/g, '').trim());
-      
-      const bVal = await puter.ai.chat(`${VALIDATION_PROMPT}\n${JSON.stringify(backend)}`);
-      backend = JSON.parse(String(bVal).replace(/```json|```/g, '').trim());
+      // Backend
+      const bRaw = await aiCall(`${BACKEND_PROMPT}\n${JSON.stringify(req.backend)}`);
+      let backend = enforceSchema(safeParse(bRaw), 'backend');
 
-      // 3. Frontend & Validate (Passing Backend context)
-      const fRaw = await puter.ai.chat(`${FRONTEND_PROMPT}\n\nBACKEND:\n${JSON.stringify(backend)}\n${JSON.stringify(req.frontend)}`);
-      let frontend = JSON.parse(String(fRaw).replace(/```json|```/g, '').trim());
-      
-      const fVal = await puter.ai.chat(`${VALIDATION_PROMPT}\n${JSON.stringify(frontend)}`);
-      frontend = JSON.parse(String(fVal).replace(/```json|```/g, '').trim());
+      const bVal = await aiCall(`${VALIDATION_PROMPT}\n${JSON.stringify(backend)}`);
+      backend = enforceSchema(safeParse(bVal), 'backend');
 
-      // 4. Sort & Compile
+      // Frontend
+      const fRaw = await aiCall(`${FRONTEND_PROMPT}\n${JSON.stringify(req.frontend)}\nBACKEND:${JSON.stringify(backend)}`);
+      let frontend = enforceSchema(safeParse(fRaw), 'frontend');
+
+      const fVal = await aiCall(`${VALIDATION_PROMPT}\n${JSON.stringify(frontend)}`);
+      frontend = enforceSchema(safeParse(fVal), 'frontend');
+
+      if (backend.length < 5) throw new Error("Weak backend pipeline");
+      if (frontend.length < 6) throw new Error("Weak frontend pipeline");
+
       setFiles([
         ...compileMarkdown('backend', chunkTasks(sortTasks(backend), 20)),
         ...compileMarkdown('frontend', chunkTasks(sortTasks(frontend), 20))
@@ -176,86 +217,50 @@ export default function DecomposerPage() {
 
     } catch (err) {
       console.error(err);
-      setError('Analysis failed. The AI returned invalid JSON. Please try simplifying your PRD text.');
+      setError('Pipeline failed. AI unstable or PRD unclear.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSaveToMemory = async () => {
-    setIsSaving(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Auth required");
-      
-      const masterContent = files.map(f => `## ${f.fileName}\n\n${f.content}`).join('\n\n');
-      
-      // FIXED: Inserts directly into 'memories' using only the 'content' field. 
-      // It will instantly appear in the Memories feed as "Unassigned".
-      const { error } = await supabase.from('memories').insert({
-        user_id: user.id,
-        content: `**PRD DECOMPOSITION PIPELINE**\n\n${masterContent}`,
-        project_id: null 
-      });
-
-      if (error) throw error;
-      alert('Pipeline successfully saved to Memories Vault!');
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   return (
-    // FIX: pt-28 (112px) guarantees the title clears your fixed 64px mobile header
-    <div className="relative pt-28 lg:pt-12 pb-20 px-4 max-w-5xl mx-auto w-full z-10">
-      <div className="p-8 rounded-3xl border border-white/10 bg-[#0f1117]/80 backdrop-blur-xl shadow-2xl">
-        <div className="flex items-center gap-3 mb-6">
-          <BrainCircuit className="text-blue-500 w-8 h-8" />
-          <h2 className="text-2xl font-black tracking-tighter text-white uppercase italic">PRD Decomposer v2</h2>
-        </div>
+    <div className="pt-28 px-4 max-w-5xl mx-auto">
+      <div className="p-8 rounded-3xl border bg-black/50">
+        <h2 className="text-xl font-bold mb-4">PRD Decomposer</h2>
 
-        <p className="text-sm text-gray-400 mb-6">Paste your Product Requirements Document below. The AI will extract allowed technologies and generate strict, dependency-aware architectural pipelines.</p>
-
-        <textarea 
+        <textarea
           value={prd}
           onChange={(e) => setPrd(e.target.value)}
-          className="w-full h-64 p-6 bg-black/50 border border-white/10 rounded-2xl font-mono text-sm text-gray-300 focus:border-blue-500 transition-all mb-6 outline-none"
-          placeholder="Paste PRD..."
+          className="w-full h-60 p-4 bg-black border rounded"
         />
 
-        {error && <div className="flex items-center gap-2 text-red-400 mb-4 text-sm font-bold bg-red-400/10 p-3 rounded-lg"><AlertCircle size={16}/> {error}</div>}
+        {error && <p className="text-red-400">{error}</p>}
 
-        <button 
-          onClick={handleDecompose} 
-          disabled={loading || !prd}
-          className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black uppercase tracking-widest transition-all disabled:opacity-50"
+        <button
+          onClick={handleDecompose}
+          disabled={loading}
+          className="mt-4 bg-blue-600 px-6 py-3 rounded"
         >
-          {loading ? <><Loader2 className="animate-spin" /> Analyzing Layers...</> : <>Run Deep Analysis <ChevronRight size={20}/></>}
+          {loading ? "Processing..." : "Generate Pipeline"}
         </button>
 
-        {files.length > 0 && (
-          <div className="mt-12 space-y-6">
-            <div className="flex justify-between items-center border-b border-white/10 pb-4">
-              <span className="flex items-center gap-2 text-green-400 font-bold uppercase text-xs tracking-widest"><ShieldCheck size={18}/> Validation Passed</span>
-              <button onClick={handleSaveToMemory} disabled={isSaving} className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-bold uppercase transition-all">
-                {isSaving ? <Loader2 className="animate-spin" size={14}/> : <Save size={14}/>} Save to Vault
+        {files.map((file, idx) => (
+          <div key={idx} className="mt-6">
+            <div className="flex justify-between">
+              <span>{file.fileName}</span>
+              <button onClick={() => {
+                navigator.clipboard.writeText(file.content);
+                setCopiedIndex(idx);
+                setTimeout(() => setCopiedIndex(null), 2000);
+              }}>
+                {copiedIndex === idx ? "Copied" : "Copy"}
               </button>
             </div>
-            {files.map((file, idx) => (
-              <div key={idx} className="bg-black/40 border border-white/5 rounded-2xl overflow-hidden">
-                <div className="bg-white/5 px-6 py-3 flex justify-between items-center border-b border-white/5">
-                  <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest font-bold">{file.fileName}</span>
-                  <button onClick={() => { navigator.clipboard.writeText(file.content); setCopiedIndex(idx); setTimeout(()=>setCopiedIndex(null),2000); }} className="text-gray-400 hover:text-white transition-colors">
-                    {copiedIndex === idx ? <Check size={16} className="text-green-400"/> : <Copy size={16}/>}
-                  </button>
-                </div>
-                <pre className="p-6 text-xs font-mono text-gray-400 overflow-x-auto leading-relaxed">{file.content}</pre>
-              </div>
-            ))}
+            <pre className="p-4 bg-black/70 text-xs overflow-x-auto">
+              {file.content}
+            </pre>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
