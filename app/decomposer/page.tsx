@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { Zap, ChevronRight, Loader2, FileCode, CheckCircle, Save } from 'lucide-react';
+import { Zap, ChevronRight, Loader2, FileCode, CheckCircle, Save, Copy, Check } from 'lucide-react';
 import puter from "@heyputer/puter.js"; 
 
-// UPGRADED PHASE 1: Extract requirements AND allowed tech
+// PHASE 1: Extract requirements AND allowed tech
 const PHASE_1_PROMPT = `You are an elite Technical Product Manager. 
-Analyze the provided PRD content and extract the core requirements and ALL explicitly mentioned technologies.
-Do NOT assume generic SaaS tools (like Stripe or Mixpanel) unless explicitly written in the PRD.
-You MUST respond with strictly valid JSON only. Do not wrap in markdown blocks like \`\`\`json.
+Analyze the PRD and extract core requirements and ALL explicitly mentioned technologies.
+Do NOT hallucinate generic SaaS tools.
+Respond with strictly valid JSON only.
 
 Expected JSON format:
 {
@@ -18,32 +18,50 @@ Expected JSON format:
   "backend": ["Requirement 1", "Requirement 2"]
 }`;
 
-// UPGRADED PHASE 2: Strict Architecture & Dependency Engine
-const PHASE_2_PROMPT = `You are an elite System Architect. 
-Decompose the provided list of requirements into strict, dependency-aware, and fully atomic implementation steps.
-
+// PHASE 2: Strict Backend Architecture
+const BACKEND_PROMPT = `You are a strict Backend Architect. 
+Decompose the requirements into atomic, sequential backend tasks (Database, Auth, APIs, Logic).
 CRITICAL RULES:
-1. NO HALLUCINATED TECH: Only use the technologies provided in the "ALLOWED_TECH" list.
-2. ATOMICITY: Each step must be ONE completable task. Split UI and API into separate steps.
-3. BACKEND-FIRST: Backend API/DB steps MUST exist and be referenced in the "depends_on" array of Frontend steps that consume them.
+1. NO FRONTEND TASKS.
+2. ATOMIC APIs: Break APIs into individual methods (POST, GET, PUT, DELETE).
+3. STRICT ORDER: Number steps sequentially (e.g., "Backend Step 1", "Backend Step 2"). NO alternatives.
+4. DEPENDENCIES: Step 1 has depends_on: []. Step N must depend on previous steps.
+5. NO HALLUCINATED TECH: Only use the ALLOWED_TECH.
 
-PHASES:
-- Phase 1: Setup (Init, DB, Auth)
-- Phase 2: Core Backend (APIs, Logic)
-- Phase 3: Frontend Foundation (Layout, Base Components)
-- Phase 4: Feature Implementation (UI, Dashboards)
-- Phase 5: Integration
-
-You MUST respond with strictly valid JSON only (an array of objects). Do not wrap in markdown blocks like \`\`\`json.
+Respond with strictly valid JSON only (an array of objects).
 Expected JSON format:
 [
   {
-    "step_id": "Step 1",
+    "step_id": "Backend Step 1",
     "title": "Setup Database Schema",
-    "phase": "Phase 1: Setup",
+    "phase": "Phase 2: Core Backend",
     "depends_on": [],
     "goal": "Clear objective",
-    "tasks": ["Specific implementation step 1", "Specific implementation step 2"],
+    "tasks": ["Specific implementation step"],
+    "requirements": ["Tech from allowed list"],
+    "output": "Expected result"
+  }
+]`;
+
+// PHASE 3: Strict Frontend Architecture (Requires Backend Context)
+const FRONTEND_PROMPT = `You are a strict Frontend Architect. 
+Decompose the requirements into atomic, sequential frontend tasks (UI, State, Pages, API Consumption).
+CRITICAL RULES:
+1. NO BACKEND TASKS.
+2. CROSS-LAYER DEPENDENCIES: You are provided the completed BACKEND PIPELINE. If a frontend task consumes an API or Auth, its "depends_on" array MUST include the exact "Backend Step X" ID from the provided backend pipeline.
+3. STRICT ORDER: Number steps sequentially (e.g., "Frontend Step 1", "Frontend Step 2"). NO alternatives.
+4. NO HALLUCINATED TECH: Only use the ALLOWED_TECH.
+
+Respond with strictly valid JSON only (an array of objects).
+Expected JSON format:
+[
+  {
+    "step_id": "Frontend Step 1",
+    "title": "Create Dashboard UI",
+    "phase": "Phase 3: Frontend Foundation",
+    "depends_on": ["Backend Step 2"], 
+    "goal": "Clear objective",
+    "tasks": ["Specific implementation step"],
     "requirements": ["Tech from allowed list"],
     "output": "Expected result"
   }
@@ -57,12 +75,13 @@ function chunkTasks(tasks: any[], size: number) {
   return chunks;
 }
 
-// FORMATTER: Converts the strict JSON into the required Markdown Spec
+// FORMATTER: Converts JSON to Markdown
 function compileMarkdown(type: 'frontend' | 'backend', chunks: any[][]) {
   return chunks.map((chunk, index) => {
     let content = `# ${type.toUpperCase()} Implementation Pipeline - Part ${index + 1}\n\n`;
     chunk.forEach((task: any) => {
       content += `### ${task.step_id || 'Step X'}: ${task.title || 'Untitled'}\n`;
+      content += `**Pipeline:** ${type.charAt(0).toUpperCase() + type.slice(1)}\n`;
       content += `**Phase:** ${task.phase || 'Unassigned'}\n`;
       content += `**depends_on:** [${(task.depends_on || []).join(', ')}]\n`;
       content += `**Goal:** ${task.goal || ''}\n`;
@@ -81,6 +100,7 @@ export default function DecomposerPage() {
   const [loading, setLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -93,52 +113,36 @@ export default function DecomposerPage() {
     setFiles([]);
     
     try {
-      // Phase 1: Extract Requirements and Tech
-      const phase1Res = await puter.ai.chat(
-        `${PHASE_1_PROMPT}\n\nPRD CONTENT:\n${prd}`, 
-        { model: 'gpt-4o' }
-      );
-      
-      const phase1Text = typeof phase1Res === 'string' 
-        ? phase1Res 
-        : (phase1Res as any)?.message?.content || String(phase1Res);
-        
-      const cleanPhase1 = phase1Text.replace(/```json|```/g, '').trim();
+      // 1. Extract Requirements
+      const phase1Res = await puter.ai.chat(`${PHASE_1_PROMPT}\n\nPRD CONTENT:\n${prd}`, { model: 'gpt-4o' });
+      const cleanPhase1 = (typeof phase1Res === 'string' ? phase1Res : (phase1Res as any)?.message?.content || String(phase1Res)).replace(/```json|```/g, '').trim();
       const requirements = JSON.parse(cleanPhase1);
       const allowedTech = requirements.allowed_technologies || [];
 
-      // Phase 2: Decompose Frontend
-      const frontendRes = await puter.ai.chat(
-        `${PHASE_2_PROMPT}\n\nALLOWED_TECH: ${JSON.stringify(allowedTech)}\n\nREQUIREMENTS:\n${JSON.stringify(requirements.frontend || [])}`, 
-        { model: 'gpt-4o' }
-      );
-      
-      // Phase 2: Decompose Backend
+      // 2. Build Backend First
       const backendRes = await puter.ai.chat(
-        `${PHASE_2_PROMPT}\n\nALLOWED_TECH: ${JSON.stringify(allowedTech)}\n\nREQUIREMENTS:\n${JSON.stringify(requirements.backend || [])}`, 
+        `${BACKEND_PROMPT}\n\nALLOWED_TECH: ${JSON.stringify(allowedTech)}\n\nBACKEND REQUIREMENTS:\n${JSON.stringify(requirements.backend || [])}`, 
         { model: 'gpt-4o' }
       );
+      const cleanBackend = (typeof backendRes === 'string' ? backendRes : (backendRes as any)?.message?.content || String(backendRes)).replace(/```json|```/g, '').trim();
+      const backendTasks = JSON.parse(cleanBackend);
 
-      const frontendText = typeof frontendRes === 'string' 
-        ? frontendRes 
-        : (frontendRes as any)?.message?.content || String(frontendRes);
-        
-      const backendText = typeof backendRes === 'string' 
-        ? backendRes 
-        : (backendRes as any)?.message?.content || String(backendRes);
+      // 3. Build Frontend (Passing Backend JSON for cross-layer dependencies)
+      const frontendRes = await puter.ai.chat(
+        `${FRONTEND_PROMPT}\n\nALLOWED_TECH: ${JSON.stringify(allowedTech)}\n\nCOMPLETED BACKEND PIPELINE (For Dependency Mapping):\n${JSON.stringify(backendTasks)}\n\nFRONTEND REQUIREMENTS:\n${JSON.stringify(requirements.frontend || [])}`, 
+        { model: 'gpt-4o' }
+      );
+      const cleanFrontend = (typeof frontendRes === 'string' ? frontendRes : (frontendRes as any)?.message?.content || String(frontendRes)).replace(/```json|```/g, '').trim();
+      const frontendTasks = JSON.parse(cleanFrontend);
 
-      const frontendTasks = JSON.parse(frontendText.replace(/```json|```/g, '').trim());
-      const backendTasks = JSON.parse(backendText.replace(/```json|```/g, '').trim());
-
-      const frontendChunks = chunkTasks(frontendTasks, 20);
+      // 4. Compile Output
       const backendChunks = chunkTasks(backendTasks, 20);
+      const frontendChunks = chunkTasks(frontendTasks, 20);
 
-      const generatedFiles = [
-        ...compileMarkdown('backend', backendChunks), // Render backend first naturally
+      setFiles([
+        ...compileMarkdown('backend', backendChunks),
         ...compileMarkdown('frontend', frontendChunks)
-      ];
-
-      setFiles(generatedFiles);
+      ]);
     } catch (err: any) {
       console.error(err);
       setError('Decomposition Error: Ensure your PRD text is valid and try again. The AI may have output invalid JSON.');
@@ -153,15 +157,14 @@ export default function DecomposerPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("You must be logged in to save.");
 
-      // Combine all files into one master document for the vault
       const masterContent = files.map(f => `## ${f.fileName}\n\n${f.content}`).join('\n\n');
 
+      // FIXED: Removed the 'summary' column to fix schema crash
       const { error } = await supabase.from('code_memories').insert({
         user_id: user.id,
-        project_id: null, // Global memory, or link to a specific project if you have a selector
+        project_id: null, 
         file_path: `prd_decompositions/pipeline_${new Date().getTime()}.md`,
-        content: masterContent,
-        summary: `PRD Architecture Pipeline generated on ${new Date().toLocaleDateString()}`
+        content: masterContent
       });
 
       if (error) throw error;
@@ -174,9 +177,15 @@ export default function DecomposerPage() {
     }
   };
 
+  const handleCopy = (content: string, index: number) => {
+    navigator.clipboard.writeText(content);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
   return (
-    // UI FIX: Added pt-20 lg:pt-6 to ensure mobile header doesn't overlap the content
-    <div className="p-6 pt-24 lg:pt-6 max-w-5xl mx-auto w-full">
+    // FIXED: Swapped to heavy top margin (mt-20 lg:mt-4) to force content below fixed navbar
+    <div className="mt-20 lg:mt-4 p-6 max-w-5xl mx-auto w-full">
       <div className="p-8 rounded-3xl border border-white/10 bg-white/[0.02] backdrop-blur-md shadow-2xl">
         <div className="flex items-center gap-3 mb-6">
           <Zap className="text-blue-500 w-6 h-6" />
@@ -220,7 +229,6 @@ export default function DecomposerPage() {
                 <span className="font-bold uppercase text-xs tracking-widest">Pipeline Generated</span>
               </div>
               
-              {/* NEW SAVE TO MEMORY BUTTON */}
               <button 
                 onClick={handleSaveToMemory}
                 disabled={isSaving}
@@ -234,10 +242,24 @@ export default function DecomposerPage() {
             <div className="grid grid-cols-1 gap-8">
               {files.map((file, idx) => (
                 <div key={idx} className="rounded-2xl border border-white/5 bg-[#0a0a0a] overflow-hidden">
-                  <div className="bg-white/5 px-6 py-3 border-b border-white/5 flex items-center gap-2">
-                    <FileCode className="w-4 h-4 text-gray-400" />
-                    <span className="text-xs font-mono text-gray-400 font-bold">{file.fileName}</span>
+                  <div className="bg-white/5 px-6 py-3 border-b border-white/5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FileCode className="w-4 h-4 text-gray-400" />
+                      <span className="text-xs font-mono text-gray-400 font-bold">{file.fileName}</span>
+                    </div>
+                    
+                    <button 
+                      onClick={() => handleCopy(file.content, idx)}
+                      className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10 active:scale-95"
+                    >
+                      {copiedIndex === idx ? (
+                        <><Check className="w-4 h-4 text-green-400" /><span className="text-green-400">Copied</span></>
+                      ) : (
+                        <><Copy className="w-4 h-4" /><span>Copy</span></>
+                      )}
+                    </button>
                   </div>
+                  
                   <pre className="p-8 text-sm font-mono text-gray-300 overflow-x-auto whitespace-pre-wrap leading-relaxed">
                     {file.content}
                   </pre>
