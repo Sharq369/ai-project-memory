@@ -11,7 +11,6 @@ export default function MemoriesPage() {
   const [selectedProject, setSelectedProject] = useState('')
   const [loading, setLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  
   const [localSearch, setLocalSearch] = useState('')
   const [memoryToDelete, setMemoryToDelete] = useState<{ id: string, content: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -35,29 +34,27 @@ export default function MemoriesPage() {
   }, [])
 
   const handleAddMemory = async () => {
-    if (!content || !selectedProject) return
+    if (!content) return
     setIsSaving(true)
     
     try {
       const { data: { user } } = await supabase.auth.getUser()
       
-      // UPGRADE 1: Use .select() to get the inserted row back immediately with its project name
       const { data, error } = await supabase.from('memories').insert([{
         content,
-        project_id: selectedProject,
+        project_id: selectedProject || null,
         user_id: user?.id
       }]).select('*, projects(name)').single()
 
       if (error) throw error
 
-      // UPGRADE 2: Instantly update the UI state instead of jarring window.location.reload()
       if (data) {
         setMemories(prev => [data, ...prev])
         setContent('')
         setSelectedProject('')
       }
     } catch (error) {
-      console.error("Error saving memory:", error)
+      console.error("Error syncing memory:", error)
     } finally {
       setIsSaving(false)
     }
@@ -69,9 +66,7 @@ export default function MemoriesPage() {
 
     const { error } = await supabase.from('memories').delete().eq('id', memoryToDelete.id)
 
-    if (!error) {
-      setMemories(prev => prev.filter(m => m.id !== memoryToDelete.id))
-    }
+    if (!error) setMemories(prev => prev.filter(m => m.id !== memoryToDelete.id))
     
     setIsDeleting(false)
     setMemoryToDelete(null)
@@ -85,7 +80,7 @@ export default function MemoriesPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-8 p-6">
       
-      {/* FORM: Add Memory */}
+      {/* ADD MEMORY BLOCK */}
       <div className="bg-[#16181e] border border-gray-800 rounded-[2.5rem] p-8 md:p-10 space-y-6 shadow-2xl">
         <div className="flex items-center gap-3">
           <Layers className="text-blue-500" size={20} />
@@ -95,7 +90,7 @@ export default function MemoriesPage() {
         <textarea 
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="Paste code snippets, architecture rules, or terminal commands..."
+          placeholder="Paste code snippets, architectures, or system context..."
           className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl p-5 text-sm text-gray-300 outline-none focus:border-blue-500 min-h-[120px] transition-all font-mono"
         />
 
@@ -105,40 +100,29 @@ export default function MemoriesPage() {
             onChange={(e) => setSelectedProject(e.target.value)}
             className="flex-1 bg-[#0f1117] border border-gray-800 rounded-xl px-5 py-4 text-xs font-bold text-gray-500 outline-none cursor-pointer hover:border-gray-700 transition-colors"
           >
-            <option value="">-- Associate with Project --</option>
+            <option value="">-- Associate with Project (Optional) --</option>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           
-          <button 
-            onClick={handleAddMemory}
-            disabled={isSaving || !content || !selectedProject}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20"
-          >
-            {isSaving ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />} 
-            Sync Memory
+          <button onClick={handleAddMemory} disabled={isSaving || !content} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all">
+            {isSaving ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />} Sync
           </button>
         </div>
       </div>
 
-      {/* POWER UPGRADE: Local Search Bar */}
+      {/* FILTER CONTROLS */}
       <div className="flex items-center bg-[#16181e] border border-gray-800 rounded-2xl px-4 py-3 gap-3">
         <Search size={16} className="text-gray-500" />
-        <input 
-          type="text"
-          placeholder="Filter memories instantly..."
-          value={localSearch}
-          onChange={(e) => setLocalSearch(e.target.value)}
-          className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder:text-gray-600"
-        />
+        <input type="text" placeholder="Filter vault memory..." value={localSearch} onChange={(e) => setLocalSearch(e.target.value)} className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder:text-gray-600" />
         <Filter size={16} className="text-gray-600" />
       </div>
 
-      {/* LIST: Memory Feed */}
+      {/* VAULT FEED */}
       <div className="grid grid-cols-1 gap-4">
         {filteredMemories.length === 0 && !loading && (
           <div className="text-center py-12 text-gray-500 text-sm border border-dashed border-gray-800 rounded-2xl flex flex-col items-center gap-3">
             <AlignLeft size={24} className="opacity-50" />
-            No memories match your search.
+            Vault is empty or no matches found.
           </div>
         )}
 
@@ -146,10 +130,10 @@ export default function MemoriesPage() {
           <div key={m.id} className="bg-[#16181e]/50 border border-gray-800/50 p-6 rounded-2xl flex justify-between items-start group hover:bg-[#16181e] transition-all">
             <div className="space-y-3 w-full pr-6">
               <span className={`text-[8px] font-black px-3 py-1 rounded-md uppercase tracking-tighter border ${m.projects?.name ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>
-                {m.projects?.name || "Unassigned Pipeline"}
+                {m.projects?.name || "Unassigned"}
               </span>
               
-              {/* UPGRADE 3: Added max-h-96 and overflow-y-auto so massive AI pipelines are scrollable instead of breaking the page length */}
+              {/* Massive Pipeline Containment Scrollbar */}
               <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-96 overflow-y-auto custom-scrollbar">
                 <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap font-mono">
                   {m.content}
@@ -158,13 +142,8 @@ export default function MemoriesPage() {
             </div>
             
             <div className="flex flex-col items-center gap-2 pt-1 min-w-[30px]">
-              <Brain className="text-gray-700 group-hover:text-purple-500 transition-colors mb-2" size={20} />
-              
-              <button 
-                onClick={() => setMemoryToDelete({ id: m.id, content: m.content })}
-                className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                title="Delete Memory"
-              >
+              <Brain className="text-gray-700 group-hover:text-blue-500 transition-colors mb-2" size={20} />
+              <button onClick={() => setMemoryToDelete({ id: m.id, content: m.content })} className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100" title="Purge Sequence">
                 <Trash2 size={16} />
               </button>
             </div>
@@ -172,24 +151,22 @@ export default function MemoriesPage() {
         ))}
       </div>
 
-      {/* DELETE MODAL */}
+      {/* MODALS */}
       {memoryToDelete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className="bg-[#0e1117] border border-red-900/30 w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl">
             <div className="p-6">
-              <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
-                <AlertTriangle className="text-red-500" size={24} />
-              </div>
-              <h2 className="text-xl font-bold text-white mb-2">Delete Memory?</h2>
+              <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-6"><AlertTriangle className="text-red-500" size={24} /></div>
+              <h2 className="text-xl font-bold text-white mb-2">Purge Sequence?</h2>
               <div className="p-3 bg-black/50 border border-gray-800 rounded-lg mt-4 max-h-24 overflow-hidden relative">
                 <p className="text-xs text-gray-500 italic truncate">"{memoryToDelete.content}"</p>
                 <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/50 to-transparent"></div>
               </div>
             </div>
             <div className="flex gap-3 px-6 pb-6">
-              <button onClick={() => setMemoryToDelete(null)} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] text-gray-300 hover:bg-gray-800 transition-colors">Cancel</button>
+              <button onClick={() => setMemoryToDelete(null)} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] text-gray-300 hover:bg-gray-800 transition-colors">Abort</button>
               <button onClick={confirmDeleteMemory} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center justify-center gap-2">
-                {isDeleting ? <Loader2 size={16} className="animate-spin"/> : 'Delete'}
+                {isDeleting ? <Loader2 size={16} className="animate-spin"/> : 'Confirm Purge'}
               </button>
             </div>
           </div>
