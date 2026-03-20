@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '../../../lib/supabase'
-import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter } from 'lucide-react'
+import { createBrowserClient } from '@supabase/ssr'
+import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft } from 'lucide-react'
 
 export default function MemoriesPage() {
   const [memories, setMemories] = useState<any[]>([])
@@ -12,11 +12,14 @@ export default function MemoriesPage() {
   const [loading, setLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   
-  // Power Upgrade States
   const [localSearch, setLocalSearch] = useState('')
-
   const [memoryToDelete, setMemoryToDelete] = useState<{ id: string, content: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
   useEffect(() => {
     async function loadData() {
@@ -34,17 +37,30 @@ export default function MemoriesPage() {
   const handleAddMemory = async () => {
     if (!content || !selectedProject) return
     setIsSaving(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    const { error } = await supabase.from('memories').insert([{
-      content,
-      project_id: selectedProject,
-      user_id: user?.id
-    }])
-    if (!error) { 
-      setContent(''); 
-      window.location.reload(); 
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      // UPGRADE 1: Use .select() to get the inserted row back immediately with its project name
+      const { data, error } = await supabase.from('memories').insert([{
+        content,
+        project_id: selectedProject,
+        user_id: user?.id
+      }]).select('*, projects(name)').single()
+
+      if (error) throw error
+
+      // UPGRADE 2: Instantly update the UI state instead of jarring window.location.reload()
+      if (data) {
+        setMemories(prev => [data, ...prev])
+        setContent('')
+        setSelectedProject('')
+      }
+    } catch (error) {
+      console.error("Error saving memory:", error)
+    } finally {
+      setIsSaving(false)
     }
-    setIsSaving(false)
   }
 
   const confirmDeleteMemory = async () => {
@@ -61,7 +77,6 @@ export default function MemoriesPage() {
     setMemoryToDelete(null)
   }
 
-  // Local Filter Logic
   const filteredMemories = memories.filter(m => 
     m.content.toLowerCase().includes(localSearch.toLowerCase()) || 
     m.projects?.name?.toLowerCase().includes(localSearch.toLowerCase())
@@ -121,23 +136,28 @@ export default function MemoriesPage() {
       {/* LIST: Memory Feed */}
       <div className="grid grid-cols-1 gap-4">
         {filteredMemories.length === 0 && !loading && (
-          <div className="text-center py-12 text-gray-500 text-sm border border-dashed border-gray-800 rounded-2xl">
+          <div className="text-center py-12 text-gray-500 text-sm border border-dashed border-gray-800 rounded-2xl flex flex-col items-center gap-3">
+            <AlignLeft size={24} className="opacity-50" />
             No memories match your search.
           </div>
         )}
 
         {filteredMemories.map((m) => (
           <div key={m.id} className="bg-[#16181e]/50 border border-gray-800/50 p-6 rounded-2xl flex justify-between items-start group hover:bg-[#16181e] transition-all">
-            <div className="space-y-3 max-w-[85%]">
-              <span className="text-[8px] font-black bg-blue-500/10 text-blue-400 px-3 py-1 rounded-md uppercase tracking-tighter border border-blue-500/20">
-                {m.projects?.name || "Unassigned"}
+            <div className="space-y-3 w-full pr-6">
+              <span className={`text-[8px] font-black px-3 py-1 rounded-md uppercase tracking-tighter border ${m.projects?.name ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>
+                {m.projects?.name || "Unassigned Pipeline"}
               </span>
-              <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap font-mono bg-[#0f1117] p-4 rounded-xl border border-gray-800/50">
-                {m.content}
-              </p>
+              
+              {/* UPGRADE 3: Added max-h-96 and overflow-y-auto so massive AI pipelines are scrollable instead of breaking the page length */}
+              <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-96 overflow-y-auto custom-scrollbar">
+                <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap font-mono">
+                  {m.content}
+                </p>
+              </div>
             </div>
             
-            <div className="flex flex-col items-center gap-2 pt-1">
+            <div className="flex flex-col items-center gap-2 pt-1 min-w-[30px]">
               <Brain className="text-gray-700 group-hover:text-purple-500 transition-colors mb-2" size={20} />
               
               <button 
@@ -161,18 +181,20 @@ export default function MemoriesPage() {
                 <AlertTriangle className="text-red-500" size={24} />
               </div>
               <h2 className="text-xl font-bold text-white mb-2">Delete Memory?</h2>
-              <div className="p-3 bg-black/50 border border-gray-800 rounded-lg mt-4">
-                <p className="text-xs text-gray-500 truncate italic">"{memoryToDelete.content}"</p>
+              <div className="p-3 bg-black/50 border border-gray-800 rounded-lg mt-4 max-h-24 overflow-hidden relative">
+                <p className="text-xs text-gray-500 italic truncate">"{memoryToDelete.content}"</p>
+                <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/50 to-transparent"></div>
               </div>
             </div>
             <div className="flex gap-3 px-6 pb-6">
-              <button onClick={() => setMemoryToDelete(null)} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] text-gray-300">Cancel</button>
-              <button onClick={confirmDeleteMemory} className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 text-white">Delete</button>
+              <button onClick={() => setMemoryToDelete(null)} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] text-gray-300 hover:bg-gray-800 transition-colors">Cancel</button>
+              <button onClick={confirmDeleteMemory} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center justify-center gap-2">
+                {isDeleting ? <Loader2 size={16} className="animate-spin"/> : 'Delete'}
+              </button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   )
 }
