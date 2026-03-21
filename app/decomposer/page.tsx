@@ -10,13 +10,13 @@ import {
 import puter from "@heyputer/puter.js"; 
 
 // =======================
-// SAFE AI CALL (GPT-5 TARGETED)
+// SAFE AI CALL (FREE TIER)
 // =======================
 async function aiCall(prompt: string, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
-      // Explicitly targeting gpt-5 for speed and advanced reasoning
-      const res = await puter.ai.chat(prompt, { model: 'gpt-5' });
+      // Reverted to default Puter free tier to bypass 'Low Balance' error
+      const res = await puter.ai.chat(prompt);
       return res;
     } catch (e) {
       if (i === retries) throw e;
