@@ -7,19 +7,27 @@ import {
   Zap, ChevronRight, Loader2, Save, Copy, Check, 
   BrainCircuit, ShieldCheck, AlertCircle, ArrowLeft, Database
 } from 'lucide-react';
-import puter from "@heyputer/puter.js"; 
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // =======================
-// SAFE AI CALL (FREE TIER)
+// GEMINI AI CALL (FREE TIER)
 // =======================
 async function aiCall(prompt: string, retries = 2) {
+  // Initialize Gemini with your public API key
+  const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY!);
+  // Using 1.5 Flash because it's blazing fast and has a huge free tier
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
   for (let i = 0; i <= retries; i++) {
     try {
-      // Default Puter free tier to completely bypass 'Low Balance' error
-      const res = await puter.ai.chat(prompt);
-      return res;
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+      return text;
     } catch (e) {
+      console.error(`Gemini attempt ${i + 1} failed:`, e);
       if (i === retries) throw e;
+      // Wait 1 second before retrying to respect rate limits
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 }
@@ -113,6 +121,11 @@ export default function DecomposerPage() {
   );
 
   const handleDecompose = async () => {
+    if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+      setError("Missing NEXT_PUBLIC_GEMINI_API_KEY in environment variables.");
+      return;
+    }
+
     setLoading(true);
     setError('');
     setFiles([]);
@@ -122,7 +135,7 @@ export default function DecomposerPage() {
       const p1 = await aiCall(`${PHASE_1_PROMPT}\n\n${prd}`);
       const req = safeParse(p1);
 
-      // Phase 2 & 3: SEQUENTIAL GENERATION (Bypasses Free Tier Concurrency Limits)
+      // Phase 2 & 3: SEQUENTIAL GENERATION 
       const bRaw = await aiCall(`${BACKEND_PROMPT}\n${JSON.stringify(req.backend)}`);
       let backend = enforceSchema(safeParse(bRaw), 'backend');
 
@@ -177,14 +190,14 @@ export default function DecomposerPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-white">
-      {/* INDEPENDENT NAV BAR - Fixes Mobile Menu Issue */}
+      {/* INDEPENDENT NAV BAR */}
       <nav className="fixed top-0 inset-x-0 h-16 border-b border-white/5 bg-black/50 backdrop-blur-xl z-[100] px-6 flex items-center justify-between">
         <button onClick={() => router.back()} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors font-bold text-xs uppercase tracking-widest">
           <ArrowLeft size={18} /> Back to Hub
         </button>
         <div className="flex items-center gap-2 text-blue-500">
           <BrainCircuit size={20} />
-          <span className="font-black italic text-sm tracking-tighter">TURBO DECOMPOSER</span>
+          <span className="font-black italic text-sm tracking-tighter">TURBO DECOMPOSER (GEMINI)</span>
         </div>
       </nav>
 
