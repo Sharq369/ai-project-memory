@@ -15,7 +15,7 @@ import puter from "@heyputer/puter.js";
 async function aiCall(prompt: string, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
-      // Reverted to default Puter free tier to bypass 'Low Balance' error
+      // Default Puter free tier to completely bypass 'Low Balance' error
       const res = await puter.ai.chat(prompt);
       return res;
     } catch (e) {
@@ -122,22 +122,18 @@ export default function DecomposerPage() {
       const p1 = await aiCall(`${PHASE_1_PROMPT}\n\n${prd}`);
       const req = safeParse(p1);
 
-      // Phase 2 & 3: PARALLEL GENERATION (Massive speed boost)
-      const [bRaw, fRaw] = await Promise.all([
-        aiCall(`${BACKEND_PROMPT}\n${JSON.stringify(req.backend)}`),
-        aiCall(`${FRONTEND_PROMPT}\n${JSON.stringify(req.frontend)}\nBACKEND_REF:${JSON.stringify(req.backend)}`)
-      ]);
-
+      // Phase 2 & 3: SEQUENTIAL GENERATION (Bypasses Free Tier Concurrency Limits)
+      const bRaw = await aiCall(`${BACKEND_PROMPT}\n${JSON.stringify(req.backend)}`);
       let backend = enforceSchema(safeParse(bRaw), 'backend');
+
+      const fRaw = await aiCall(`${FRONTEND_PROMPT}\n${JSON.stringify(req.frontend)}\nBACKEND_REF:${JSON.stringify(req.backend)}`);
       let frontend = enforceSchema(safeParse(fRaw), 'frontend');
 
-      // Phase 4: PARALLEL VALIDATION
-      const [bVal, fVal] = await Promise.all([
-        aiCall(`${VALIDATION_PROMPT}\n${JSON.stringify(backend)}`),
-        aiCall(`${VALIDATION_PROMPT}\n${JSON.stringify(frontend)}`)
-      ]);
-
+      // Phase 4: SEQUENTIAL VALIDATION
+      const bVal = await aiCall(`${VALIDATION_PROMPT}\n${JSON.stringify(backend)}`);
       backend = enforceSchema(safeParse(bVal), 'backend');
+
+      const fVal = await aiCall(`${VALIDATION_PROMPT}\n${JSON.stringify(frontend)}`);
       frontend = enforceSchema(safeParse(fVal), 'frontend');
 
       if (backend.length < 5) throw new Error("Weak backend pipeline");
