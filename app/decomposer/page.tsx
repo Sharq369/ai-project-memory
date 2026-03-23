@@ -3,28 +3,24 @@
 import { useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
-import { 
+import {
   ChevronRight, Loader2, Copy, Check, Download,
   BrainCircuit, ShieldCheck, AlertCircle, ArrowLeft, Database
 } from 'lucide-react';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // =======================
 // ROBUST JSON EXTRACTOR
 // =======================
 function extractJSONBlock(text: string): string {
-  // Try markdown code blocks first
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (codeBlockMatch) return codeBlockMatch[1].trim();
-  
-  // Try to find standalone array
+
   const arrayMatch = text.match(/(\[[\s\S]*\])/);
   if (arrayMatch) return arrayMatch[1].trim();
-  
-  // Try to find standalone object
+
   const objectMatch = text.match(/(\{[\s\S]*\})/);
   if (objectMatch) return objectMatch[1].trim();
-  
+
   return text.trim();
 }
 
@@ -46,7 +42,7 @@ function enforceSchema(tasks: any[], type: 'frontend' | 'backend') {
     console.error(`Expected array for ${type}, got:`, tasks);
     return [];
   }
-  
+
   return tasks.map((task, index) => {
     const prefix = type === 'frontend' ? 'FE' : 'BE';
     return {
@@ -69,16 +65,16 @@ function sortTasks(tasks: any[]) {
   const map = new Map(tasks.map(t => [t.step_id, t]));
   const visited = new Set();
   const result: any[] = [];
-  
+
   function visit(task: any) {
     if (visited.has(task.step_id)) return;
     visited.add(task.step_id);
-    (task.depends_on || []).forEach((dep: string) => { 
-      if (map.has(dep)) visit(map.get(dep)); 
+    (task.depends_on || []).forEach((dep: string) => {
+      if (map.has(dep)) visit(map.get(dep));
     });
     result.push(task);
   }
-  
+
   tasks.forEach(visit);
   return result;
 }
@@ -108,9 +104,7 @@ function compileMarkdown(type: 'frontend' | 'backend', chunks: any[][]) {
 }
 
 // =======================
-// PROMPT BUILDERS
-// FIX: Converted split FRONTEND_PROMPT into a builder function
-// so context is never accidentally detached from the prompt body.
+// PROMPTS
 // =======================
 const PHASE_1_PROMPT = `You are a technical architect. Analyze the PRD below and extract:
 1. Allowed technologies (frameworks, libraries, databases)
@@ -158,10 +152,11 @@ Return ONLY a raw JSON array with no explanation, no markdown fences:
 Allowed Technologies:
 `;
 
-// FIX: Was a broken string constant with context appended externally.
-// Now a builder function that takes all dynamic values as arguments,
-// making the prompt self-contained and impossible to accidentally truncate.
-function buildFrontendPrompt(technologies: string[], backendSteps: { id: string; title: string }[], requirements: string[]): string {
+function buildFrontendPrompt(
+  technologies: string[],
+  backendSteps: { id: string; title: string }[],
+  requirements: string[]
+): string {
   return `Generate a detailed frontend implementation pipeline.
 
 Rules:
@@ -180,7 +175,7 @@ ${JSON.stringify(backendSteps, null, 2)}
 Return ONLY a raw JSON array with no explanation, no markdown fences:
 [
   {
-    "step_id": "FE-1", 
+    "step_id": "FE-1",
     "title": "Step Title",
     "phase": "Phase 1: Foundation",
     "depends_on": [],
@@ -208,7 +203,7 @@ Return ONLY the corrected raw JSON array with no explanation, no markdown fences
 `;
 
 // =======================
-// MARKDOWN DOWNLOAD HELPER
+// DOWNLOAD HELPER
 // =======================
 function downloadMarkdown(fileName: string, content: string) {
   const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
@@ -221,37 +216,40 @@ function downloadMarkdown(fileName: string, content: string) {
 }
 
 // =======================
-// GEMINI AI CALL
-// FIX: Added explicit throw after the loop so TypeScript never
-// infers a possible `undefined` return type. Without this,
-// safeParse(undefined, ctx) would crash silently.
+// SERVER-PROXIED AI CALL
+// All Gemini calls go through /api/decomposer.
+// The API key never leaves the server.
+// Removed: import { GoogleGenerativeAI } from "@google/generative-ai"
+// Removed: NEXT_PUBLIC_GEMINI_API_KEY
 // =======================
 async function aiCall(prompt: string, retries = 2): Promise<string> {
-  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-  if (!apiKey) throw new Error("Gemini API key not configured. Add NEXT_PUBLIC_GEMINI_API_KEY to your environment.");
-  
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
   for (let i = 0; i <= retries; i++) {
     try {
-      const result = await model.generateContent(prompt);
-      const text = result.response.text();
-      if (!text || text.trim().length < 10) {
-        throw new Error("Empty or too-short response from AI");
+      const res = await fetch('/api/decomposer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Server error ${res.status}`);
       }
-      return text;
+
+      const data = await res.json();
+      if (!data.text || data.text.trim().length < 10) {
+        throw new Error('Empty or too-short response from AI');
+      }
+
+      return data.text;
     } catch (e: any) {
       console.error(`Attempt ${i + 1} failed:`, e);
-      if (i === retries) throw new Error(e.message || "AI service failed after all retries");
-      // Exponential backoff: 1s, 2s, 3s...
+      if (i === retries) throw new Error(e.message || 'AI service failed after all retries');
       await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
     }
   }
 
-  // FIX: This line is now unreachable in practice but satisfies TypeScript's
-  // control-flow analysis so the return type is always `Promise<string>`.
-  throw new Error("AI call exhausted all retries");
+  throw new Error('AI call exhausted all retries');
 }
 
 // =======================
@@ -274,7 +272,7 @@ export default function DecomposerPage() {
 
   const handleDecompose = async () => {
     if (!prd.trim()) {
-      setError("Please enter PRD content");
+      setError('Please enter PRD content');
       return;
     }
 
@@ -284,52 +282,47 @@ export default function DecomposerPage() {
     setProgress('Initializing...');
 
     try {
-      // Phase 1: Extract requirements
+      // Phase 1
       setProgress('Phase 1: Analyzing PRD...');
       const p1 = await aiCall(PHASE_1_PROMPT + prd);
-      const req = safeParse(p1, "Phase 1");
-      
+      const req = safeParse(p1, 'Phase 1');
+
       if (!req.allowed_technologies || !Array.isArray(req.frontend) || !Array.isArray(req.backend)) {
-        throw new Error("Phase 1: PRD analysis returned incomplete data. Make sure your PRD mentions technologies, frontend features, and backend requirements.");
+        throw new Error('Phase 1: PRD analysis returned incomplete data. Make sure your PRD mentions technologies, frontend features, and backend requirements.');
       }
 
-      // Phase 2: Backend Pipeline
+      // Phase 2: Backend
       setProgress('Phase 2: Generating Backend Pipeline...');
       const backendContext = `${JSON.stringify(req.allowed_technologies)}\n\nRequirements:\n${JSON.stringify(req.backend)}`;
       const bRaw = await aiCall(BACKEND_PROMPT + backendContext);
-      let backend = enforceSchema(safeParse(bRaw, "Backend Generation"), 'backend');
-      
+      let backend = enforceSchema(safeParse(bRaw, 'Backend Generation'), 'backend');
+
       if (backend.length < 5) {
         setProgress('Phase 2: Backend insufficient — retrying...');
-        const bRaw2 = await aiCall(BACKEND_PROMPT + backendContext + "\n\nIMPORTANT: You MUST generate at least 6 detailed, distinct steps. Do not combine steps.");
-        backend = enforceSchema(safeParse(bRaw2, "Backend Retry"), 'backend');
+        const bRaw2 = await aiCall(BACKEND_PROMPT + backendContext + '\n\nIMPORTANT: You MUST generate at least 6 detailed, distinct steps. Do not combine steps.');
+        backend = enforceSchema(safeParse(bRaw2, 'Backend Retry'), 'backend');
       }
 
-      // Phase 3: Frontend Pipeline
-      // FIX: Now uses buildFrontendPrompt() — all context is embedded inside
-      // the prompt itself, not appended as a loose string after a truncated constant.
+      // Phase 3: Frontend
       setProgress('Phase 3: Generating Frontend Pipeline...');
       const backendRefs = backend.map((b: any) => ({ id: b.step_id, title: b.title }));
       const fRaw = await aiCall(buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend));
-      let frontend = enforceSchema(safeParse(fRaw, "Frontend Generation"), 'frontend');
+      let frontend = enforceSchema(safeParse(fRaw, 'Frontend Generation'), 'frontend');
 
       if (frontend.length < 6) {
         setProgress('Phase 3: Frontend insufficient — retrying...');
         const fRaw2 = await aiCall(
           buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend) +
-          "\n\nIMPORTANT: You MUST generate at least 8 detailed, distinct steps. Do not combine steps."
+          '\n\nIMPORTANT: You MUST generate at least 8 detailed, distinct steps. Do not combine steps.'
         );
-        frontend = enforceSchema(safeParse(fRaw2, "Frontend Retry"), 'frontend');
+        frontend = enforceSchema(safeParse(fRaw2, 'Frontend Retry'), 'frontend');
       }
 
       // Phase 4: Validation
-      // FIX: Validated result is only accepted if it doesn't lose more than
-      // 20% of steps. Prevents Gemini from silently "cleaning" your pipeline
-      // down to fewer steps than you started with.
       setProgress('Phase 4: Validating Pipelines...');
 
       const bVal = await aiCall(VALIDATION_PROMPT + JSON.stringify(backend));
-      const validatedBackend = enforceSchema(safeParse(bVal, "Backend Validation"), 'backend');
+      const validatedBackend = enforceSchema(safeParse(bVal, 'Backend Validation'), 'backend');
       if (validatedBackend.length >= Math.floor(backend.length * 0.8)) {
         backend = validatedBackend;
       } else {
@@ -337,17 +330,17 @@ export default function DecomposerPage() {
       }
 
       const fVal = await aiCall(VALIDATION_PROMPT + JSON.stringify(frontend));
-      const validatedFrontend = enforceSchema(safeParse(fVal, "Frontend Validation"), 'frontend');
+      const validatedFrontend = enforceSchema(safeParse(fVal, 'Frontend Validation'), 'frontend');
       if (validatedFrontend.length >= Math.floor(frontend.length * 0.8)) {
         frontend = validatedFrontend;
       } else {
         console.warn(`Frontend validation shrank steps from ${frontend.length} to ${validatedFrontend.length} — keeping original.`);
       }
 
-      // Compile outputs
+      // Compile
       const backendFiles = compileMarkdown('backend', chunkTasks(sortTasks(backend), 20));
       const frontendFiles = compileMarkdown('frontend', chunkTasks(sortTasks(frontend), 20));
-      
+
       setFiles([...backendFiles, ...frontendFiles]);
       setProgress('');
 
@@ -364,14 +357,14 @@ export default function DecomposerPage() {
     setIsSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Authentication required");
-      
+      if (!user) throw new Error('Authentication required');
+
       const masterContent = files.map(f => `## ${f.fileName}\n\n${f.content}`).join('\n\n');
-      
+
       const { error: dbError } = await supabase.from('memories').insert({
         user_id: user.id,
         content: `**PRD DECOMPOSITION PIPELINE**\n\n${masterContent}`,
-        project_id: null 
+        project_id: null
       });
 
       if (dbError) throw dbError;
@@ -402,19 +395,19 @@ export default function DecomposerPage() {
             <p className="text-gray-500 text-sm">Convert PRD into dependency-aware implementation pipelines.</p>
           </header>
 
-          <textarea 
-            value={prd} 
-            onChange={(e) => setPrd(e.target.value)} 
-            className="w-full h-60 p-6 bg-black/40 border border-white/5 rounded-2xl font-mono text-sm text-blue-100/60 focus:border-blue-500/50 outline-none transition-all mb-4 resize-none" 
+          <textarea
+            value={prd}
+            onChange={(e) => setPrd(e.target.value)}
+            className="w-full h-60 p-6 bg-black/40 border border-white/5 rounded-2xl font-mono text-sm text-blue-100/60 focus:border-blue-500/50 outline-none transition-all mb-4 resize-none"
             placeholder="Paste your Product Requirements Document (PRD) here... Be specific about features, tech stack, and requirements."
           />
-          
+
           {progress && (
             <div className="flex items-center gap-2 text-blue-400 mb-4 text-xs font-mono">
               <Loader2 size={14} className="animate-spin" /> {progress}
             </div>
           )}
-          
+
           {error && (
             <div className="flex items-start gap-3 text-red-400 mb-6 bg-red-400/5 p-4 rounded-xl text-xs font-bold border border-red-400/10">
               <AlertCircle size={18} className="shrink-0 mt-0.5" />
@@ -425,15 +418,15 @@ export default function DecomposerPage() {
             </div>
           )}
 
-          <button 
-            onClick={handleDecompose} 
-            disabled={loading || !prd.trim()} 
+          <button
+            onClick={handleDecompose}
+            disabled={loading || !prd.trim()}
             className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-30 disabled:cursor-not-allowed text-white py-5 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-[0.99]"
           >
             {loading ? (
               <><Loader2 className="animate-spin" /> Processing...</>
             ) : (
-              <>Run Neural Extraction <ChevronRight size={20}/></>
+              <>Run Neural Extraction <ChevronRight size={20} /></>
             )}
           </button>
 
@@ -441,18 +434,18 @@ export default function DecomposerPage() {
             <div className="mt-12 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="flex justify-between items-center border-b border-white/5 pb-6">
                 <span className="flex items-center gap-2 text-green-400 font-bold uppercase text-[10px] tracking-widest">
-                  <ShieldCheck size={16}/> {files.length} Files Generated
+                  <ShieldCheck size={16} /> {files.length} Files Generated
                 </span>
-                <button 
-                  onClick={handleSaveToMemory} 
-                  disabled={isSaving} 
+                <button
+                  onClick={handleSaveToMemory}
+                  disabled={isSaving}
                   className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[11px] font-black uppercase transition-all disabled:opacity-50"
                 >
-                  {isSaving ? <Loader2 className="animate-spin" size={14}/> : <Database size={14}/>} 
+                  {isSaving ? <Loader2 className="animate-spin" size={14} /> : <Database size={14} />}
                   {isSaving ? 'Saving...' : 'Sync to Memories'}
                 </button>
               </div>
-              
+
               {files.map((file, idx) => (
                 <div key={idx} className="bg-black/40 border border-white/5 rounded-2xl overflow-hidden hover:border-white/10 transition-colors">
                   <div className="bg-white/5 px-6 py-4 flex justify-between items-center border-b border-white/5">
@@ -461,23 +454,23 @@ export default function DecomposerPage() {
                       <span className="text-[11px] font-mono text-gray-400 uppercase tracking-wider font-bold">{file.fileName}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <button 
-                        onClick={() => downloadMarkdown(file.fileName, file.content)} 
+                      <button
+                        onClick={() => downloadMarkdown(file.fileName, file.content)}
                         className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg"
                         title="Download as .md file"
                       >
-                        <Download size={16}/>
+                        <Download size={16} />
                       </button>
-                      <button 
-                        onClick={() => { 
-                          navigator.clipboard.writeText(file.content); 
-                          setCopiedIndex(idx); 
-                          setTimeout(() => setCopiedIndex(null), 2000); 
-                        }} 
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(file.content);
+                          setCopiedIndex(idx);
+                          setTimeout(() => setCopiedIndex(null), 2000);
+                        }}
                         className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg"
                         title="Copy to clipboard"
                       >
-                        {copiedIndex === idx ? <Check size={16} className="text-green-400"/> : <Copy size={16}/>}
+                        {copiedIndex === idx ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
                       </button>
                     </div>
                   </div>
