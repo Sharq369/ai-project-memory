@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft } from 'lucide-react'
+import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X } from 'lucide-react'
 
 export default function MemoriesPage() {
   const [memories, setMemories] = useState<any[]>([])
@@ -14,6 +14,11 @@ export default function MemoriesPage() {
   const [localSearch, setLocalSearch] = useState('')
   const [memoryToDelete, setMemoryToDelete] = useState<{ id: string, content: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // Edit state
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editContent, setEditContent] = useState('')
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,58 +41,80 @@ export default function MemoriesPage() {
   const handleAddMemory = async () => {
     if (!content) return
     setIsSaving(true)
-    
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      
       const { data, error } = await supabase.from('memories').insert([{
         content,
         project_id: selectedProject || null,
         user_id: user?.id
       }]).select('*, projects(name)').single()
-
       if (error) throw error
-
       if (data) {
         setMemories(prev => [data, ...prev])
         setContent('')
         setSelectedProject('')
       }
     } catch (error) {
-      console.error("Error syncing memory:", error)
+      console.error('Error syncing memory:', error)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleStartEdit = (m: any) => {
+    setEditingId(m.id)
+    setEditContent(m.content)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setEditContent('')
+  }
+
+  const handleSaveEdit = async (id: string) => {
+    if (!editContent.trim()) return
+    setIsSavingEdit(true)
+    try {
+      const { error } = await supabase
+        .from('memories')
+        .update({ content: editContent })
+        .eq('id', id)
+      if (error) throw error
+      setMemories(prev => prev.map(m => m.id === id ? { ...m, content: editContent } : m))
+      setEditingId(null)
+      setEditContent('')
+    } catch (error) {
+      console.error('Error updating memory:', error)
+    } finally {
+      setIsSavingEdit(false)
     }
   }
 
   const confirmDeleteMemory = async () => {
     if (!memoryToDelete) return
     setIsDeleting(true)
-
     const { error } = await supabase.from('memories').delete().eq('id', memoryToDelete.id)
-
     if (!error) setMemories(prev => prev.filter(m => m.id !== memoryToDelete.id))
-    
     setIsDeleting(false)
     setMemoryToDelete(null)
   }
 
-  const filteredMemories = memories.filter(m => 
-    m.content.toLowerCase().includes(localSearch.toLowerCase()) || 
+  const filteredMemories = memories.filter(m =>
+    m.content.toLowerCase().includes(localSearch.toLowerCase()) ||
     m.projects?.name?.toLowerCase().includes(localSearch.toLowerCase())
   )
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 p-6">
-      
+
       {/* ADD MEMORY BLOCK */}
       <div className="bg-[#16181e] border border-gray-800 rounded-[2.5rem] p-8 md:p-10 space-y-6 shadow-2xl">
         <div className="flex items-center gap-3">
           <Layers className="text-blue-500" size={20} />
           <h2 className="text-xs font-black uppercase tracking-[0.4em] text-white">Inject Knowledge</h2>
         </div>
-        
-        <textarea 
+
+        <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Paste code snippets, architectures, or system context..."
@@ -95,7 +122,7 @@ export default function MemoriesPage() {
         />
 
         <div className="flex flex-col md:flex-row gap-4">
-          <select 
+          <select
             value={selectedProject}
             onChange={(e) => setSelectedProject(e.target.value)}
             className="flex-1 bg-[#0f1117] border border-gray-800 rounded-xl px-5 py-4 text-xs font-bold text-gray-500 outline-none cursor-pointer hover:border-gray-700 transition-colors"
@@ -103,7 +130,7 @@ export default function MemoriesPage() {
             <option value="">-- Associate with Project (Optional) --</option>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          
+
           <button onClick={handleAddMemory} disabled={isSaving || !content} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all">
             {isSaving ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />} Sync
           </button>
@@ -130,28 +157,70 @@ export default function MemoriesPage() {
           <div key={m.id} className="bg-[#16181e]/50 border border-gray-800/50 p-6 rounded-2xl flex justify-between items-start group hover:bg-[#16181e] transition-all">
             <div className="space-y-3 w-full pr-6">
               <span className={`text-[8px] font-black px-3 py-1 rounded-md uppercase tracking-tighter border ${m.projects?.name ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>
-                {m.projects?.name || "Unassigned"}
+                {m.projects?.name || 'Unassigned'}
               </span>
-              
-              {/* Massive Pipeline Containment Scrollbar */}
-              <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-96 overflow-y-auto custom-scrollbar">
-                <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap font-mono">
-                  {m.content}
-                </p>
+
+              {editingId === m.id ? (
+                // EDIT MODE
+                <div className="space-y-3">
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    className="w-full bg-[#0f1117] border border-blue-500/50 rounded-xl p-4 text-sm text-gray-300 outline-none font-mono min-h-[120px] resize-none transition-all"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleSaveEdit(m.id)}
+                      disabled={isSavingEdit || !editContent.trim()}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
+                    >
+                      {isSavingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                      Save
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
+                    >
+                      <X size={12} /> Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                // VIEW MODE
+                <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-96 overflow-y-auto custom-scrollbar">
+                  <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap font-mono">
+                    {m.content}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* ACTION BUTTONS — only show when not editing */}
+            {editingId !== m.id && (
+              <div className="flex flex-col items-center gap-2 pt-1 min-w-[30px]">
+                <Brain className="text-gray-700 group-hover:text-blue-500 transition-colors mb-2" size={20} />
+                <button
+                  onClick={() => handleStartEdit(m)}
+                  className="p-2 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                  title="Edit Memory"
+                >
+                  <Pencil size={16} />
+                </button>
+                <button
+                  onClick={() => setMemoryToDelete({ id: m.id, content: m.content })}
+                  className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                  title="Purge Sequence"
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
-            </div>
-            
-            <div className="flex flex-col items-center gap-2 pt-1 min-w-[30px]">
-              <Brain className="text-gray-700 group-hover:text-blue-500 transition-colors mb-2" size={20} />
-              <button onClick={() => setMemoryToDelete({ id: m.id, content: m.content })} className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100" title="Purge Sequence">
-                <Trash2 size={16} />
-              </button>
-            </div>
+            )}
           </div>
         ))}
       </div>
 
-      {/* MODALS */}
+      {/* DELETE MODAL */}
       {memoryToDelete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className="bg-[#0e1117] border border-red-900/30 w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl">
@@ -166,7 +235,7 @@ export default function MemoriesPage() {
             <div className="flex gap-3 px-6 pb-6">
               <button onClick={() => setMemoryToDelete(null)} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] text-gray-300 hover:bg-gray-800 transition-colors">Abort</button>
               <button onClick={confirmDeleteMemory} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center justify-center gap-2">
-                {isDeleting ? <Loader2 size={16} className="animate-spin"/> : 'Confirm Purge'}
+                {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Confirm Purge'}
               </button>
             </div>
           </div>
