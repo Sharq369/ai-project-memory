@@ -5,7 +5,7 @@ import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import {
   ChevronRight, Loader2, Copy, Check, Download,
-  BrainCircuit, ShieldCheck, AlertCircle, ArrowLeft, Database
+  BrainCircuit, ShieldCheck, AlertCircle, ArrowLeft, Database, CheckCircle2, X
 } from 'lucide-react';
 
 function extractJSONBlock(text: string): string {
@@ -89,43 +89,75 @@ function compileMarkdown(type: 'frontend' | 'backend', chunks: any[][]) {
   });
 }
 
-const PHASE_1_PROMPT = `CRITICAL: Respond with ONLY a JSON object. No explanation. No markdown. No code fences. No prose. Raw JSON only.
+const PHASE_1_PROMPT = `CRITICAL: Respond with ONLY a raw JSON object. No explanation. No markdown. No code fences. No prose. Raw JSON only.
 
-The JSON object must have exactly these three keys:
-- "allowed_technologies": array of strings (frameworks, libraries, databases mentioned in the PRD)
-- "frontend": array of strings (UI features, pages, components, user flows)
-- "backend": array of strings (APIs, data models, auth, services)
+You are a senior technical architect performing a deep PRD analysis. Extract every implementation detail. Where the PRD is vague or missing information, YOU MUST infer and fill the gap using engineering best practices. Never leave a category empty.
+
+The JSON object must have exactly these keys:
+
+- "allowed_technologies": array of strings — frameworks, libraries, databases, tools. If PRD is vague, infer sensible defaults based on context.
+- "system_phases": always exactly ["Phase 1: Setup", "Phase 2: Core Backend", "Phase 3: Frontend Foundation", "Phase 4: Feature Implementation", "Phase 5: Hardening & Integration"]
+- "data_models": array of strings — define EVERY entity with its key fields. Format: "EntityName: field1, field2, field3". If PRD mentions users/projects/payments, define them fully. Add missing but obvious entities.
+- "frontend": array of strings — every UI page, component, user flow, state management strategy, loading/error states. Be specific.
+- "backend": array of strings — every API endpoint group, data model operation, auth mechanism, payment lifecycle (pending/confirmed/failed/webhook), rate limiting, error handling strategy, security (CORS, Helmet, validation). If PRD mentions auth, specify httpOnly cookie storage. If PRD mentions payments, include webhook + idempotency. If PRD mentions images, include upload→CDN→store URL flow. If PRD mentions search, include keyword+filter+pagination+sort.
+- "security_requirements": array of strings — rate limiting, input validation, CORS policy, auth token storage, SQL injection prevention. Never leave empty.
+- "error_handling": array of strings — standard API error format, logging strategy, client-side error boundaries.
+
+MANDATORY RULES:
+1. data_models must have at least 3 entities with field definitions
+2. backend must include: auth flow, at least one CRUD group, error handling, security measures
+3. frontend must include: auth state management, loading states, error boundaries
+4. If payment is mentioned: include pending/confirmed/failed states + webhook + idempotency key
+5. If image upload mentioned: define upload→CDN→store URL→return flow
+6. If search mentioned: define keyword search + filters + pagination + sorting
 
 Example of the ONLY acceptable response format:
-{"allowed_technologies":["Next.js","Supabase"],"frontend":["Login page","Dashboard"],"backend":["Auth API","Projects CRUD"]}
+{"allowed_technologies":["Next.js","Supabase","Tailwind"],"system_phases":["Phase 1: Setup","Phase 2: Core Backend","Phase 3: Frontend Foundation","Phase 4: Feature Implementation","Phase 5: Hardening & Integration"],"data_models":["User: id, email, password_hash, plan, created_at","Project: id, user_id, name, status, created_at"],"frontend":["Login/Register pages with form validation","Dashboard with loading skeleton","Global auth state via React Context","API error boundary component"],"backend":["POST /auth/register with bcrypt hash","POST /auth/login returning httpOnly cookie","JWT stored in httpOnly cookie (not localStorage)","GET/POST/PUT/DELETE /projects with ownership check","Standard error format: {success, error, message, statusCode}","Rate limiting: 100req/15min per IP","Input validation on all routes","CORS configured for frontend domain only"],"security_requirements":["httpOnly cookie for JWT","Rate limiting per IP","Input sanitization","CORS whitelist"],"error_handling":["Standard API error format","Server-side logging","Client-side error boundaries"]}
 
 Now analyze this PRD and return the JSON object:
 
 `;
 
-const BACKEND_PROMPT = `Generate a detailed backend implementation pipeline based on the requirements and technologies below.
+const BACKEND_PROMPT = `You are a senior backend engineer. Generate a complete, production-grade backend implementation pipeline. Every step must be concrete and actionable.
 
-Rules:
-- Step 1 MUST be project setup and dependencies
-- Include database schema design
-- CRUD operations must be separate steps
-- Include authentication/authorization
-- Include validation and error handling
-- Use ONLY the allowed technologies listed
-- Minimum 6 steps, maximum 15 steps
-- Each step must have a clear output/deliverable
+MANDATORY STEP COVERAGE — every pipeline MUST include steps for:
+1. Project setup & dependency installation (always BE-1)
+2. Database schema — define ALL tables/collections with columns and types
+3. Authentication — registration, login, logout. JWT stored in httpOnly cookies ONLY (never localStorage)
+4. Authorization middleware — protect routes, check ownership
+5. Core CRUD API for every main entity (separate step per entity group)
+6. Payment flow (if applicable) — define pending/confirmed/failed states, webhook endpoint with signature verification, idempotency key handling
+7. Image/file upload (if applicable) — upload to CDN, store URL in DB, return URL
+8. Search & filtering (if applicable) — keyword search, filters, pagination (page+limit), sorting (field+direction)
+9. Standard error handling — unified error format: {success: boolean, error: string, message: string, statusCode: number}
+10. Security hardening — rate limiting (express-rate-limit or equivalent), input validation (zod/joi), CORS configuration, Helmet headers, SQL injection prevention
+11. Logging — request logging, error logging
 
-Return ONLY a raw JSON array with no explanation, no markdown fences:
+PHASE ASSIGNMENT (use exactly these strings):
+- "Phase 1: Setup" — project init, DB schema, env config
+- "Phase 2: Core Backend" — auth, core APIs, middleware
+- "Phase 3: Feature Implementation" — advanced features, payments, uploads, search
+- "Phase 4: Hardening & Integration" — security, rate limiting, error handling, logging
+
+STRICT RULES:
+- Use ONLY the allowed technologies provided
+- Minimum 8 steps, maximum 18 steps
+- Each step is ONE atomic unit of work — never combine unrelated concerns
+- depends_on must reference real step_ids in this same array
+- tasks array: minimum 3 specific implementation actions per step
+- output: concrete deliverable (e.g. "Working POST /auth/login endpoint returning httpOnly JWT cookie")
+
+Return ONLY a raw JSON array. No explanation. No markdown fences. No prose.
 [
   {
     "step_id": "BE-1",
-    "title": "Step Title",
+    "title": "Project Setup & Dependencies",
     "phase": "Phase 1: Setup",
     "depends_on": [],
-    "goal": "What this step achieves",
-    "tasks": ["Specific action 1", "Specific action 2"],
-    "requirements": ["Tech requirement 1"],
-    "output": "Deliverable artifact"
+    "goal": "Initialize project with all required dependencies configured",
+    "tasks": ["Init project with package manager", "Install core dependencies", "Configure environment variables", "Setup folder structure"],
+    "requirements": ["Node.js", "npm/yarn"],
+    "output": "Runnable project skeleton with all dependencies installed"
   }
 ]
 
@@ -168,14 +200,21 @@ Context:
 `;
 }
 
-const VALIDATION_PROMPT = `Validate and fix this pipeline data. Ensure:
-1. All required fields exist (step_id, title, phase, tasks, output)
-2. Dependencies reference existing step_ids only
-3. No duplicate step_ids
-4. Tasks array is not empty
-5. All fields are proper non-empty strings
+const VALIDATION_PROMPT = `You are a pipeline quality auditor. Validate and fix this implementation pipeline. Apply ALL corrections silently — return only the fixed array.
 
-Return ONLY the corrected raw JSON array with no explanation, no markdown fences:
+VALIDATION CHECKLIST:
+1. All required fields exist: step_id, title, phase, goal, tasks, requirements, output, depends_on
+2. No duplicate step_ids — if duplicates found, append -A, -B suffix
+3. tasks array has minimum 2 items — if empty or 1 item, expand with logical sub-tasks
+4. depends_on only references step_ids that exist in this array — remove any that don't
+5. phase must be one of exactly: "Phase 1: Setup", "Phase 2: Core Backend", "Phase 3: Feature Implementation", "Phase 4: Hardening & Integration" (for backend) OR "Phase 1: Foundation", "Phase 2: Core UI", "Phase 3: Feature Pages", "Phase 4: Polish & Integration" (for frontend) — fix any that don't match
+6. output must be a concrete deliverable sentence, not vague — rewrite if vague
+7. goal must clearly state what the step achieves — rewrite if vague
+8. No step should combine more than one major concern — if a step title contains "and" with unrelated concerns, flag it but keep it (do not split, just clean the tasks)
+
+CRITICAL: Do NOT remove steps. Do NOT merge steps. Do NOT reduce the array length unless there are true duplicates.
+
+Return ONLY the corrected raw JSON array. No explanation. No markdown fences. No prose.
 `;
 
 function downloadMarkdown(fileName: string, content: string) {
@@ -234,6 +273,12 @@ export default function DecomposerPage() {
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [toast, setToast] = useState<{ visible: boolean; type: 'success' | 'error'; message: string }>({ visible: false, type: 'success', message: '' });
+
+  const showToast = (type: 'success' | 'error', message: string) => {
+    setToast({ visible: true, type, message });
+    setTimeout(() => setToast(t => ({ ...t, visible: false })), 4000);
+  };
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -252,13 +297,24 @@ export default function DecomposerPage() {
         throw new Error('Phase 1: PRD analysis returned incomplete data. Make sure your PRD mentions technologies, frontend features, and backend requirements.');
       }
 
+      // Collect all enriched context from Phase 1
+      const dataModels = Array.isArray(req.data_models) ? req.data_models : [];
+      const securityReqs = Array.isArray(req.security_requirements) ? req.security_requirements : [];
+      const errorHandling = Array.isArray(req.error_handling) ? req.error_handling : [];
+
       setProgress('Phase 2: Generating Backend Pipeline...');
-      const backendContext = `${JSON.stringify(req.allowed_technologies)}\n\nRequirements:\n${JSON.stringify(req.backend)}`;
+      const backendContext = [
+        `Allowed Technologies: ${JSON.stringify(req.allowed_technologies)}`,
+        `Data Models: ${JSON.stringify(dataModels)}`,
+        `Security Requirements: ${JSON.stringify(securityReqs)}`,
+        `Error Handling Strategy: ${JSON.stringify(errorHandling)}`,
+        `Requirements: ${JSON.stringify(req.backend)}`
+      ].join('\n\n');
       const bRaw = await aiCall(BACKEND_PROMPT + backendContext);
       let backend = enforceSchema(safeParse(bRaw, 'Backend Generation'), 'backend');
-      if (backend.length < 5) {
+      if (backend.length < 7) {
         setProgress('Phase 2: Backend insufficient — retrying...');
-        const bRaw2 = await aiCall(BACKEND_PROMPT + backendContext + '\n\nIMPORTANT: You MUST generate at least 6 detailed, distinct steps. Do not combine steps.');
+        const bRaw2 = await aiCall(BACKEND_PROMPT + backendContext + '\n\nIMPORTANT: You MUST generate at least 8 detailed, distinct steps covering setup, auth, CRUD, security, and error handling. Do not combine unrelated concerns in one step.');
         backend = enforceSchema(safeParse(bRaw2, 'Backend Retry'), 'backend');
       }
 
@@ -266,9 +322,9 @@ export default function DecomposerPage() {
       const backendRefs = backend.map((b: any) => ({ id: b.step_id, title: b.title }));
       const fRaw = await aiCall(buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend));
       let frontend = enforceSchema(safeParse(fRaw, 'Frontend Generation'), 'frontend');
-      if (frontend.length < 6) {
+      if (frontend.length < 8) {
         setProgress('Phase 3: Frontend insufficient — retrying...');
-        const fRaw2 = await aiCall(buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend) + '\n\nIMPORTANT: You MUST generate at least 8 detailed, distinct steps. Do not combine steps.');
+        const fRaw2 = await aiCall(buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend) + '\n\nIMPORTANT: You MUST generate at least 10 detailed, distinct steps covering init, auth UI, state management, all feature pages, loading states, and error handling. Do not combine unrelated UI concerns.');
         frontend = enforceSchema(safeParse(fRaw2, 'Frontend Retry'), 'frontend');
       }
 
@@ -306,9 +362,9 @@ export default function DecomposerPage() {
         project_id: null
       });
       if (dbError) throw dbError;
-      alert('Pipeline saved to Memory Vault!');
+      showToast('success', 'Pipeline saved to Memory Vault.');
     } catch (e: any) {
-      alert(e.message);
+      showToast('error', e.message || 'Failed to save.');
     } finally {
       setIsSaving(false);
     }
@@ -325,6 +381,23 @@ export default function DecomposerPage() {
           <span className="font-black italic text-sm tracking-tighter">TURBO DECOMPOSER (GEMINI)</span>
         </div>
       </nav>
+
+      {/* Premium Toast */}
+      <div className={`fixed top-6 right-4 left-4 md:left-auto md:w-96 z-[200] transition-all duration-300 ${toast.visible ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0 pointer-events-none'}`}>
+        <div className={`flex items-center gap-3 px-4 py-4 rounded-2xl border shadow-2xl backdrop-blur-xl ${
+          toast.type === 'success'
+            ? 'bg-emerald-950/90 border-emerald-500/30 text-emerald-300'
+            : 'bg-red-950/90 border-red-500/30 text-red-300'
+        }`}>
+          {toast.type === 'success'
+            ? <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+            : <AlertCircle size={18} className="text-red-400 shrink-0" />}
+          <p className="text-sm font-bold flex-1">{toast.message}</p>
+          <button onClick={() => setToast(t => ({ ...t, visible: false }))} className="opacity-50 hover:opacity-100 transition-opacity">
+            <X size={16} />
+          </button>
+        </div>
+      </div>
 
       <main className="pt-28 pb-20 px-4 max-w-5xl mx-auto w-full">
         <div className="p-8 rounded-[2rem] border border-white/10 bg-[#111218] shadow-2xl">
