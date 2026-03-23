@@ -217,12 +217,12 @@ function downloadMarkdown(fileName: string, content: string) {
 
 // =======================
 // SERVER-PROXIED AI CALL
-// All Gemini calls go through /api/decomposer.
-// The API key never leaves the server.
-// Removed: import { GoogleGenerativeAI } from "@google/generative-ai"
-// Removed: NEXT_PUBLIC_GEMINI_API_KEY
+// 429 aware: waits 45s and retries automatically.
+// 3s breathing gap between successful calls to avoid RPM burst.
 // =======================
-async function aiCall(prompt: string, retries = 2): Promise<string> {
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function aiCall(prompt: string, retries = 3): Promise<string> {
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetch('/api/decomposer', {
@@ -230,6 +230,13 @@ async function aiCall(prompt: string, retries = 2): Promise<string> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
       });
+
+      // 429 rate limit — wait 45s then retry
+      if (res.status === 429) {
+        if (i === retries) throw new Error('Rate limit hit. Wait a minute and try again.');
+        await sleep(45000);
+        continue;
+      }
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -241,11 +248,14 @@ async function aiCall(prompt: string, retries = 2): Promise<string> {
         throw new Error('Empty or too-short response from AI');
       }
 
+      // Breathing gap between successful calls to avoid RPM burst
+      await sleep(3000);
+
       return data.text;
     } catch (e: any) {
       console.error(`Attempt ${i + 1} failed:`, e);
       if (i === retries) throw new Error(e.message || 'AI service failed after all retries');
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+      await sleep(5000 * (i + 1));
     }
   }
 
