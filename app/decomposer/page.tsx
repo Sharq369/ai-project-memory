@@ -8,41 +8,36 @@ import {
   BrainCircuit, ShieldCheck, AlertCircle, ArrowLeft, Database
 } from 'lucide-react';
 
-// =======================
-// ROBUST JSON EXTRACTOR
-// =======================
 function extractJSONBlock(text: string): string {
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (codeBlockMatch) return codeBlockMatch[1].trim();
-
   const arrayMatch = text.match(/(\[[\s\S]*\])/);
   if (arrayMatch) return arrayMatch[1].trim();
-
   const objectMatch = text.match(/(\{[\s\S]*\})/);
   if (objectMatch) return objectMatch[1].trim();
-
   return text.trim();
 }
 
 function safeParse(input: any, context: string): any {
-  try {
-    const cleaned = extractJSONBlock(String(input));
-    return JSON.parse(cleaned);
-  } catch (e) {
-    console.error(`Parse error in ${context}:`, input);
-    throw new Error(`${context}: AI returned malformed data. Try again or refine your PRD.`);
+  const raw = String(input)
+  // Multiple strip attempts in order of aggression
+  const attempts = [
+    raw,
+    raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim(),
+    raw.replace(/^```[\w]*\s*/i, '').replace(/\s*```$/i, '').trim(),
+    (raw.match(/(\{[\s\S]*\})/) || [])[1] || '',
+    (raw.match(/(\[[\s\S]*\])/) || [])[1] || '',
+  ]
+  for (const attempt of attempts) {
+    if (!attempt) continue
+    try { return JSON.parse(attempt) } catch {}
   }
+  console.error(`All parse attempts failed in ${context}. Raw:`, raw.slice(0, 300))
+  throw new Error(`${context}: AI returned malformed data. Try again or refine your PRD.`)
 }
 
-// =======================
-// SCHEMA ENFORCER
-// =======================
 function enforceSchema(tasks: any[], type: 'frontend' | 'backend') {
-  if (!Array.isArray(tasks)) {
-    console.error(`Expected array for ${type}, got:`, tasks);
-    return [];
-  }
-
+  if (!Array.isArray(tasks)) return [];
   return tasks.map((task, index) => {
     const prefix = type === 'frontend' ? 'FE' : 'BE';
     return {
@@ -58,32 +53,23 @@ function enforceSchema(tasks: any[], type: 'frontend' | 'backend') {
   });
 }
 
-// =======================
-// TASK PROCESSING
-// =======================
 function sortTasks(tasks: any[]) {
   const map = new Map(tasks.map(t => [t.step_id, t]));
   const visited = new Set();
   const result: any[] = [];
-
   function visit(task: any) {
     if (visited.has(task.step_id)) return;
     visited.add(task.step_id);
-    (task.depends_on || []).forEach((dep: string) => {
-      if (map.has(dep)) visit(map.get(dep));
-    });
+    (task.depends_on || []).forEach((dep: string) => { if (map.has(dep)) visit(map.get(dep)); });
     result.push(task);
   }
-
   tasks.forEach(visit);
   return result;
 }
 
 function chunkTasks(tasks: any[], size: number) {
   const chunks = [];
-  for (let i = 0; i < tasks.length; i += size) {
-    chunks.push(tasks.slice(i, i + size));
-  }
+  for (let i = 0; i < tasks.length; i += size) chunks.push(tasks.slice(i, i + size));
   return chunks;
 }
 
@@ -103,23 +89,17 @@ function compileMarkdown(type: 'frontend' | 'backend', chunks: any[][]) {
   });
 }
 
-// =======================
-// PROMPTS
-// =======================
-const PHASE_1_PROMPT = `You are a technical architect. Analyze the PRD below and extract:
-1. Allowed technologies (frameworks, libraries, databases)
-2. Frontend requirements (features, UI components, user flows)
-3. Backend requirements (APIs, data models, services, auth)
+const PHASE_1_PROMPT = `CRITICAL: Respond with ONLY a JSON object. No explanation. No markdown. No code fences. No prose. Raw JSON only.
 
-Return ONLY raw JSON with no explanation, no markdown fences:
-{
-  "allowed_technologies": ["tech1", "tech2"],
-  "frontend": ["feature1 description", "feature2 description"],
-  "backend": ["api endpoint description", "service description"]
-}
+The JSON object must have exactly these three keys:
+- "allowed_technologies": array of strings (frameworks, libraries, databases mentioned in the PRD)
+- "frontend": array of strings (UI features, pages, components, user flows)
+- "backend": array of strings (APIs, data models, auth, services)
 
-PRD Content:
----
+Example of the ONLY acceptable response format:
+{"allowed_technologies":["Next.js","Supabase"],"frontend":["Login page","Dashboard"],"backend":["Auth API","Projects CRUD"]}
+
+Now analyze this PRD and return the JSON object:
 
 `;
 
@@ -152,11 +132,7 @@ Return ONLY a raw JSON array with no explanation, no markdown fences:
 Allowed Technologies:
 `;
 
-function buildFrontendPrompt(
-  technologies: string[],
-  backendSteps: { id: string; title: string }[],
-  requirements: string[]
-): string {
+function buildFrontendPrompt(technologies: string[], backendSteps: { id: string; title: string }[], requirements: string[]): string {
   return `Generate a detailed frontend implementation pipeline.
 
 Rules:
@@ -202,9 +178,6 @@ const VALIDATION_PROMPT = `Validate and fix this pipeline data. Ensure:
 Return ONLY the corrected raw JSON array with no explanation, no markdown fences:
 `;
 
-// =======================
-// DOWNLOAD HELPER
-// =======================
 function downloadMarkdown(fileName: string, content: string) {
   const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -215,11 +188,7 @@ function downloadMarkdown(fileName: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-// =======================
-// SERVER-PROXIED AI CALL
-// 429 aware: waits 45s and retries automatically.
-// 3s breathing gap between successful calls to avoid RPM burst.
-// =======================
+// 429-aware AI call with 3s breathing gap between successful calls
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function aiCall(prompt: string, retries = 3): Promise<string> {
@@ -231,7 +200,6 @@ async function aiCall(prompt: string, retries = 3): Promise<string> {
         body: JSON.stringify({ prompt }),
       });
 
-      // 429 rate limit — wait 45s then retry
       if (res.status === 429) {
         if (i === retries) throw new Error('Rate limit hit. Wait a minute and try again.');
         await sleep(45000);
@@ -244,13 +212,9 @@ async function aiCall(prompt: string, retries = 3): Promise<string> {
       }
 
       const data = await res.json();
-      if (!data.text || data.text.trim().length < 10) {
-        throw new Error('Empty or too-short response from AI');
-      }
+      if (!data.text || data.text.trim().length < 10) throw new Error('Empty or too-short response from AI');
 
-      // Breathing gap between successful calls to avoid RPM burst
-      await sleep(3000);
-
+      await sleep(3000); // breathing gap to avoid RPM burst
       return data.text;
     } catch (e: any) {
       console.error(`Attempt ${i + 1} failed:`, e);
@@ -258,13 +222,9 @@ async function aiCall(prompt: string, retries = 3): Promise<string> {
       await sleep(5000 * (i + 1));
     }
   }
-
   throw new Error('AI call exhausted all retries');
 }
 
-// =======================
-// MAIN COMPONENT
-// =======================
 export default function DecomposerPage() {
   const router = useRouter();
   const [prd, setPrd] = useState('');
@@ -281,79 +241,50 @@ export default function DecomposerPage() {
   );
 
   const handleDecompose = async () => {
-    if (!prd.trim()) {
-      setError('Please enter PRD content');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    setFiles([]);
-    setProgress('Initializing...');
+    if (!prd.trim()) { setError('Please enter PRD content'); return; }
+    setLoading(true); setError(''); setFiles([]); setProgress('Initializing...');
 
     try {
-      // Phase 1
       setProgress('Phase 1: Analyzing PRD...');
       const p1 = await aiCall(PHASE_1_PROMPT + prd);
       const req = safeParse(p1, 'Phase 1');
-
       if (!req.allowed_technologies || !Array.isArray(req.frontend) || !Array.isArray(req.backend)) {
         throw new Error('Phase 1: PRD analysis returned incomplete data. Make sure your PRD mentions technologies, frontend features, and backend requirements.');
       }
 
-      // Phase 2: Backend
       setProgress('Phase 2: Generating Backend Pipeline...');
       const backendContext = `${JSON.stringify(req.allowed_technologies)}\n\nRequirements:\n${JSON.stringify(req.backend)}`;
       const bRaw = await aiCall(BACKEND_PROMPT + backendContext);
       let backend = enforceSchema(safeParse(bRaw, 'Backend Generation'), 'backend');
-
       if (backend.length < 5) {
         setProgress('Phase 2: Backend insufficient — retrying...');
         const bRaw2 = await aiCall(BACKEND_PROMPT + backendContext + '\n\nIMPORTANT: You MUST generate at least 6 detailed, distinct steps. Do not combine steps.');
         backend = enforceSchema(safeParse(bRaw2, 'Backend Retry'), 'backend');
       }
 
-      // Phase 3: Frontend
       setProgress('Phase 3: Generating Frontend Pipeline...');
       const backendRefs = backend.map((b: any) => ({ id: b.step_id, title: b.title }));
       const fRaw = await aiCall(buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend));
       let frontend = enforceSchema(safeParse(fRaw, 'Frontend Generation'), 'frontend');
-
       if (frontend.length < 6) {
         setProgress('Phase 3: Frontend insufficient — retrying...');
-        const fRaw2 = await aiCall(
-          buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend) +
-          '\n\nIMPORTANT: You MUST generate at least 8 detailed, distinct steps. Do not combine steps.'
-        );
+        const fRaw2 = await aiCall(buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend) + '\n\nIMPORTANT: You MUST generate at least 8 detailed, distinct steps. Do not combine steps.');
         frontend = enforceSchema(safeParse(fRaw2, 'Frontend Retry'), 'frontend');
       }
 
-      // Phase 4: Validation
       setProgress('Phase 4: Validating Pipelines...');
-
       const bVal = await aiCall(VALIDATION_PROMPT + JSON.stringify(backend));
       const validatedBackend = enforceSchema(safeParse(bVal, 'Backend Validation'), 'backend');
-      if (validatedBackend.length >= Math.floor(backend.length * 0.8)) {
-        backend = validatedBackend;
-      } else {
-        console.warn(`Backend validation shrank steps from ${backend.length} to ${validatedBackend.length} — keeping original.`);
-      }
+      if (validatedBackend.length >= Math.floor(backend.length * 0.8)) backend = validatedBackend;
 
       const fVal = await aiCall(VALIDATION_PROMPT + JSON.stringify(frontend));
       const validatedFrontend = enforceSchema(safeParse(fVal, 'Frontend Validation'), 'frontend');
-      if (validatedFrontend.length >= Math.floor(frontend.length * 0.8)) {
-        frontend = validatedFrontend;
-      } else {
-        console.warn(`Frontend validation shrank steps from ${frontend.length} to ${validatedFrontend.length} — keeping original.`);
-      }
+      if (validatedFrontend.length >= Math.floor(frontend.length * 0.8)) frontend = validatedFrontend;
 
-      // Compile
       const backendFiles = compileMarkdown('backend', chunkTasks(sortTasks(backend), 20));
       const frontendFiles = compileMarkdown('frontend', chunkTasks(sortTasks(frontend), 20));
-
       setFiles([...backendFiles, ...frontendFiles]);
       setProgress('');
-
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Pipeline failed. Ensure PRD text is clear and valid.');
@@ -368,15 +299,12 @@ export default function DecomposerPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Authentication required');
-
       const masterContent = files.map(f => `## ${f.fileName}\n\n${f.content}`).join('\n\n');
-
       const { error: dbError } = await supabase.from('memories').insert({
         user_id: user.id,
         content: `**PRD DECOMPOSITION PIPELINE**\n\n${masterContent}`,
         project_id: null
       });
-
       if (dbError) throw dbError;
       alert('Pipeline saved to Memory Vault!');
     } catch (e: any) {
@@ -433,11 +361,7 @@ export default function DecomposerPage() {
             disabled={loading || !prd.trim()}
             className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-30 disabled:cursor-not-allowed text-white py-5 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-[0.99]"
           >
-            {loading ? (
-              <><Loader2 className="animate-spin" /> Processing...</>
-            ) : (
-              <>Run Neural Extraction <ChevronRight size={20} /></>
-            )}
+            {loading ? <><Loader2 className="animate-spin" /> Processing...</> : <>Run Neural Extraction <ChevronRight size={20} /></>}
           </button>
 
           {files.length > 0 && (
@@ -464,19 +388,11 @@ export default function DecomposerPage() {
                       <span className="text-[11px] font-mono text-gray-400 uppercase tracking-wider font-bold">{file.fileName}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => downloadMarkdown(file.fileName, file.content)}
-                        className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg"
-                        title="Download as .md file"
-                      >
+                      <button onClick={() => downloadMarkdown(file.fileName, file.content)} className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg" title="Download as .md file">
                         <Download size={16} />
                       </button>
                       <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(file.content);
-                          setCopiedIndex(idx);
-                          setTimeout(() => setCopiedIndex(null), 2000);
-                        }}
+                        onClick={() => { navigator.clipboard.writeText(file.content); setCopiedIndex(idx); setTimeout(() => setCopiedIndex(null), 2000); }}
                         className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg"
                         title="Copy to clipboard"
                       >
