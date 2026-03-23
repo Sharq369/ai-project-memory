@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X } from 'lucide-react'
+import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag } from 'lucide-react'
 
 export default function MemoriesPage() {
   const [memories, setMemories] = useState<any[]>([])
   const [projects, setProjects] = useState<any[]>([])
   const [content, setContent] = useState('')
+  const [newTag, setNewTag] = useState('')
   const [selectedProject, setSelectedProject] = useState('')
   const [loading, setLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -15,10 +16,15 @@ export default function MemoriesPage() {
   const [memoryToDelete, setMemoryToDelete] = useState<{ id: string, content: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  // Edit state
+  // Content edit state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+
+  // Tag edit state — inline on the label itself
+  const [editingTagId, setEditingTagId] = useState<string | null>(null)
+  const [editTagValue, setEditTagValue] = useState('')
+  const tagInputRef = useRef<HTMLInputElement>(null)
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,6 +44,10 @@ export default function MemoriesPage() {
     loadData()
   }, [])
 
+  useEffect(() => {
+    if (editingTagId && tagInputRef.current) tagInputRef.current.focus()
+  }, [editingTagId])
+
   const handleAddMemory = async () => {
     if (!content) return
     setIsSaving(true)
@@ -45,6 +55,7 @@ export default function MemoriesPage() {
       const { data: { user } } = await supabase.auth.getUser()
       const { data, error } = await supabase.from('memories').insert([{
         content,
+        tag: newTag.trim() || null,
         project_id: selectedProject || null,
         user_id: user?.id
       }]).select('*, projects(name)').single()
@@ -52,6 +63,7 @@ export default function MemoriesPage() {
       if (data) {
         setMemories(prev => [data, ...prev])
         setContent('')
+        setNewTag('')
         setSelectedProject('')
       }
     } catch (error) {
@@ -59,6 +71,33 @@ export default function MemoriesPage() {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const handleStartTagEdit = (m: any) => {
+    setEditingTagId(m.id)
+    setEditTagValue(m.tag || '')
+  }
+
+  const handleSaveTag = async (id: string) => {
+    const trimmed = editTagValue.trim()
+    try {
+      const { error } = await supabase
+        .from('memories')
+        .update({ tag: trimmed || null })
+        .eq('id', id)
+      if (error) throw error
+      setMemories(prev => prev.map(m => m.id === id ? { ...m, tag: trimmed || null } : m))
+    } catch (error) {
+      console.error('Error updating tag:', error)
+    } finally {
+      setEditingTagId(null)
+      setEditTagValue('')
+    }
+  }
+
+  const handleTagKeyDown = (e: React.KeyboardEvent, id: string) => {
+    if (e.key === 'Enter') handleSaveTag(id)
+    if (e.key === 'Escape') { setEditingTagId(null); setEditTagValue('') }
   }
 
   const handleStartEdit = (m: any) => {
@@ -101,8 +140,11 @@ export default function MemoriesPage() {
 
   const filteredMemories = memories.filter(m =>
     m.content.toLowerCase().includes(localSearch.toLowerCase()) ||
+    m.tag?.toLowerCase().includes(localSearch.toLowerCase()) ||
     m.projects?.name?.toLowerCase().includes(localSearch.toLowerCase())
   )
+
+  const getLabel = (m: any) => m.tag || m.projects?.name || null
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 p-6">
@@ -120,6 +162,18 @@ export default function MemoriesPage() {
           placeholder="Paste code snippets, architectures, or system context..."
           className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl p-5 text-sm text-gray-300 outline-none focus:border-blue-500 min-h-[120px] transition-all font-mono"
         />
+
+        {/* Tag input */}
+        <div className="flex items-center gap-3 bg-[#0f1117] border border-gray-800 rounded-xl px-4 py-3 focus-within:border-blue-500/50 transition-colors">
+          <Tag size={14} className="text-gray-500 shrink-0" />
+          <input
+            type="text"
+            placeholder="Label / tag (optional)..."
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            className="flex-1 bg-transparent outline-none text-sm text-gray-300 placeholder:text-gray-600"
+          />
+        </div>
 
         <div className="flex flex-col md:flex-row gap-4">
           <select
@@ -153,71 +207,99 @@ export default function MemoriesPage() {
           </div>
         )}
 
-        {filteredMemories.map((m) => (
-          <div key={m.id} className="bg-[#16181e]/50 border border-gray-800/50 p-6 rounded-2xl flex justify-between items-start group hover:bg-[#16181e] transition-all">
-            <div className="space-y-3 w-full pr-6">
-              <span className={`text-[8px] font-black px-3 py-1 rounded-md uppercase tracking-tighter border ${m.projects?.name ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>
-                {m.projects?.name || 'Unassigned'}
-              </span>
+        {filteredMemories.map((m) => {
+          const label = getLabel(m)
+          return (
+            <div key={m.id} className="bg-[#16181e]/50 border border-gray-800/50 p-6 rounded-2xl flex justify-between items-start group hover:bg-[#16181e] transition-all">
+              <div className="space-y-3 w-full pr-6">
 
-              {editingId === m.id ? (
-                // EDIT MODE
-                <div className="space-y-3">
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    className="w-full bg-[#0f1117] border border-blue-500/50 rounded-xl p-4 text-sm text-gray-300 outline-none font-mono min-h-[120px] resize-none transition-all"
-                    autoFocus
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleSaveEdit(m.id)}
-                      disabled={isSavingEdit || !editContent.trim()}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
-                    >
-                      {isSavingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                      Save
-                    </button>
-                    <button
-                      onClick={handleCancelEdit}
-                      className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
-                    >
-                      <X size={12} /> Cancel
-                    </button>
+                {/* LABEL — click to edit inline */}
+                {editingTagId === m.id ? (
+                  <div className="flex items-center gap-2">
+                    <Tag size={11} className="text-blue-400 shrink-0" />
+                    <input
+                      ref={tagInputRef}
+                      type="text"
+                      value={editTagValue}
+                      onChange={(e) => setEditTagValue(e.target.value)}
+                      onKeyDown={(e) => handleTagKeyDown(e, m.id)}
+                      onBlur={() => handleSaveTag(m.id)}
+                      placeholder="Enter label..."
+                      className="bg-transparent border-b border-blue-500 outline-none text-[11px] font-black uppercase tracking-widest text-blue-400 w-40 pb-0.5"
+                    />
+                    <span className="text-[9px] text-gray-600 font-mono">↵ to save</span>
                   </div>
-                </div>
-              ) : (
-                // VIEW MODE
-                <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-96 overflow-y-auto custom-scrollbar">
-                  <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap font-mono">
-                    {m.content}
-                  </p>
+                ) : (
+                  <button
+                    onClick={() => handleStartTagEdit(m)}
+                    className={`group/tag flex items-center gap-1.5 text-[8px] font-black px-3 py-1 rounded-md uppercase tracking-tighter border transition-all ${
+                      label
+                        ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:border-blue-400/50'
+                        : 'bg-gray-500/10 text-gray-500 border-gray-500/20 hover:border-gray-400/40 hover:text-gray-400'
+                    }`}
+                    title="Click to edit label"
+                  >
+                    {label || 'Unassigned'}
+                    <Pencil size={8} className="opacity-0 group-hover/tag:opacity-60 transition-opacity" />
+                  </button>
+                )}
+
+                {editingId === m.id ? (
+                  <div className="space-y-3">
+                    <textarea
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      className="w-full bg-[#0f1117] border border-blue-500/50 rounded-xl p-4 text-sm text-gray-300 outline-none font-mono min-h-[120px] resize-none transition-all"
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleSaveEdit(m.id)}
+                        disabled={isSavingEdit || !editContent.trim()}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
+                      >
+                        {isSavingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                        Save
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
+                      >
+                        <X size={12} /> Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-96 overflow-y-auto custom-scrollbar">
+                    <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap font-mono">
+                      {m.content}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {editingId !== m.id && (
+                <div className="flex flex-col items-center gap-2 pt-1 min-w-[30px]">
+                  <Brain className="text-gray-700 group-hover:text-blue-500 transition-colors mb-2" size={20} />
+                  <button
+                    onClick={() => handleStartEdit(m)}
+                    className="p-2 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    title="Edit Content"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={() => setMemoryToDelete({ id: m.id, content: m.content })}
+                    className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    title="Purge Sequence"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               )}
             </div>
-
-            {/* ACTION BUTTONS — only show when not editing */}
-            {editingId !== m.id && (
-              <div className="flex flex-col items-center gap-2 pt-1 min-w-[30px]">
-                <Brain className="text-gray-700 group-hover:text-blue-500 transition-colors mb-2" size={20} />
-                <button
-                  onClick={() => handleStartEdit(m)}
-                  className="p-2 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                  title="Edit Memory"
-                >
-                  <Pencil size={16} />
-                </button>
-                <button
-                  onClick={() => setMemoryToDelete({ id: m.id, content: m.content })}
-                  className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                  title="Purge Sequence"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* DELETE MODAL */}
