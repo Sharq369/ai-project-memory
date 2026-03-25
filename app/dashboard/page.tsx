@@ -1,10 +1,11 @@
+"use client";
+
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
   Folder, Zap, Brain, Hexagon, Tag, 
-  Map, ListTree, HardDrive, Cpu, ShieldCheck, 
-  FileText, Activity, Menu
+  Map, ListTree, HardDrive, Cpu, ShieldCheck 
 } from 'lucide-react';
-
+// ... the rest of your dashboard code
 // ─── NEURAL WEB CLUSTER ANIMATION ──────────────────────────────────────────
 const NeuralWebCluster = () => {
   const canvasRef = useRef(null);
