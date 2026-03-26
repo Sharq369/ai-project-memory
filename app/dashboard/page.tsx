@@ -42,7 +42,6 @@ const Card: React.FC<{ children: React.ReactNode; className?: string; glowColor?
 
   return (
     <div className={`relative overflow-hidden rounded-xl border border-white/5 bg-[#101024]/60 backdrop-blur-xl p-4 md:p-5 ${cardShadows[glowColor]} ${className}`}>
-      {/* Top Edge Neon Light */}
       {glowColor !== 'none' && (
         <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${topBorderGlows[glowColor]} opacity-80`} />
       )}
@@ -125,7 +124,6 @@ const KnowledgeDensityChart: React.FC = () => {
 
   return (
     <div className="relative h-[200px] w-full mt-4">
-      {/* Grid Lines */}
       <div className="absolute inset-0 flex flex-col justify-between pb-6">
         {[100, 75, 50, 25, 0].map((label, i) => (
           <div key={i} className="flex items-center w-full">
@@ -146,8 +144,8 @@ const KnowledgeDensityChart: React.FC = () => {
             <stop offset="100%" stopColor="rgba(217, 70, 239, 0)" />
           </linearGradient>
           <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#d946ef" /> {/* Fuchsia */}
-            <stop offset="50%" stopColor="#22d3ee" /> {/* Cyan */}
+            <stop offset="0%" stopColor="#d946ef" />
+            <stop offset="50%" stopColor="#22d3ee" />
             <stop offset="100%" stopColor="#22d3ee" />
           </linearGradient>
           <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -160,16 +158,8 @@ const KnowledgeDensityChart: React.FC = () => {
         </defs>
         
         <path d={areaPath} fill="url(#areaGradient)" />
+        <path d={pathData} fill="none" stroke="url(#lineGradient)" strokeWidth="2" filter="url(#glow)" />
         
-        <path 
-          d={pathData} 
-          fill="none" 
-          stroke="url(#lineGradient)" 
-          strokeWidth="2"
-          filter="url(#glow)"
-        />
-        
-        {/* Data Points */}
         {dataPoints.map((value, index) => {
           const x = (index / (dataPoints.length - 1)) * chartWidth;
           const y = chartHeight - (value / maxValue) * chartHeight * 0.8 - 10;
@@ -177,21 +167,12 @@ const KnowledgeDensityChart: React.FC = () => {
           
           return (
             <g key={index}>
-              <circle 
-                cx={x} 
-                cy={y} 
-                r={3.5} 
-                fill="#101024"
-                stroke={isPeak ? '#22d3ee' : '#d946ef'}
-                strokeWidth="2"
-                filter="url(#glow)"
-              />
+              <circle cx={x} cy={y} r={3.5} fill="#101024" stroke={isPeak ? '#22d3ee' : '#d946ef'} strokeWidth="2" filter="url(#glow)" />
             </g>
           );
         })}
       </svg>
       
-      {/* X-Axis Labels */}
       <div className="absolute bottom-0 left-8 right-0 flex justify-between text-[8px] font-mono text-slate-500 uppercase">
         {months.map(m => <span key={m}>{m}</span>)}
       </div>
@@ -199,6 +180,9 @@ const KnowledgeDensityChart: React.FC = () => {
   );
 };
 
+// ==========================================
+// COMPLETELY REWRITTEN NEURAL NETWORK GRAPH
+// ==========================================
 const NeuralNetworkGraph: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -212,40 +196,80 @@ const NeuralNetworkGraph: React.FC = () => {
     let width = canvas.offsetWidth;
     let height = canvas.offsetHeight;
     
-    // Handle DPI for sharp rendering
     const dpr = window.devicePixelRatio || 1;
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     ctx.scale(dpr, dpr);
 
-    const nodes: { x: number; y: number; vx: number; vy: number; radius: number; isCyan: boolean }[] = [];
-    const numNodes = 40;
+    // Node configuration
+    const numNodes = 120; // Increased density
+    const maxDistance = 75; // Shorter connection distance for clustering
+    const nodes: any[] = [];
+    
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const clusterRadiusX = width * 0.4;
+    const clusterRadiusY = height * 0.35;
 
+    // Generate nodes in an elliptical cluster
     for (let i = 0; i < numNodes; i++) {
+      // Gaussian-ish distribution towards center
+      const angle = Math.random() * Math.PI * 2;
+      const radiusDist = Math.random();
+      // Square the random value to bias towards the center (0)
+      const rX = Math.pow(radiusDist, 1.5) * clusterRadiusX;
+      const rY = Math.pow(radiusDist, 1.5) * clusterRadiusY;
+      
+      const baseX = centerX + Math.cos(angle) * rX;
+      const baseY = centerY + Math.sin(angle) * rY;
+
+      // Colors: Deep blue, bright cyan, neon fuchsia, and pure white hot-spots
+      const colorRoll = Math.random();
+      let colorStr = '';
+      let rgbStr = '';
+      
+      if (colorRoll > 0.9) { colorStr = '#ffffff'; rgbStr = '255, 255, 255'; } // White
+      else if (colorRoll > 0.6) { colorStr = '#22d3ee'; rgbStr = '34, 211, 238'; } // Cyan
+      else if (colorRoll > 0.3) { colorStr = '#d946ef'; rgbStr = '217, 70, 239'; } // Fuchsia
+      else { colorStr = '#4f46e5'; rgbStr = '79, 70, 229'; } // Indigo
+
       nodes.push({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: (Math.random() - 0.5) * 0.5,
-        radius: Math.random() * 1.5 + 1,
-        isCyan: Math.random() > 0.5
+        baseX: baseX,
+        baseY: baseY,
+        x: baseX,
+        y: baseY,
+        orbitAngle: Math.random() * Math.PI * 2,
+        orbitRadius: Math.random() * 8 + 2,
+        orbitSpeed: (Math.random() - 0.5) * 0.02,
+        radius: Math.random() * 1.5 + 0.5,
+        color: colorStr,
+        rgb: rgbStr
       });
     }
 
     const animate = () => {
       ctx.clearRect(0, 0, width, height);
 
-      // Draw connections
+      // Additive blending for the glowing intersection effect
+      ctx.globalCompositeOperation = 'lighter';
+
+      // Draw Connections
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const dx = nodes[i].x - nodes[j].x;
           const dy = nodes[i].y - nodes[j].y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          if (dist < 80) {
-            const opacity = (1 - dist / 80) * 0.6;
+          if (dist < maxDistance) {
+            const opacity = (1 - (dist / maxDistance)) * 0.8;
+            
+            // Create a gradient line between the two nodes
+            const grad = ctx.createLinearGradient(nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y);
+            grad.addColorStop(0, `rgba(${nodes[i].rgb}, ${opacity})`);
+            grad.addColorStop(1, `rgba(${nodes[j].rgb}, ${opacity})`);
+
             ctx.beginPath();
-            ctx.strokeStyle = nodes[i].isCyan ? `rgba(34, 211, 238, ${opacity})` : `rgba(217, 70, 239, ${opacity})`;
+            ctx.strokeStyle = grad;
             ctx.lineWidth = 1;
             ctx.moveTo(nodes[i].x, nodes[i].y);
             ctx.lineTo(nodes[j].x, nodes[j].y);
@@ -254,39 +278,49 @@ const NeuralNetworkGraph: React.FC = () => {
         }
       }
 
-      // Draw nodes
+      // Draw Nodes
       nodes.forEach(node => {
-        node.x += node.vx;
-        node.y += node.vy;
-
-        if (node.x < 0 || node.x > width) node.vx *= -1;
-        if (node.y < 0 || node.y > height) node.vy *= -1;
+        // Calculate orbit around base position
+        node.orbitAngle += node.orbitSpeed;
+        node.x = node.baseX + Math.cos(node.orbitAngle) * node.orbitRadius;
+        node.y = node.baseY + Math.sin(node.orbitAngle) * node.orbitRadius;
 
         ctx.beginPath();
-        ctx.fillStyle = node.isCyan ? '#22d3ee' : '#d946ef';
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = ctx.fillStyle;
+        ctx.fillStyle = node.color;
+        // Hotspot glow
+        if (node.color === '#ffffff') {
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#22d3ee';
+        } else {
+          ctx.shadowBlur = 5;
+          ctx.shadowColor = node.color;
+        }
+        
         ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0; // reset
       });
 
+      // Reset composite operation
+      ctx.globalCompositeOperation = 'source-over';
+
       animationId = requestAnimationFrame(animate);
     };
 
     animate();
+
     return () => cancelAnimationFrame(animationId);
   }, []);
 
   return (
-    <div className="relative h-48 w-full mt-4 bg-gradient-to-br from-white/[0.02] to-transparent rounded-lg border border-white/5 overflow-hidden">
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ width: '100%', height: '100%' }} />
+    <div className="relative h-[200px] w-full mt-4 bg-[#0a0a14]/50 rounded-lg border border-white/5 overflow-hidden">
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
     </div>
   );
 };
+// ==========================================
 
 const VaultActivityHeatmap: React.FC = () => {
-  // Simulating the vertical bar chart seen in the target image
   const totalBars = 60;
   
   return (
@@ -294,7 +328,7 @@ const VaultActivityHeatmap: React.FC = () => {
       <div className="flex items-end justify-between gap-px h-16 w-full">
         {Array.from({ length: totalBars }).map((_, i) => {
           const height = Math.random() * 100;
-          const isCyan = Math.random() > 0.85; // Occasional cyan highlight
+          const isCyan = Math.random() > 0.85; 
           const isFuchsia = Math.random() > 0.4 && !isCyan;
           
           let bgColor = 'bg-white/10';
@@ -307,7 +341,7 @@ const VaultActivityHeatmap: React.FC = () => {
              bgColor = 'bg-fuchsia-500/80';
              shadow = 'shadow-[0_0_5px_rgba(217,70,239,0.5)]';
           } else if (height > 50) {
-             bgColor = 'bg-[#312e81]'; // Indigo dark
+             bgColor = 'bg-[#312e81]'; 
           }
 
           return (
@@ -328,34 +362,18 @@ const VaultActivityHeatmap: React.FC = () => {
 
 const NodeIntelligencePopup: React.FC = () => {
   return (
-    <div className="absolute top-12 right-12 w-64 bg-[#0d0d1e]/95 border border-fuchsia-500/30 p-4 rounded-xl backdrop-blur-2xl z-20 shadow-[0_0_40px_rgba(217,70,239,0.15)]">
+    <div className="absolute top-12 right-12 w-64 bg-[#0d0d1e]/95 border border-fuchsia-500/30 p-4 rounded-xl backdrop-blur-2xl z-20 shadow-[0_0_40px_rgba(217,70,239,0.15)] hidden md:block">
       <h4 className="text-[10px] uppercase font-black text-white border-b border-white/10 pb-2 mb-3 flex items-center gap-2">
         <Radio size={12} className="text-fuchsia-400" />
         Node Intelligence
       </h4>
       <div className="space-y-2 text-[9px] font-mono tracking-wide">
-        <div className="flex justify-between">
-          <span className="text-slate-400">NODE:</span>
-          <span className="text-cyan-400 font-bold">OMEGA-PRIME-SX</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-slate-400">MICRO-OPTION LEVEL:</span>
-          <span className="text-white">OMEGA</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-slate-400">SYNAPSE MACRO 70:</span>
-          <span className="text-white">35%</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-slate-400">DATA THROUGHPUT:</span>
-          <span className="text-cyan-400 font-bold">4.5 TSL/S</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-slate-400">ENTITIES:</span>
-          <span className="text-white">6 GMUX</span>
-        </div>
+        <div className="flex justify-between"><span className="text-slate-400">NODE:</span><span className="text-cyan-400 font-bold">OMEGA-PRIME-SX</span></div>
+        <div className="flex justify-between"><span className="text-slate-400">MICRO-OPTION LEVEL:</span><span className="text-white">OMEGA</span></div>
+        <div className="flex justify-between"><span className="text-slate-400">SYNAPSE MACRO 70:</span><span className="text-white">35%</span></div>
+        <div className="flex justify-between"><span className="text-slate-400">DATA THROUGHPUT:</span><span className="text-cyan-400 font-bold">4.5 TSL/S</span></div>
+        <div className="flex justify-between"><span className="text-slate-400">ENTITIES:</span><span className="text-white">6 GMUX</span></div>
       </div>
-      {/* Decorative Waveform in Popup */}
       <div className="mt-4 h-6 w-full border-t border-white/10 pt-2 flex items-center justify-center overflow-hidden">
         <svg viewBox="0 0 100 20" className="w-full h-full stroke-fuchsia-500 stroke-1 fill-none drop-shadow-[0_0_5px_rgba(217,70,239,0.8)]">
            <path d="M0,10 Q10,0 20,10 T40,10 T60,10 T80,10 T100,10" />
@@ -388,18 +406,12 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#070714] text-slate-200 p-4 md:p-8 font-sans selection:bg-fuchsia-500/30 overflow-hidden relative">
-      
-      {/* Background Matrix/Noise Texture Simulation */}
       <div className="fixed inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='1' fill-rule='evenodd'%3E%3Ccircle cx='3' cy='3' r='1'/%3E%3Ccircle cx='13' cy='13' r='1'/%3E%3C/g%3E%3C/svg%3E")`}} />
-      
-      {/* Deep Ambient Glows */}
       <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-fuchsia-900/20 blur-[150px] rounded-full -z-10 pointer-events-none" />
       <div className="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-cyan-900/10 blur-[150px] rounded-full -z-10 pointer-events-none" />
 
-      {/* Header */}
       <header className="flex items-center justify-between mb-8 max-w-7xl mx-auto">
         <div className="flex items-center gap-4">
-           {/* Hamburger Menu Icon Placeholder */}
            <div className="p-2 cursor-pointer hidden md:block">
              <div className="w-5 h-0.5 bg-fuchsia-500 mb-1.5 shadow-[0_0_8px_#d946ef]" />
              <div className="w-5 h-0.5 bg-fuchsia-500 mb-1.5 shadow-[0_0_8px_#d946ef]" />
@@ -418,7 +430,6 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 md:gap-6 max-w-7xl mx-auto relative z-10">
         
-        {/* Top Row Stats */}
         <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard icon={Brain} value={169} label="Total Memories" percentage="90%" glowColor="fuchsia" />
           <StatCard icon={Folder} value={4} label="Active Projects" percentage="90%" glowColor="fuchsia" />
@@ -427,7 +438,6 @@ export default function DashboardPage() {
           <StatCard icon={FileText} value={169} label="Owned Files" percentage="90%" glowColor="fuchsia" className="col-span-2 md:col-span-2" />
         </div>
 
-        {/* Right Sidebar Widget (Top Labels) */}
         <Card className="lg:row-span-2 flex flex-col items-center justify-center text-center !p-8">
           <div className="flex justify-between w-full absolute top-4 left-4 right-4">
             <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Top Labels</span>
@@ -443,7 +453,6 @@ export default function DashboardPage() {
           </p>
         </Card>
 
-        {/* Knowledge Density Chart Area */}
         <Card className="lg:col-span-3 pb-8" glowColor="none">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
@@ -463,7 +472,6 @@ export default function DashboardPage() {
           <NodeIntelligencePopup />
         </Card>
 
-        {/* Bottom Area - Sidebar Navigation */}
         <div className="lg:col-span-1 space-y-4">
           <Card className="!p-0" glowColor="none">
             <div className="p-5 pb-2">
@@ -492,7 +500,6 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Bottom Area - Main Content */}
         <div className="lg:col-span-2 space-y-4">
           <Card glowColor="none">
             <div className="flex items-center justify-between mb-2">
