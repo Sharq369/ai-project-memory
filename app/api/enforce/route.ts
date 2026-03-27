@@ -12,7 +12,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getLimits, isDeveloper, PlanType } from '../../../lib/plans'
+import { getLimits, PlanType } from '../../../lib/plans'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,8 +27,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ allowed: false, reason: 'Not authenticated' }, { status: 401 })
     }
 
-    // Developer bypass — always allowed at Platinum level
-    if (isDeveloper(userId)) {
+    // Developer bypass — SHARQ gets Platinum always
+    const DEVELOPER_IDS = ['33157b98-fdd0-4e04-b14b-bee4352f80c7']
+    if (DEVELOPER_IDS.includes(userId)) {
       return NextResponse.json({ allowed: true, plan: 'platinum' })
     }
 
