@@ -2,7 +2,48 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag } from 'lucide-react'
+import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag, Lock, ArrowRight } from 'lucide-react'
+
+// ------------------------------------------------------------------
+// UPGRADE MODAL COMPONENT
+// ------------------------------------------------------------------
+const UpgradeModal = ({ isOpen, onClose, reason }: { isOpen: boolean, onClose: () => void, reason: string }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+      <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-blue-500/30 bg-[#0e1117] shadow-2xl">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 to-indigo-400" />
+        <div className="p-6">
+          <div className="flex justify-between items-start mb-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center">
+              <Lock size={24} />
+            </div>
+            <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+              <X size={20} />
+            </button>
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">Access Restricted</h2>
+          <p className="text-sm text-gray-400 mb-6 leading-relaxed">{reason}</p>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-3 rounded-xl bg-[#161b22] hover:bg-gray-800 text-gray-300 text-sm font-medium transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => window.location.href = '/dashboard/billing'}
+              className="flex-1 px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium flex items-center justify-center gap-2 transition-colors shadow-lg shadow-blue-900/20"
+            >
+              Upgrade Plan <ArrowRight size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function MemoriesPage() {
   const [memories, setMemories] = useState<any[]>([])
@@ -15,6 +56,10 @@ export default function MemoriesPage() {
   const [localSearch, setLocalSearch] = useState('')
   const [memoryToDelete, setMemoryToDelete] = useState<{ id: string, content: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // Gatekeeper state
+  const [showUpgrade, setShowUpgrade] = useState(false)
+  const [upgradeReason, setUpgradeReason] = useState('')
 
   // Content edit state
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -48,18 +93,41 @@ export default function MemoriesPage() {
     if (editingTagId && tagInputRef.current) tagInputRef.current.focus()
   }, [editingTagId])
 
+  // ── GATEKEEPER ENABLED: ADD MEMORY ─────────────────────────────────
   const handleAddMemory = async () => {
     if (!content) return
     setIsSaving(true)
+    
     try {
       const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error("Not authenticated")
+
+      // 1. Check Limits
+      const enforceRes = await fetch('/api/enforce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, action: 'add_memory' })
+      });
+      const authCheck = await enforceRes.json();
+
+      // 2. Block if needed
+      if (!authCheck.allowed) {
+        setUpgradeReason(authCheck.reason);
+        setShowUpgrade(true);
+        setIsSaving(false);
+        return;
+      }
+
+      // 3. Proceed if allowed
       const { data, error } = await supabase.from('memories').insert([{
         content,
         tag: newTag.trim() || null,
         project_id: selectedProject || null,
-        user_id: user?.id
+        user_id: user.id
       }]).select('*, projects(name)').single()
+      
       if (error) throw error
+      
       if (data) {
         setMemories(prev => [data, ...prev])
         setContent('')
@@ -78,6 +146,7 @@ export default function MemoriesPage() {
     setEditTagValue(m.tag || '')
   }
 
+  // Tagging is allowed on all plans, no gatekeeper needed here
   const handleSaveTag = async (id: string) => {
     const trimmed = editTagValue.trim()
     try {
@@ -110,15 +179,39 @@ export default function MemoriesPage() {
     setEditContent('')
   }
 
+  // ── GATEKEEPER ENABLED: EDIT MEMORY ────────────────────────────────
   const handleSaveEdit = async (id: string) => {
     if (!editContent.trim()) return
     setIsSavingEdit(true)
+    
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error("Not authenticated")
+
+      // 1. Check if user is allowed to edit (Free plan = false)
+      const enforceRes = await fetch('/api/enforce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, action: 'edit_memory' })
+      });
+      const authCheck = await enforceRes.json();
+
+      // 2. Block if needed
+      if (!authCheck.allowed) {
+        setUpgradeReason(authCheck.reason);
+        setShowUpgrade(true);
+        setIsSavingEdit(false);
+        return;
+      }
+
+      // 3. Proceed if allowed
       const { error } = await supabase
         .from('memories')
         .update({ content: editContent })
         .eq('id', id)
+      
       if (error) throw error
+      
       setMemories(prev => prev.map(m => m.id === id ? { ...m, content: editContent } : m))
       setEditingId(null)
       setEditContent('')
@@ -148,6 +241,13 @@ export default function MemoriesPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 p-6">
+      
+      {/* RENDER UPGRADE MODAL */}
+      <UpgradeModal 
+        isOpen={showUpgrade} 
+        onClose={() => setShowUpgrade(false)} 
+        reason={upgradeReason} 
+      />
 
       {/* ADD MEMORY BLOCK */}
       <div className="bg-[#16181e] border border-gray-800 rounded-[2.5rem] p-8 md:p-10 space-y-6 shadow-2xl">
