@@ -38,7 +38,7 @@ export default function SettingsPage() {
       if (!user) throw new Error("Not authenticated")
 
       const { data: projects } = await supabase.from('projects').select('*').eq('user_id', user.id)
-      const { data: memories } = await supabase.from('code_memories').select('*')
+      const { data: memories } = await supabase.from('memories').select('*').eq('user_id', user.id)
 
       const exportData = {
         exportedAt: new Date().toISOString(),
@@ -65,8 +65,8 @@ export default function SettingsPage() {
     }
   }
 
-  const handleCheckout = async (planName: string, price: number) => {
-    setIsCheckingOut(planName)
+  const handleCheckout = async (planId: string, price: number) => {
+    setIsCheckingOut(planId)
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return alert("Please log in first.")
@@ -74,7 +74,8 @@ export default function SettingsPage() {
       const res = await fetch('/api/nowpayments/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: planName, price, userId: user.id })
+        // Sending planId (e.g., 'platinum') to match backend lib/plans.ts
+        body: JSON.stringify({ plan: planId, price, userId: user.id })
       })
       const data = await res.json()
       
@@ -117,26 +118,29 @@ export default function SettingsPage() {
     { id: 'danger', label: 'Danger Zone', icon: ShieldAlert },
   ]
 
-  // NEW DRAFTED PLANS
+  // ALIGNED WITH lib/plans.ts
   const plans = [
     { 
+      id: 'pro',
       name: 'Pro', 
-      price: 15, 
-      desc: 'Advanced neural capacity for professionals.', 
+      price: 19, 
+      desc: 'Advanced neural capacity for active developers.', 
       features: [
-        'Unlimited Project Nodes', 
-        'AI PRD Decomposer (GPT-4o)', 
+        '20 Project Nodes', 
+        '200 Neural Memories',
+        '20 AI Decomposer Runs / Day',
         'Full JSON Data Exports',
-        'Priority Memory Sync'
+        'Private Repo Auto-Sync'
       ] 
     },
     { 
+      id: 'platinum', // Connects to PLAN_LIMITS.PLATINUM in backend
       name: 'Ultra', 
-      price: 40, 
-      desc: 'Maximum computational power for power users.', 
+      price: 49, 
+      desc: 'Infinite computational power for power users.', 
       features: [
-        'Everything in Pro', 
-        'Unlimited Serverless AI Tasks', 
+        'Unlimited Everything (Nodes, Memories, Runs)', 
+        'Advanced Neural Web Clusters',
         'Custom AI Model Routing', 
         '24/7 Priority Support'
       ] 
@@ -240,7 +244,7 @@ export default function SettingsPage() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {plans.map((plan) => (
-                      <div key={plan.name} className="border border-gray-800 bg-[#111] rounded-2xl p-6 hover:border-blue-500/50 transition-all flex flex-col">
+                      <div key={plan.id} className="border border-gray-800 bg-[#111] rounded-2xl p-6 hover:border-blue-500/50 transition-all flex flex-col">
                         <div className="flex justify-between items-start mb-4">
                           <div>
                             <h3 className="text-xl font-bold text-white">{plan.name}</h3>
@@ -259,12 +263,12 @@ export default function SettingsPage() {
                           ))}
                         </ul>
                         <button 
-                          onClick={() => handleCheckout(plan.name, plan.price)}
-                          disabled={isCheckingOut === plan.name}
+                          onClick={() => handleCheckout(plan.id, plan.price)}
+                          disabled={isCheckingOut === plan.id}
                           className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                         >
-                          {isCheckingOut === plan.name ? <Loader2 size={18} className="animate-spin" /> : <Zap size={18} />}
-                          {isCheckingOut === plan.name ? 'Processing...' : `Upgrade to ${plan.name}`}
+                          {isCheckingOut === plan.id ? <Loader2 size={18} className="animate-spin" /> : <Zap size={18} />}
+                          {isCheckingOut === plan.id ? 'Processing...' : `Upgrade to ${plan.name}`}
                         </button>
                       </div>
                     ))}
