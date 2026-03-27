@@ -86,12 +86,27 @@ const NeuralScan = memo(() => (
 ));
 NeuralScan.displayName = "NeuralScan";
 
-const KnowledgeDensityChart = memo(() => {
-  const points = "0,250 150,200 300,220 450,120 600,180 750,80 900,100 1000,40";
-  const nodes = points.split(' ').map(p => p.split(',').map(Number));
+const KnowledgeDensityChart = memo(({ data }: { data: number[] }) => {
+  // Convert monthly counts to SVG points — scale to fit 300px height
+  const maxVal = Math.max(...data, 1); // avoid div-by-zero
+  const svgPoints = data.map((val, i) => {
+    const x = (i / (data.length - 1)) * 1000;
+    // Higher count = lower Y (SVG Y is inverted), min y=30 max y=270
+    const y = 270 - ((val / maxVal) * 240);
+    return `${x},${y}`;
+  }).join(' ');
+
+  const nodes = svgPoints.split(' ').map(p => p.split(',').map(Number));
+
   return (
     <div className="relative w-full h-[220px] mt-6 bg-[#030308] rounded-lg border border-white/5 overflow-hidden flex items-end">
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:20px_20px]" />
+      {/* Empty state overlay when no data */}
+      {maxVal === 1 && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <span className="text-[10px] text-slate-600 uppercase tracking-widest font-bold">No memory activity yet</span>
+        </div>
+      )}
       <svg viewBox="0 0 1000 300" className="w-full h-full absolute inset-0" preserveAspectRatio="none">
         <defs>
           <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
@@ -99,10 +114,10 @@ const KnowledgeDensityChart = memo(() => {
             <stop offset="100%" stopColor="rgba(217,70,239,0)" />
           </linearGradient>
         </defs>
-        <polygon points={`0,300 ${points} 1000,300`} fill="url(#fade)" />
-        <polyline points={points} fill="none" stroke="rgba(217,70,239,0.4)" strokeWidth="25" className="blur-[12px] mix-blend-screen" />
-        <polyline points={points} fill="none" stroke="rgba(34,211,238,0.8)" strokeWidth="8" className="blur-[4px] mix-blend-screen" />
-        <polyline points={points} fill="none" stroke="#ffffff" strokeWidth="2" className="drop-shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
+        <polygon points={`0,300 ${svgPoints} 1000,300`} fill="url(#fade)" />
+        <polyline points={svgPoints} fill="none" stroke="rgba(217,70,239,0.4)" strokeWidth="25" className="blur-[12px] mix-blend-screen" />
+        <polyline points={svgPoints} fill="none" stroke="rgba(34,211,238,0.8)" strokeWidth="8" className="blur-[4px] mix-blend-screen" />
+        <polyline points={svgPoints} fill="none" stroke="#ffffff" strokeWidth="2" className="drop-shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
         {nodes.map(([x, y], i) => (
           <g key={i}>
             <circle cx={x} cy={y} r="12" fill="rgba(34,211,238,0.2)" className="blur-[4px]" />
@@ -162,6 +177,9 @@ export default function DashboardPage() {
     links: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [topTags, setTopTags] = useState<{ label: string; count: number }[]>([]);
+  // Monthly memory counts for Knowledge Density chart (last 12 months)
+  const [monthlyData, setMonthlyData] = useState<number[]>(Array(12).fill(0));
 
   // FIX: createBrowserClient (SSR-safe) instead of bare createClient
   const supabase = createBrowserClient(
@@ -175,10 +193,16 @@ export default function DashboardPage() {
       { count: mCount },
       { count: pCount },
       { count: fCount },
+      { data: tagData },
+      { data: memoryDates },
     ] = await Promise.all([
       supabase.from('memories').select('*', { count: 'exact', head: true }),
       supabase.from('projects').select('*', { count: 'exact', head: true }),
       supabase.from('code_memories').select('*', { count: 'exact', head: true }),
+      // FIX: fetch all tags so Top Labels card shows real data
+      supabase.from('memories').select('tag').not('tag', 'is', null),
+      // FIX: fetch created_at to build monthly Knowledge Density chart
+      supabase.from('memories').select('created_at'),
     ]);
 
     const m = mCount || 0;
@@ -188,9 +212,38 @@ export default function DashboardPage() {
     setStats({
       memories: m,
       projects: p,
-      clusters: f,          // Neural Clusters = code_memories (synced files)
-      links: m * 3 + f,     // Neural Links = derived metric
+      clusters: f,
+      links: m * 3 + f,
     });
+
+    // Build top tags from real data
+    if (tagData) {
+      const freq: Record<string, number> = {};
+      tagData.forEach((row: any) => {
+        if (row.tag) freq[row.tag] = (freq[row.tag] || 0) + 1;
+      });
+      const sorted = Object.entries(freq)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([label, count]) => ({ label, count }));
+      setTopTags(sorted);
+    }
+
+    // Build monthly buckets for Knowledge Density (last 12 months)
+    if (memoryDates) {
+      const now = new Date();
+      const buckets = Array(12).fill(0);
+      memoryDates.forEach((row: any) => {
+        if (!row.created_at) return;
+        const d = new Date(row.created_at);
+        const monthsAgo = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+        if (monthsAgo >= 0 && monthsAgo < 12) {
+          buckets[11 - monthsAgo] += 1;
+        }
+      });
+      setMonthlyData(buckets);
+    }
+
     setLoading(false);
   }, []);
 
@@ -261,12 +314,42 @@ export default function DashboardPage() {
           <StatCard icon={Zap}     value={display(stats.links)}    label="Neural Links"     percentage="90%" glowColor="cyan" />
         </div>
 
-        {/* Top Labels — untouched */}
+        {/* Top Labels — now shows real tags */}
         <div className="xl:col-span-1">
-          <Card className="h-full flex flex-col items-center justify-center text-center p-6 border-fuchsia-500/20">
-            <Tag size={32} className="text-fuchsia-500 mb-3 drop-shadow-[0_0_10px_rgba(217,70,239,0.5)]" />
-            <h3 className="text-fuchsia-400 font-black uppercase text-[11px] tracking-widest">Awaiting Classification</h3>
-            <p className="text-[9px] text-slate-500 mt-2 tracking-wide">Initialize tagging protocol.</p>
+          <Card className="h-full flex flex-col p-5 border-fuchsia-500/20">
+            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-3">Top Labels</p>
+            {!loading && topTags.length > 0 ? (
+              <div className="flex flex-col gap-3 flex-1 justify-center">
+                {topTags.map(({ label, count }, i) => {
+                  const pct = Math.round((count / (topTags[0]?.count || 1)) * 100);
+                  const colors = [
+                    { bar: 'linear-gradient(to right,#c026d3,#d946ef)', glow: '0 0 6px rgba(217,70,239,0.5)' },
+                    { bar: 'linear-gradient(to right,#0e7490,#22d3ee)', glow: 'none' },
+                    { bar: 'linear-gradient(to right,#4338ca,#818cf8)', glow: 'none' },
+                    { bar: 'linear-gradient(to right,#be185d,#f472b6)', glow: 'none' },
+                    { bar: 'linear-gradient(to right,#0f766e,#2dd4bf)', glow: 'none' },
+                  ];
+                  const c = colors[i % colors.length];
+                  return (
+                    <div key={label}>
+                      <div className="flex justify-between mb-1">
+                        <span className="text-[8px] font-black uppercase tracking-wider text-slate-300 truncate max-w-[80%]">{label}</span>
+                        <span className="text-[8px] font-black text-fuchsia-400">{count}</span>
+                      </div>
+                      <div className="h-[2px] bg-white/5 rounded-full overflow-hidden">
+                        <div style={{ width: `${pct}%`, background: c.bar, boxShadow: c.glow }} className="h-full rounded-full" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center flex-1 text-center">
+                <Tag size={32} className="text-fuchsia-500 mb-3 drop-shadow-[0_0_10px_rgba(217,70,239,0.5)]" />
+                <h3 className="text-fuchsia-400 font-black uppercase text-[11px] tracking-widest">Awaiting Classification</h3>
+                <p className="text-[9px] text-slate-500 mt-2 tracking-wide">Initialize tagging protocol.</p>
+              </div>
+            )}
           </Card>
         </div>
 
@@ -281,7 +364,7 @@ export default function DashboardPage() {
                 <TrendingUp size={12} /> +12% Growth
               </span>
             </div>
-            <KnowledgeDensityChart />
+            <KnowledgeDensityChart data={monthlyData} />
           </Card>
           <div className="h-[200px]">
             <VaultHeatmap />
