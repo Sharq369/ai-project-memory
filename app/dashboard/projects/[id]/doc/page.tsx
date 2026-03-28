@@ -36,34 +36,53 @@ export default function ProjectDocPage() {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [repoName, setRepoName] = useState('')
   const [isSyncing, setIsSyncing] = useState(false)
-  const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'cloud'>('github')
+  const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
   const [selectedForAI, setSelectedForAI] = useState<string[]>([])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isThinking])
 
-  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+  const showToast = useCallback((type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ visible: true, type, message })
     setTimeout(() => setNotification(prev => ({ ...prev, visible: false })), 4000)
-  }
+  }, [])
 
   const loadData = useCallback(async () => {
     if (!id) return
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser()
-      if (!user || authError) return router.push('/login')
+      if (authError || !user) {
+        router.push('/login')
+        return
+      }
 
-      const { data: proj } = await supabase.from('projects').select('*').eq('id', id).eq('user_id', user.id).single()
-      if (!proj) return router.push('/dashboard/projects')
+      const { data: proj, error: projError } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .single()
+
+      if (projError || !proj) {
+        router.push('/dashboard/projects')
+        return
+      }
 
       setProject(proj)
-      const { data: mems } = await supabase.from('code_memories').select('*').eq('project_id', id).order('file_name', { ascending: true })
+      const { data: mems } = await supabase
+        .from('code_memories')
+        .select('*')
+        .eq('project_id', id)
+        .order('file_name', { ascending: true })
       if (mems) setMemories(mems)
+    } catch (err) {
+      console.error('loadData error:', err)
+      router.push('/dashboard/projects')
     } finally {
       setLoading(false)
     }
-  }, [id, router, supabase])
+  }, [id, router])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -71,7 +90,7 @@ export default function ProjectDocPage() {
     if (!editName.trim() || editName === project?.name) return setIsEditing(false)
     const { error } = await supabase.from('projects').update({ name: editName }).eq('id', id)
     if (!error) {
-      setProject({ ...project, name: editName })
+      setProject((prev: any) => ({ ...prev, name: editName }))
       showToast('success', 'Project renamed.')
     }
     setIsEditing(false)
@@ -100,8 +119,6 @@ export default function ProjectDocPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user?.id) return router.push('/login')
-      await supabase.from('code_memories').delete().eq('project_id', id)
-
       const response = await fetch(`/api/sync/${activeProvider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -110,17 +127,17 @@ export default function ProjectDocPage() {
       const result = await response.json()
 
       if (result.success) {
-        // Show smart notification based on whether it was an update or new pull
-        const successMessage = isUpdate 
-          ? `Repository updated! ${result.count} files refreshed.` 
-          : `New repository pulled! ${result.count} files added.`
-          
-        showToast('success', successMessage)
+        const successMessage = isUpdate
+          ? `Repository updated! ${result.count} files refreshed.`
+          : `Repository synced! ${result.count} files pulled.`
+        showToast(result.capped ? 'info' : 'success', result.capped ? `Only ${result.limit} files pulled — upgrade plan to sync more.` : successMessage)
         await loadData()
         setIsSyncModalOpen(false)
         setRepoName('')
+      } else if (result.upgrade) {
+        showToast('error', result.error || 'Upgrade your plan to sync more files.')
       } else {
-        showToast('error', result.error || 'Sync failed')
+        showToast('error', result.error || 'Sync failed.')
       }
     } catch {
       showToast('error', 'Network Error')
@@ -172,13 +189,18 @@ export default function ProjectDocPage() {
     setQuery('')
     setIsThinking(true)
     try {
+      const { data: { user } } = await supabase.auth.getUser()
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMsg.content, projectId: id })
+        body: JSON.stringify({ query: userMsg.content, projectId: id, userId: user?.id })
       })
       const data = await res.json()
-      setMessages(prev => [...prev, { role: 'ai', content: data.response || data.error }])
+      if (data.error) {
+        setMessages(prev => [...prev, { role: 'ai', content: `[Error]: ${data.error}` }])
+      } else {
+        setMessages(prev => [...prev, { role: 'ai', content: data.response }])
+      }
     } catch {
       setMessages(prev => [...prev, { role: 'ai', content: `[SYSTEM ERROR]: Connection lost.` }])
     } finally {
@@ -292,7 +314,7 @@ export default function ProjectDocPage() {
                 <div className="flex gap-3">
                   <button onClick={() => { setActiveProvider('github'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-white/30 transition-all text-gray-400 hover:text-white"><Github size={18} /></button>
                   <button onClick={() => { setActiveProvider('gitlab'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-orange-500/50 transition-all text-gray-400 hover:text-orange-400"><Gitlab size={18} /></button>
-                  <button onClick={() => { setActiveProvider('cloud'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-blue-500/50 transition-all text-gray-400 hover:text-blue-400"><Cloud size={18} /></button>
+                  <button onClick={() => { setActiveProvider('bitbucket'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-blue-500/50 transition-all text-gray-400 hover:text-blue-400"><Cloud size={18} /></button>
                 </div>
               </div>
             </div>
