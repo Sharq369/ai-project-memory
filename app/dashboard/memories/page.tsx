@@ -33,7 +33,7 @@ const UpgradeModal = ({ isOpen, onClose, reason }: { isOpen: boolean, onClose: (
               Cancel
             </button>
             <button
-              onClick={() => window.location.href = '/dashboard/billing'}
+              onClick={() => window.location.href = '/dashboard/settings'}
               className="flex-1 px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium flex items-center justify-center gap-2 transition-colors shadow-lg shadow-blue-900/20"
             >
               Upgrade Plan <ArrowRight size={16} />
@@ -78,9 +78,15 @@ export default function MemoriesPage() {
 
   useEffect(() => {
     async function loadData() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setLoading(false); return }
+
       const [mRes, pRes] = await Promise.all([
-        supabase.from('memories').select(`*, projects(name)`).order('created_at', { ascending: false }),
+        supabase.from('memories').select(`*, projects(name)`)
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
         supabase.from('projects').select('id, name')
+          .eq('user_id', user.id)
       ])
       if (mRes.data) setMemories(mRes.data)
       if (pRes.data) setProjects(pRes.data)
@@ -150,10 +156,13 @@ export default function MemoriesPage() {
   const handleSaveTag = async (id: string) => {
     const trimmed = editTagValue.trim()
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
       const { error } = await supabase
         .from('memories')
         .update({ tag: trimmed || null })
         .eq('id', id)
+        .eq('user_id', user.id) // ownership check
       if (error) throw error
       setMemories(prev => prev.map(m => m.id === id ? { ...m, tag: trimmed || null } : m))
     } catch (error) {
@@ -225,10 +234,17 @@ export default function MemoriesPage() {
   const confirmDeleteMemory = async () => {
     if (!memoryToDelete) return
     setIsDeleting(true)
-    const { error } = await supabase.from('memories').delete().eq('id', memoryToDelete.id)
-    if (!error) setMemories(prev => prev.filter(m => m.id !== memoryToDelete.id))
-    setIsDeleting(false)
-    setMemoryToDelete(null)
+    try {
+      const { error } = await supabase.from('memories').delete().eq('id', memoryToDelete.id)
+      if (error) throw error
+      setMemories(prev => prev.filter(m => m.id !== memoryToDelete.id))
+    } catch (err) {
+      console.error('Delete failed:', err)
+      alert('Failed to delete memory. Please try again.')
+    } finally {
+      setIsDeleting(false)
+      setMemoryToDelete(null)
+    }
   }
 
   const filteredMemories = memories.filter(m =>
