@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
-import { getLimits, PlanType, PLAN_LABELS, PLAN_DESCRIPTIONS } from '../../../lib/plans';
+import { getLimits, PlanType, PLAN_LABELS, PLAN_DESCRIPTIONS, isDeveloper } from '../../../lib/plans';
 
 // ------------------------------------------------------------------
 // 1. REUSABLE UI COMPONENTS (Matched exactly to Dashboard)
@@ -69,7 +69,11 @@ export default function ProfilePage() {
         .eq('id', user.id)
         .single();
 
-      const plan = (profile?.plan_type as PlanType) || 'free';
+      // Fix applied here: Check if developer, override if true
+      let plan = (profile?.plan_type as PlanType) || 'free';
+      if (isDeveloper(user.id)) {
+        plan = 'platinum';
+      }
       
       setUserProfile({
         id: user.id,
