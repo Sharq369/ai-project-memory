@@ -3,23 +3,34 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Folder, Brain, Search, Settings, Menu, X, Zap } from 'lucide-react'
+import { LayoutDashboard, Folder, Brain, Search, Settings, Menu, X, Zap, User } from 'lucide-react'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
 
   const navigation = [
-    { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Memories', href: '/dashboard/memories', icon: Brain },
-    { name: 'Projects', href: '/dashboard/projects', icon: Folder },
-    { name: 'AI Search', href: '/dashboard/ai-search', icon: Search },
-    { name: 'Decomposer', href: '/decomposer', icon: Zap },
-    { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+    { name: 'Overview',    href: '/dashboard',           icon: LayoutDashboard },
+    { name: 'Memories',   href: '/dashboard/memories',  icon: Brain           },
+    { name: 'Projects',   href: '/dashboard/projects',  icon: Folder          },
+    { name: 'AI Search',  href: '/dashboard/ai-search', icon: Search          },
+    { name: 'Decomposer', href: '/decomposer',          icon: Zap             },
+    { name: 'Profile',    href: '/dashboard/profile',   icon: User            },
+    { name: 'Settings',   href: '/dashboard/settings',  icon: Settings        },
   ]
+
+  // FIX 1 & 2: isActive uses startsWith so nested routes stay highlighted
+  // Special case: /dashboard exact match only (not /dashboard/*)
+  // Decomposer is outside dashboard so it matches by startsWith('/decomposer')
+  const isActive = (href: string) => {
+    if (href === '/dashboard') return pathname === '/dashboard'
+    return pathname.startsWith(href)
+  }
 
   return (
     <div className="flex min-h-screen bg-[#0f1117] text-white">
+
+      {/* Mobile top bar */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-[#0f1117] border-b border-gray-800/50 flex items-center px-4 justify-between z-[60]">
         <div className="font-black italic text-xl tracking-tighter">MEMORY AI</div>
         <button onClick={() => setIsOpen(!isOpen)} className="p-2 text-white active:scale-90 transition-transform">
@@ -27,6 +38,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </button>
       </div>
 
+      {/* Sidebar */}
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-64 bg-[#0f1117] border-r border-gray-800/50 flex flex-col transition-transform duration-300
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
@@ -40,7 +52,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               href={item.href}
               onClick={() => setIsOpen(false)}
               className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-[10px] uppercase font-bold tracking-widest transition-all
-                ${pathname === item.href ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}
+                ${isActive(item.href)
+                  ? 'bg-blue-600 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]'
+                  : 'text-gray-500 hover:text-white hover:bg-white/5'
+                }
               `}
             >
               <item.icon size={16} /> {item.name}
@@ -49,12 +64,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
       </aside>
 
+      {/* Main content */}
       <main className="flex-1 lg:ml-0 min-h-screen pt-16 lg:pt-0">
         <div className="p-6 md:p-12 max-w-7xl mx-auto">
           {children}
         </div>
       </main>
 
+      {/* Mobile overlay */}
       {isOpen && (
         <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setIsOpen(false)} />
       )}
