@@ -3,7 +3,7 @@
 import React, { useEffect, useState, memo, useCallback } from 'react';
 import { 
   User, Mail, Shield, Zap, Activity, 
-  Cpu, ArrowUpRight, Fingerprint, Lock, CheckCircle2
+  Cpu, ArrowUpRight, Fingerprint, Lock, CheckCircle2, Database
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
