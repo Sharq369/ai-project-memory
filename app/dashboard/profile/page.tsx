@@ -98,7 +98,7 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []); // supabase client is stable — no need in deps
 
   useEffect(() => {
     setMounted(true);
@@ -241,6 +241,18 @@ export default function ProfilePage() {
                     <span className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Max Sync Context</span>
                     <span className="text-lg font-black text-white tracking-tighter">
                       {limits.filesPerSync === Infinity ? 'Unlimited' : limits.filesPerSync} <span className="text-sm text-slate-500">Files</span>
+                    </span>
+                  </div>
+                  <div className="bg-[#05050a] p-4 rounded-xl border border-white/5">
+                    <span className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Memory Vault Limit</span>
+                    <span className="text-lg font-black text-white tracking-tighter">
+                      {limits.memoriesLimit === Infinity ? 'Unlimited' : limits.memoriesLimit} <span className="text-sm text-slate-500">Entries</span>
+                    </span>
+                  </div>
+                  <div className="bg-[#05050a] p-4 rounded-xl border border-white/5">
+                    <span className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Memory Editing</span>
+                    <span className="text-lg font-black text-white tracking-tighter">
+                      {limits.memoryEdit ? <span className="text-green-400">Enabled</span> : <span className="text-slate-600">Locked</span>}
                     </span>
                   </div>
                 </div>
