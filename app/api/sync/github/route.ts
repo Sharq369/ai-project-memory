@@ -18,7 +18,7 @@ function calculateMaturity(filePaths: string[]): number {
 
 // Insert a notification row — client realtime picks it up instantly
 async function notify(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,  // <--- CHANGED THIS FROM ReturnType<typeof createClient>
   userId: string,
   type: 'success' | 'error' | 'info' | 'warning',
   title: string,
