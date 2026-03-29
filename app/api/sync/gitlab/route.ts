@@ -19,6 +19,18 @@ function calculateMaturity(filePaths: string[]): number {
   return Math.min(100, score);
 }
 
+// Insert a notification row — client realtime picks it up instantly
+async function notify(
+  supabase: any,  // <--- CHANGED THIS FROM ReturnType<typeof createClient>
+  userId: string,
+  type: 'success' | 'error' | 'info' | 'warning',
+  title: string,
+  message: string,
+  link?: string
+) {
+  await (supabase as any).from('notifications').insert({ user_id: userId, type, title, message, link: link || null })
+}
+
 export async function POST(req: Request) {
   try {
     const { repo, projectId, userId } = await req.json()
@@ -35,8 +47,10 @@ export async function POST(req: Request) {
     }
     const limits = getLimits(plan)
 
+    // Provider Plan Limitation Check
     if (!limits.providers.includes('gitlab')) {
-      return NextResponse.json({ success: false, upgrade: true, error: 'GitLab sync requires Pro or Platinum. Upgrade in Settings.' }, { status: 403 })
+      if (userId) await notify(supabase, userId, 'error', 'Upgrade Required', 'GitLab sync requires Pro or Platinum. Upgrade in Settings.');
+      return NextResponse.json({ success: false, upgrade: true, error: 'GitLab sync requires Pro or Platinum.' }, { status: 403 })
     }
 
     const FILE_LIMIT = limits.filesPerSync === Infinity ? 9999 : limits.filesPerSync
@@ -48,7 +62,10 @@ export async function POST(req: Request) {
     }
 
     const treeRes = await fetch(`https://gitlab.com/api/v4/projects/${encodedRepo}/repository/tree?recursive=true&per_page=100`, { headers: authHeaders })
-    if (!treeRes.ok) throw new Error('GitLab project not found or private.')
+    if (!treeRes.ok) {
+      if (userId) await notify(supabase, userId, 'error', 'Sync Failed', `Could not reach ${repo} on GitLab. Check if it's private or missing.`);
+      throw new Error('GitLab project not found or private.')
+    }
     const tree = await treeRes.json()
     
     const files = tree
@@ -56,10 +73,7 @@ export async function POST(req: Request) {
       .filter((f: any) => !f.path.match(/\.(png|jpg|jpeg|gif|ico|pdf|zip|mp4|webp)$/i))
       .slice(0, FILE_LIMIT)
 
-    // FIX: Delete existing files before re-sync so re-syncing never
-    // hits the unique_project_file constraint. Atomic — if fetch fails
-    // mid-loop the route returns an error and the client retains old data
-    // until a successful sync completes.
+    // Delete existing files before re-sync — prevents unique constraint error
     await supabase.from('code_memories').delete().eq('project_id', projectId)
 
     let syncedCount = 0
@@ -84,14 +98,21 @@ export async function POST(req: Request) {
     const maturityScore = calculateMaturity(syncedPaths);
     await supabase.from('projects').update({ maturity_score: maturityScore }).eq('id', projectId);
 
-    return NextResponse.json({
-      success: true,
-      count: syncedCount,
-      score: maturityScore,
-      plan,
-      limit: FILE_LIMIT,
-      capped: files.length >= FILE_LIMIT
-    })
+    // Push notification to client via realtime
+    if (userId) {
+      const capped = files.length >= FILE_LIMIT
+      await notify(
+        supabase, userId,
+        capped ? 'warning' : 'success',
+        capped ? 'Sync Capped' : 'Sync Complete',
+        capped
+          ? `Only ${syncedCount} of ${FILE_LIMIT} files pulled from ${repo}. Upgrade to sync more.`
+          : `${syncedCount} files synced from GitLab (${repo}).`,
+        `/dashboard/projects/${projectId}/doc`
+      )
+    }
+
+    return NextResponse.json({ success: true, count: syncedCount, score: maturityScore, plan, limit: FILE_LIMIT, capped: files.length >= FILE_LIMIT })
 
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
