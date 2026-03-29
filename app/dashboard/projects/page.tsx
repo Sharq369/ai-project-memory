@@ -220,19 +220,16 @@ export default function ProjectsDashboard() {
     <div className="flex-1 overflow-y-auto max-h-screen bg-[#050505] custom-scrollbar relative">
       
       {/* Toast Notification */}
-      <div className={`fixed top-6 right-6 z-50 transition-all duration-300 transform ${notification.visible ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-8 opacity-0 scale-95 pointer-events-none'}`}>
-        <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl backdrop-blur-md ${
-          notification.type === 'success' ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-300' :
-          notification.type === 'error' ? 'bg-red-950/80 border-red-500/30 text-red-300' :
-          'bg-blue-950/80 border-blue-500/30 text-blue-300'
+      <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[500] transition-all duration-300 pointer-events-none ${notification.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95'}`}>
+        <div className={`flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto ${
+          notification.type === 'success' ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-200' :
+          notification.type === 'error' ? 'bg-red-950/80 border-red-500/30 text-red-200' :
+          'bg-blue-950/80 border-blue-500/30 text-blue-200'
         }`}>
-          {notification.type === 'success' && <CheckCircle2 size={18} className="text-emerald-500" />}
-          {notification.type === 'error' && <AlertCircle size={18} className="text-red-500" />}
-          {notification.type === 'info' && <Info size={18} className="text-blue-500" />}
-          <p className="text-sm font-medium">{notification.message}</p>
-          <button onClick={() => setNotification({ ...notification, visible: false })} className="ml-2 opacity-60 hover:opacity-100 transition-opacity">
-            <X size={16} />
-          </button>
+          {notification.type === 'success' && <CheckCircle2 size={16} className="text-emerald-500" />}
+          {notification.type === 'error' && <AlertCircle size={16} className="text-red-500" />}
+          {notification.type === 'info' && <Info size={16} className="text-blue-500" />}
+          <span className="text-sm font-medium whitespace-nowrap">{notification.message}</span>
         </div>
       </div>
 
@@ -470,3 +467,4 @@ export default function ProjectsDashboard() {
     </div>
   )
 }
+
