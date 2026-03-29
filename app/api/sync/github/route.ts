@@ -55,6 +55,12 @@ export async function POST(req: Request) {
       .filter((f: any) => !f.path.match(/\.(png|jpg|jpeg|gif|ico|pdf|zip|mp4|webp)$/i))
       .slice(0, FILE_LIMIT)
 
+    // FIX: Delete existing files before re-sync so re-syncing never
+    // hits the unique_project_file constraint. Atomic — if fetch fails
+    // mid-loop the route returns an error and the client retains old data
+    // until a successful sync completes.
+    await supabase.from('code_memories').delete().eq('project_id', projectId)
+
     let syncedCount = 0
     const syncedPaths: string[] = []
 
