@@ -25,7 +25,7 @@ async function notify(
   message: string,
   link?: string
 ) {
-  await supabase.from('notifications').insert({ user_id: userId, type, title, message, link: link || null })
+  await (supabase as any).from('notifications').insert({ user_id: userId, type, title, message, link: link || null })
 }
 
 export async function POST(req: Request) {
