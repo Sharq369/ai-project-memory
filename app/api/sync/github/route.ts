@@ -2,22 +2,30 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getLimits, PlanType } from '../../../../lib/plans'
 
-// Structural Analysis Engine: Calculates codebase maturity instantly
 function calculateMaturity(filePaths: string[]): number {
-  let score = 15; // Base score
-  const paths = filePaths.join(' ').toLowerCase();
+  let score = 15
+  const paths = filePaths.join(' ').toLowerCase()
+  if (paths.includes('package.json') || paths.includes('requirements.txt')) score += 10
+  if (paths.includes('tsconfig.json') || paths.includes('dockerfile')) score += 10
+  if (paths.includes('.github/workflows') || paths.includes('.gitlab-ci.yml')) score += 15
+  if (paths.includes('readme.md')) score += 10
+  if (paths.includes('/docs') || paths.includes('changelog')) score += 5
+  if (paths.includes('.test.') || paths.includes('.spec.') || paths.includes('/tests/')) score += 20
+  const volumeScore = Math.min(15, Math.floor(filePaths.length / 5))
+  score += volumeScore
+  return Math.min(100, score)
+}
 
-  if (paths.includes('package.json') || paths.includes('requirements.txt')) score += 10;
-  if (paths.includes('tsconfig.json') || paths.includes('dockerfile')) score += 10;
-  if (paths.includes('.github/workflows') || paths.includes('.gitlab-ci.yml')) score += 15;
-  if (paths.includes('readme.md')) score += 10;
-  if (paths.includes('/docs') || paths.includes('changelog')) score += 5;
-  if (paths.includes('.test.') || paths.includes('.spec.') || paths.includes('/tests/')) score += 20;
-  
-  const volumeScore = Math.min(15, Math.floor(filePaths.length / 5));
-  score += volumeScore;
-
-  return Math.min(100, score);
+// Insert a notification row — client realtime picks it up instantly
+async function notify(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  type: 'success' | 'error' | 'info' | 'warning',
+  title: string,
+  message: string,
+  link?: string
+) {
+  await supabase.from('notifications').insert({ user_id: userId, type, title, message, link: link || null })
 }
 
 export async function POST(req: Request) {
@@ -43,7 +51,11 @@ export async function POST(req: Request) {
     }
 
     const repoRes = await fetch(`https://api.github.com/repos/${repo}`, { headers: authHeaders })
-    if (!repoRes.ok) throw new Error(`GitHub Error: ${repoRes.status}. Check repo is public.`)
+    if (!repoRes.ok) {
+      if (userId) await notify(supabase, userId, 'error', 'Sync Failed', `Could not reach ${repo}. Check the repo name and visibility.`)
+      throw new Error(`GitHub Error: ${repoRes.status}. Check repo is public.`)
+    }
+
     const { default_branch } = await repoRes.json()
 
     const treeRes = await fetch(`https://api.github.com/repos/${repo}/git/trees/${default_branch}?recursive=1`, { headers: authHeaders })
@@ -55,10 +67,7 @@ export async function POST(req: Request) {
       .filter((f: any) => !f.path.match(/\.(png|jpg|jpeg|gif|ico|pdf|zip|mp4|webp)$/i))
       .slice(0, FILE_LIMIT)
 
-    // FIX: Delete existing files before re-sync so re-syncing never
-    // hits the unique_project_file constraint. Atomic — if fetch fails
-    // mid-loop the route returns an error and the client retains old data
-    // until a successful sync completes.
+    // Delete existing files before re-sync — prevents unique constraint error
     await supabase.from('code_memories').delete().eq('project_id', projectId)
 
     let syncedCount = 0
@@ -67,30 +76,34 @@ export async function POST(req: Request) {
     for (const file of files) {
       const fileRes = await fetch(`https://raw.githubusercontent.com/${repo}/${default_branch}/${file.path}`)
       if (!fileRes.ok) continue
-      
       const { error } = await supabase.from('code_memories').insert({
         project_id: projectId,
         file_name: file.path,
         content: await fileRes.text()
       })
       if (error) throw new Error(error.message)
-      
       syncedCount++
       syncedPaths.push(file.path)
     }
 
-    // UPDATE PROJECT MATURITY SCORE
-    const maturityScore = calculateMaturity(syncedPaths);
-    await supabase.from('projects').update({ maturity_score: maturityScore }).eq('id', projectId);
+    const maturityScore = calculateMaturity(syncedPaths)
+    await supabase.from('projects').update({ maturity_score: maturityScore }).eq('id', projectId)
 
-    return NextResponse.json({
-      success: true,
-      count: syncedCount,
-      score: maturityScore,
-      plan,
-      limit: FILE_LIMIT,
-      capped: files.length >= FILE_LIMIT
-    })
+    // Push notification to client via realtime
+    if (userId) {
+      const capped = files.length >= FILE_LIMIT
+      await notify(
+        supabase, userId,
+        capped ? 'warning' : 'success',
+        capped ? 'Sync Capped' : 'Sync Complete',
+        capped
+          ? `Only ${syncedCount} of ${FILE_LIMIT} files pulled from ${repo}. Upgrade to sync more.`
+          : `${syncedCount} files synced from ${repo}.`,
+        `/dashboard/projects/${projectId}/doc`
+      )
+    }
+
+    return NextResponse.json({ success: true, count: syncedCount, score: maturityScore, plan, limit: FILE_LIMIT, capped: files.length >= FILE_LIMIT })
 
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
