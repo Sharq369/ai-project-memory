@@ -51,9 +51,33 @@ export default function ProjectsDashboard() {
   }, [])
 
   useEffect(() => {
+    // 1. Initial load
     loadNodes()
-  }, [])
 
+    // 2. The "Neural Listener" - Waits for background webhooks to finish
+    const syncListener = supabase
+      .channel('webhook_sync_alerts')
+      .on(
+        'postgres_changes', 
+        { event: 'UPDATE', schema: 'public', table: 'projects' }, 
+        (payload) => {
+          // This fires the moment your background API finishes saving to the DB!
+          
+          // Trigger your existing custom toast notification
+          showToast('success', `Neural Sync Complete: ${payload.new.name} updated!`);
+          
+          // Refresh the UI to show the new files/maturity score
+          loadNodes();
+        }
+      )
+      .subscribe()
+
+    // Cleanup the listener when you leave the page
+    return () => {
+      supabase.removeChannel(syncListener)
+    }
+  }, []) // Empty dependency array
+  
   const loadNodes = async () => {
     try {
       setLoading(true)
