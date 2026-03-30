@@ -54,29 +54,39 @@ export default function ProjectsDashboard() {
     // 1. Initial load
     loadNodes()
 
-    // 2. The "Neural Listener" - Waits for background webhooks to finish
-    const syncListener = supabase
-      .channel('webhook_sync_alerts')
+    // 2. SUCCESS LISTENER: Waits for the project to update
+    const successListener = supabase
+      .channel('webhook_success_alerts')
       .on(
         'postgres_changes', 
         { event: 'UPDATE', schema: 'public', table: 'projects' }, 
         (payload) => {
-          // This fires the moment your background API finishes saving to the DB!
-          
-          // Trigger your existing custom toast notification
           showToast('success', `Neural Sync Complete: ${payload.new.name} updated!`);
-          
-          // Refresh the UI to show the new files/maturity score
           loadNodes();
         }
       )
       .subscribe()
 
-    // Cleanup the listener when you leave the page
+    // 3. FAILURE LISTENER: Watches the log table for errors
+    const errorListener = supabase
+      .channel('webhook_error_alerts')
+      .on(
+        'postgres_changes', 
+        { event: 'INSERT', schema: 'public', table: 'decomposer_log' }, 
+        (payload) => {
+          // Assuming your log table has a column like 'message' or 'error_details'
+          const errorMsg = payload.new.message || "Unknown sync error occurred.";
+          showToast('error', `Sync Failed: ${errorMsg}`);
+        }
+      )
+      .subscribe()
+
+    // 4. Cleanup both listeners when you leave the page
     return () => {
-      supabase.removeChannel(syncListener)
+      supabase.removeChannel(successListener)
+      supabase.removeChannel(errorListener)
     }
-  }, []) // Empty dependency array
+  }, [])
   
   const loadNodes = async () => {
     try {
