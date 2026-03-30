@@ -3,7 +3,8 @@
 import React, { useEffect, useState, memo, useCallback } from 'react';
 import { 
   User, Mail, Shield, Zap, Activity, 
-  Cpu, ArrowUpRight, Fingerprint, Lock, CheckCircle2, Database
+  Cpu, ArrowUpRight, Fingerprint, Lock, CheckCircle2, Database,
+  Pencil, Eye, EyeOff, Save, X, KeyRound, Camera, Loader2
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
@@ -29,6 +30,132 @@ const Card = memo(({ children, className = '', glowColor = 'none' }: { children:
       )}
       {children}
     </div>
+
+      {/* ── EDIT PROFILE MODAL ─────────────────────────────────────────────── */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="relative w-full max-w-lg rounded-2xl border border-[#1a1a3a] bg-[#07070f] shadow-2xl overflow-hidden">
+            {/* Top accent */}
+            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400 to-fuchsia-500" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Pencil size={14} className="text-cyan-400" />
+                <span className="text-[11px] font-black uppercase tracking-widest text-white">Edit Profile</span>
+              </div>
+              <button onClick={() => setShowEditModal(false)} className="p-1.5 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+
+              {/* Feedback */}
+              {editError && (
+                <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold">
+                  {editError}
+                </div>
+              )}
+              {editSuccess && (
+                <div className="px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold">
+                  {editSuccess}
+                </div>
+              )}
+
+              {/* ── AVATAR UPLOAD ── */}
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-3">Profile Picture</p>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] border border-cyan-500/30 flex items-center justify-center overflow-hidden">
+                    {userProfile?.avatarUrl ? (
+                      <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <User size={28} className="text-cyan-400" />
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all">
+                    {isUploadingAvatar ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
+                    {isUploadingAvatar ? 'Uploading...' : 'Upload Photo'}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={isUploadingAvatar} />
+                  </label>
+                  <span className="text-[9px] text-slate-600">Max 2MB</span>
+                </div>
+              </div>
+
+              <div className="border-t border-white/5" />
+
+              {/* ── DISPLAY NAME ── */}
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-3">Display Name</p>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Your display name..."
+                    className="flex-1 bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-cyan-500/50 transition-colors font-mono"
+                  />
+                  <button
+                    onClick={handleSaveName}
+                    disabled={isSavingName || !editName.trim()}
+                    className="flex items-center gap-2 px-4 py-3 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-400 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+                  >
+                    {isSavingName ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                    Save
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-white/5" />
+
+              {/* ── CHANGE PASSWORD ── */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <KeyRound size={12} className="text-fuchsia-400" />
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Change Password</p>
+                </div>
+                <div className="space-y-3">
+                  <div className="relative">
+                    <input
+                      type={showNewPw ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="New password (min 8 chars)..."
+                      className="w-full bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 pr-12 text-sm text-white outline-none focus:border-fuchsia-500/50 transition-colors font-mono"
+                    />
+                    <button onClick={() => setShowNewPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
+                      {showNewPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showCurrentPw ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password..."
+                      className="w-full bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 pr-12 text-sm text-white outline-none focus:border-fuchsia-500/50 transition-colors font-mono"
+                    />
+                    <button onClick={() => setShowCurrentPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
+                      {showCurrentPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={isSavingPw || !newPassword || !confirmPassword}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-fuchsia-500/20 hover:bg-fuchsia-500/30 border border-fuchsia-500/30 text-fuchsia-400 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+                  >
+                    {isSavingPw ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
+                    {isSavingPw ? 'Updating...' : 'Update Password'}
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 });
 Card.displayName = "Card";
@@ -46,7 +173,23 @@ export default function ProfilePage() {
     email: string;
     plan: PlanType;
     createdAt: string;
+    displayName: string;
+    avatarUrl: string | null;
   } | null>(null);
+
+  // Edit modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [isSavingPw, setIsSavingPw] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editSuccess, setEditSuccess] = useState('');
 
   const [usage, setUsage] = useState({
     aiMessages: 0,
@@ -65,7 +208,7 @@ export default function ProfilePage() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('plan_type, created_at')
+        .select('plan_type, created_at, display_name, avatar_url')
         .eq('id', user.id)
         .single();
 
@@ -108,6 +251,84 @@ export default function ProfilePage() {
     setMounted(true);
     fetchProfileData();
   }, [fetchProfileData]);
+
+  // ── Edit handlers ───────────────────────────────────────────────────────────
+  const openEdit = () => {
+    setEditName(userProfile?.displayName || '');
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setEditError('');
+    setEditSuccess('');
+    setShowEditModal(true);
+  };
+
+  const handleSaveName = async () => {
+    if (!editName.trim()) return;
+    setIsSavingName(true); setEditError(''); setEditSuccess('');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { error } = await supabase
+        .from('profiles')
+        .update({ display_name: editName.trim() })
+        .eq('id', user.id);
+      if (error) throw error;
+      setUserProfile(prev => prev ? { ...prev, displayName: editName.trim() } : prev);
+      setEditSuccess('Display name updated.');
+    } catch (e: any) {
+      setEditError(e.message || 'Failed to update name.');
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setEditError(''); setEditSuccess('');
+    if (!newPassword) { setEditError('Enter a new password.'); return; }
+    if (newPassword.length < 8) { setEditError('Password must be at least 8 characters.'); return; }
+    if (newPassword !== confirmPassword) { setEditError('Passwords do not match.'); return; }
+    setIsSavingPw(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setEditSuccess('Password updated successfully.');
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
+    } catch (e: any) {
+      setEditError(e.message || 'Failed to update password.');
+    } finally {
+      setIsSavingPw(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setEditError('Image must be under 2MB.'); return; }
+    setIsUploadingAvatar(true); setEditError('');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const ext = file.name.split('.').pop();
+      const path = `avatars/${user.id}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true, contentType: file.type });
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', user.id);
+      if (updateError) throw updateError;
+      setUserProfile(prev => prev ? { ...prev, avatarUrl: publicUrl } : prev);
+      setEditSuccess('Profile picture updated.');
+    } catch (e: any) {
+      setEditError(e.message || 'Upload failed.');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
 
   if (!mounted) return <div className="min-h-screen bg-[#030308]" />;
 
@@ -159,10 +380,15 @@ export default function ProfilePage() {
               {/* Core Identity Card */}
               <Card glowColor="cyan" className="overflow-visible">
                 <div className="flex flex-col md:flex-row items-start md:items-center gap-8">
-                  <div className="relative">
+                  {/* Avatar */}
+                  <div className="relative shrink-0">
                     <div className="absolute inset-0 bg-cyan-500/20 blur-xl rounded-full" />
-                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] flex items-center justify-center border border-cyan-500/30 relative z-10 shadow-[0_0_20px_rgba(34,211,238,0.2)]">
-                      <User size={40} className="text-cyan-400" />
+                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] flex items-center justify-center border border-cyan-500/30 relative z-10 shadow-[0_0_20px_rgba(34,211,238,0.2)] overflow-hidden">
+                      {userProfile?.avatarUrl ? (
+                        <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                      ) : (
+                        <User size={40} className="text-cyan-400" />
+                      )}
                     </div>
                     <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-[#0b0b16] rounded-full border border-[#1a1a3a] flex items-center justify-center z-20">
                       <CheckCircle2 size={16} className="text-green-500" />
@@ -170,14 +396,22 @@ export default function ProfilePage() {
                   </div>
                   
                   <div className="flex-1">
-                    <h2 className="text-2xl font-black text-white tracking-tight mb-2">
-                      {userProfile?.email.split('@')[0]}
-                    </h2>
+                    <div className="flex items-center justify-between mb-2">
+                      <h2 className="text-2xl font-black text-white tracking-tight">
+                        {userProfile?.displayName}
+                      </h2>
+                      {/* Edit Button */}
+                      <button
+                        onClick={openEdit}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-cyan-500/10 border border-white/10 hover:border-cyan-500/30 text-slate-400 hover:text-cyan-400 text-[10px] font-black uppercase tracking-widest transition-all"
+                      >
+                        <Pencil size={12} /> Edit
+                      </button>
+                    </div>
                     <div className="flex items-center gap-3 text-sm text-slate-400 font-mono mb-4">
                       <Mail size={14} className="text-slate-500" />
                       {userProfile?.email}
                     </div>
-                    
                     <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-[#05050a] px-4 py-2 rounded-lg border border-white/5 inline-flex">
                       <Fingerprint size={12} />
                       UUID: <span className="text-slate-300">{userProfile?.id.split('-')[0]}...</span>
@@ -306,5 +540,133 @@ export default function ProfilePage() {
         )}
       </div>
     </div>
+
+      {/* ── EDIT PROFILE MODAL ─────────────────────────────────────────────── */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="relative w-full max-w-lg rounded-2xl border border-[#1a1a3a] bg-[#07070f] shadow-2xl overflow-hidden">
+            {/* Top accent */}
+            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400 to-fuchsia-500" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Pencil size={14} className="text-cyan-400" />
+                <span className="text-[11px] font-black uppercase tracking-widest text-white">Edit Profile</span>
+              </div>
+              <button onClick={() => setShowEditModal(false)} className="p-1.5 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+
+              {/* Feedback */}
+              {editError && (
+                <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold">
+                  {editError}
+                </div>
+              )}
+              {editSuccess && (
+                <div className="px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold">
+                  {editSuccess}
+                </div>
+              )}
+
+              {/* ── AVATAR UPLOAD ── */}
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-3">Profile Picture</p>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] border border-cyan-500/30 flex items-center justify-center overflow-hidden">
+                    {userProfile?.avatarUrl ? (
+                      <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <User size={28} className="text-cyan-400" />
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all">
+                    {isUploadingAvatar ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
+                    {isUploadingAvatar ? 'Uploading...' : 'Upload Photo'}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={isUploadingAvatar} />
+                  </label>
+                  <span className="text-[9px] text-slate-600">Max 2MB</span>
+                </div>
+              </div>
+
+              <div className="border-t border-white/5" />
+
+              {/* ── DISPLAY NAME ── */}
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-3">Display Name</p>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Your display name..."
+                    className="flex-1 bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-cyan-500/50 transition-colors font-mono"
+                  />
+                  <button
+                    onClick={handleSaveName}
+                    disabled={isSavingName || !editName.trim()}
+                    className="flex items-center gap-2 px-4 py-3 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-400 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+                  >
+                    {isSavingName ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                    Save
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-white/5" />
+
+              {/* ── CHANGE PASSWORD ── */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <KeyRound size={12} className="text-fuchsia-400" />
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Change Password</p>
+                </div>
+                <div className="space-y-3">
+                  <div className="relative">
+                    <input
+                      type={showNewPw ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="New password (min 8 chars)..."
+                      className="w-full bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 pr-12 text-sm text-white outline-none focus:border-fuchsia-500/50 transition-colors font-mono"
+                    />
+                    <button onClick={() => setShowNewPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
+                      {showNewPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showCurrentPw ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password..."
+                      className="w-full bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 pr-12 text-sm text-white outline-none focus:border-fuchsia-500/50 transition-colors font-mono"
+                    />
+                    <button onClick={() => setShowCurrentPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
+                      {showCurrentPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={isSavingPw || !newPassword || !confirmPassword}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-fuchsia-500/20 hover:bg-fuchsia-500/30 border border-fuchsia-500/30 text-fuchsia-400 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+                  >
+                    {isSavingPw ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
+                    {isSavingPw ? 'Updating...' : 'Update Password'}
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
+
+
