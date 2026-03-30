@@ -6,21 +6,21 @@ export default function PrivacyPage() {
         
         <section className="space-y-4">
           <h2 className="text-xl font-bold text-white">1. Data Collection</h2>
-          <p>We collect minimal data required to provide our service, including your email address and GitHub metadata if linked. We do not sell your personal data to third parties.</p>
+          <p>We collect minimal data required to provide our service, including your email address, connected wallet addresses, and GitHub metadata. We do not sell your personal data to third parties.</p>
         </section>
 
         <section className="space-y-4">
-          <h2 className="text-xl font-bold text-white">2. Payment Security</h2>
-          <p>All payments are processed securely via Paddle. We never store your credit card information on our servers.</p>
+          <h2 className="text-xl font-bold text-white">2. Blockchain & Payments</h2>
+          <p>Payments are processed via cryptocurrency networks. While we do not collect traditional banking or credit card information, please be aware that blockchain transactions and wallet addresses are public by nature. We are not responsible for privacy implications arising from the public ledger.</p>
         </section>
 
         <section className="space-y-4">
           <h2 className="text-xl font-bold text-white">3. AI Training</h2>
-          <p>Your private code is never used to train global AI models without your explicit, opt-in consent.</p>
+          <p>Your private repository code is never used to train global AI models without your explicit, opt-in consent. Code memories are siloed entirely to your specific node.</p>
         </section>
 
         <footer className="pt-12 text-[10px] uppercase tracking-widest opacity-50">
-          Neural Capacity • Privacy Standards
+          Neural Node • Privacy Standards
         </footer>
       </div>
     </div>
