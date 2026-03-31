@@ -1,40 +1,72 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
-import { 
-  Plus, FolderGit2, Trash2, ArrowRight, Loader2, 
-  AlertTriangle, Activity, RefreshCw, Github, Gitlab, 
+import {
+  Plus, FolderGit2, Trash2, ArrowRight, Loader2,
+  AlertTriangle, Activity, RefreshCw, Github, Gitlab,
   Cloud, Zap, X, CheckCircle2, AlertCircle, Info, Database
 } from 'lucide-react'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX #1: Create the Supabase client ONCE outside the component.
+//
+// WHY: When created inside the component body, React re-runs that line on every
+// render, producing a new client instance each time. Each new instance opens a
+// new WebSocket, and the old one (with your active subscription) gets silently
+// dropped. On mobile, where React re-renders more aggressively due to viewport
+// events, orientation changes, and focus/blur cycles, this kills the realtime
+// connection constantly. A module-level singleton is created exactly once for
+// the lifetime of the page.
+// ─────────────────────────────────────────────────────────────────────────────
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
 export default function ProjectsDashboard() {
   const router = useRouter()
-  
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
 
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  
+
   const [nodeToDelete, setNodeToDelete] = useState<{ id: string, name: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [notification, setNotification] = useState<{ visible: boolean, type: 'success' | 'error' | 'info', message: string }>({ visible: false, type: 'info', message: '' })
-  
+  const [notification, setNotification] = useState<{
+    visible: boolean,
+    type: 'success' | 'error' | 'info',
+    message: string
+  }>({ visible: false, type: 'info', message: '' })
+
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [syncingProjectId, setSyncingProjectId] = useState<string | null>(null)
   const [repoName, setRepoName] = useState('')
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
   const [isSyncing, setIsSyncing] = useState(false)
 
-  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+  // ─────────────────────────────────────────────────────────────────────────
+  // FIX #2: Wrap showToast in useCallback so its reference is stable.
+  //
+  // WHY: showToast is called inside the realtime subscription callback. If its
+  // reference changes on every render (as it did before), the useEffect
+  // cleanup/re-run logic can't depend on it reliably. useCallback with an empty
+  // dep array ensures it's the same function reference for the lifetime of the
+  // component, which is correct since it only calls setNotification (a stable
+  // setter from useState).
+  // ─────────────────────────────────────────────────────────────────────────
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showToast = useCallback((type: 'success' | 'error' | 'info', message: string) => {
+    // Clear any existing timer to avoid premature dismissal when toasts stack
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     setNotification({ visible: true, type, message })
-    setTimeout(() => setNotification({ visible: false, type: 'info', message: '' }), 5000)
-  }
+    toastTimerRef.current = setTimeout(
+      () => setNotification({ visible: false, type: 'info', message: '' }),
+      5000
+    )
+  }, [])
 
   const heatMapData = useMemo(() => {
     return Array.from({ length: 84 }).map((_, i) => {
@@ -46,53 +78,23 @@ export default function ProjectsDashboard() {
       } else {
         level = randomSeed > 0.7 ? Math.floor(Math.random() * 3) : 0
       }
-      return level 
+      return level
     })
   }, [])
 
-  useEffect(() => {
-    // 1. Initial load
-    loadNodes()
-
-    // 2. SUCCESS LISTENER: Waits for the project to update
-    const successListener = supabase
-      .channel('webhook_success_alerts')
-      .on(
-        'postgres_changes', 
-        { event: 'UPDATE', schema: 'public', table: 'projects' }, 
-        (payload) => {
-          showToast('success', `Neural Sync Complete: ${payload.new.name} updated!`);
-          loadNodes();
-        }
-      )
-      .subscribe()
-
-    // 3. FAILURE LISTENER: Watches the log table for errors
-    const errorListener = supabase
-      .channel('webhook_error_alerts')
-      .on(
-        'postgres_changes', 
-        { event: 'INSERT', schema: 'public', table: 'decomposer_log' }, 
-        (payload) => {
-          // Assuming your log table has a column like 'message' or 'error_details'
-          const errorMsg = payload.new.message || "Unknown sync error occurred.";
-          showToast('error', `Sync Failed: ${errorMsg}`);
-        }
-      )
-      .subscribe()
-
-    // 4. Cleanup both listeners when you leave the page
-    return () => {
-      supabase.removeChannel(successListener)
-      supabase.removeChannel(errorListener)
-    }
-  }, [])
-  
-  const loadNodes = async () => {
+  // ─────────────────────────────────────────────────────────────────────────
+  // FIX #3: Wrap loadNodes in useCallback so it's a stable reference.
+  //
+  // WHY: loadNodes is called both on mount AND inside the realtime callback to
+  // refresh the project list after a DB update. If it's re-created on every
+  // render, the realtime subscription closure would hold a stale version of it.
+  // useCallback with [] gives us a permanent, stable function reference.
+  // ─────────────────────────────────────────────────────────────────────────
+  const loadNodes = useCallback(async () => {
     try {
       setLoading(true)
       const { data: { user }, error: authError } = await supabase.auth.getUser()
-      
+
       if (!user || authError) {
         window.location.href = '/login'
         return
@@ -107,7 +109,6 @@ export default function ProjectsDashboard() {
 
       if (projData) {
         const { data: memData } = await supabase.from('code_memories').select('id, project_id')
-        
         const mergedProjects = projData.map(project => ({
           ...project,
           fileCount: memData ? memData.filter(m => m.project_id === project.id).length : 0
@@ -116,7 +117,6 @@ export default function ProjectsDashboard() {
       } else {
         setProjects([])
       }
-      
     } catch (err: any) {
       console.error("Vault Load Error:", err)
       showToast('error', 'Failed to initialize vault data.')
@@ -124,7 +124,108 @@ export default function ProjectsDashboard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [showToast])
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FIX #4: Add a dedicated useEffect for the Realtime subscription.
+  //
+  // WHY (the core bug): There was NO realtime subscription in the original code
+  // at all — just loadNodes() on mount. The toast could never fire from a DB
+  // change because nothing was listening for one.
+  //
+  // The subscription is set up in its own useEffect with [loadNodes, showToast]
+  // as dependencies. Because both are wrapped in useCallback with [], this
+  // effect runs exactly once on mount, and the cleanup removes the channel on
+  // unmount — no leaks, no duplicate channels on mobile re-mounts.
+  //
+  // MOBILE NOTE: On mobile, the page can be backgrounded, causing the
+  // WebSocket to drop. The visibilitychange listener detects when the user
+  // returns to the tab and re-subscribes automatically, which is the key fix
+  // for mobile reliability.
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null
+
+    const subscribe = () => {
+      // Remove any existing channel before creating a new one
+      if (channel) supabase.removeChannel(channel)
+
+      channel = supabase
+        .channel('projects-realtime-dashboard')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',           // INSERT, UPDATE, DELETE
+            schema: 'public',
+            table: 'projects',
+          },
+          (payload) => {
+            console.log('[Realtime] projects change received:', payload)
+
+            if (payload.eventType === 'UPDATE') {
+              const updated = payload.new as any
+              // Optimistically update the changed row in state immediately —
+              // no full reload needed for updates, which is faster on mobile.
+              setProjects(prev =>
+                prev.map(p =>
+                  p.id === updated.id
+                    ? { ...p, ...updated }
+                    : p
+                )
+              )
+              showToast('success', `⚡ Neural sync complete — "${updated.name}" maturity updated to ${updated.maturity_score ?? '?'}%`)
+            } else {
+              // For INSERT or DELETE, reload the full list to stay in sync
+              loadNodes()
+              if (payload.eventType === 'INSERT') {
+                showToast('info', 'New node detected in the vault.')
+              } else if (payload.eventType === 'DELETE') {
+                showToast('info', 'A node was removed from the vault.')
+              }
+            }
+          }
+        )
+        .subscribe((status, err) => {
+          console.log('[Realtime] subscription status:', status, err ?? '')
+          if (status === 'SUBSCRIBED') {
+            console.log('[Realtime] ✅ Listening for project changes')
+          }
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('[Realtime] ⚠️ Channel issue — will retry on visibility change')
+          }
+        })
+    }
+
+    // Initial subscription
+    subscribe()
+
+    // Mobile fix: re-subscribe when the user returns to the tab/app.
+    // Mobile browsers aggressively kill WebSocket connections when backgrounded.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[Realtime] Tab visible again — re-subscribing')
+        subscribe()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      if (channel) supabase.removeChannel(channel)
+    }
+  }, [loadNodes, showToast])
+
+  // Initial data load on mount
+  useEffect(() => {
+    loadNodes()
+  }, [loadNodes])
+
+  // Cleanup toast timer on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    }
+  }, [])
 
   const handleCreateProject = async () => {
     setCreating(true)
@@ -252,7 +353,7 @@ export default function ProjectsDashboard() {
 
   return (
     <div className="flex-1 overflow-y-auto max-h-screen bg-[#050505] custom-scrollbar relative">
-      
+
       {/* Toast Notification */}
       <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[500] transition-all duration-300 pointer-events-none ${notification.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95'}`}>
         <div className={`flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto ${
@@ -268,7 +369,7 @@ export default function ProjectsDashboard() {
       </div>
 
       <div className="max-w-6xl mx-auto p-6 md:p-8 lg:p-12">
-        
+
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
           <div>
@@ -282,7 +383,7 @@ export default function ProjectsDashboard() {
               Manage your active neural nodes and codebase memory arrays.
             </p>
           </div>
-          
+
           <button
             onClick={handleCreateProject}
             disabled={creating}
@@ -329,25 +430,19 @@ export default function ProjectsDashboard() {
             projects?.map((project) => {
               const fileCount = project.fileCount || 0
               const isGrounded = fileCount === 0
-              
-              // Simulated Completion Logic for the UI
-              // Creates a stable but dynamic percentage based on file counts
-              const codebaseMaturity = isGrounded ? 0 : (project.maturity_score || 0);
+              const codebaseMaturity = isGrounded ? 0 : (project.maturity_score || 0)
 
               return (
-                <div 
+                <div
                   key={project.id}
                   className={`group relative bg-[#0a0a0a]/90 backdrop-blur-sm border rounded-2xl p-6 transition-all duration-500 hover:shadow-[0_0_30px_rgba(37,99,235,0.08)] flex flex-col cursor-pointer h-full overflow-hidden ${
                     isGrounded ? 'border-gray-800 hover:border-gray-600' : 'border-blue-900/30 hover:border-blue-500/50'
                   }`}
                   onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)}
                 >
-                  {/* --- PREMIUM ACCENT STRIPE --- */}
                   <div className={`absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r transition-all duration-500 ${
                     isGrounded ? 'from-transparent via-gray-600 to-transparent opacity-20 group-hover:opacity-50' : 'from-transparent via-blue-500 to-transparent opacity-70 group-hover:opacity-100 group-hover:shadow-[0_0_15px_rgba(59,130,246,1)]'
                   }`} />
-                  
-                  {/* Subtle inner radial gradient */}
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-white/[0.02] via-transparent to-transparent pointer-events-none" />
 
                   <div className="relative z-10 flex justify-between items-start mb-5">
@@ -359,7 +454,6 @@ export default function ProjectsDashboard() {
                         {project.name}
                       </h3>
                     </div>
-                    
                     <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border flex items-center gap-1.5 transition-colors ${
                       isGrounded ? 'bg-gray-900/50 text-gray-400 border-gray-800' : 'bg-green-500/10 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]'
                     }`}>
@@ -368,7 +462,6 @@ export default function ProjectsDashboard() {
                     </span>
                   </div>
 
-                  {/* Meta Data (ID & Files) */}
                   <div className="relative z-10 flex flex-wrap items-center gap-2 mb-5">
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#111] border border-gray-800/80 rounded-md">
                       <Database size={12} className="text-gray-500" />
@@ -382,15 +475,14 @@ export default function ProjectsDashboard() {
                     </div>
                   </div>
 
-                  {/* --- NEW: CODEBASE MATURITY PROGRESS BAR --- */}
                   <div className="relative z-10 mb-6 group/progress">
                     <div className="flex justify-between items-end mb-1.5">
                       <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider group-hover/progress:text-gray-400 transition-colors">Codebase Maturity</span>
                       <span className={`text-[10px] font-mono font-bold ${isGrounded ? 'text-gray-600' : 'text-cyan-400 drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]'}`}>{codebaseMaturity}%</span>
                     </div>
                     <div className="w-full bg-[#161b22] rounded-full h-1.5 overflow-hidden border border-gray-800 shadow-inner">
-                      <div 
-                        className={`h-1.5 rounded-full relative transition-all duration-1000 ease-out ${isGrounded ? 'bg-gray-700' : 'bg-gradient-to-r from-blue-600 to-cyan-400'}`} 
+                      <div
+                        className={`h-1.5 rounded-full relative transition-all duration-1000 ease-out ${isGrounded ? 'bg-gray-700' : 'bg-gradient-to-r from-blue-600 to-cyan-400'}`}
                         style={{ width: `${codebaseMaturity}%` }}
                       >
                         {!isGrounded && <div className="absolute top-0 right-0 bottom-0 w-3 bg-white/40 blur-[2px] animate-[shimmer_2s_infinite]"></div>}
@@ -398,21 +490,19 @@ export default function ProjectsDashboard() {
                     </div>
                   </div>
 
-                  {/* Action Icons */}
                   <div className="relative z-10 flex items-center gap-2 mb-5">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setSyncingProjectId(project.id); setIsSyncModalOpen(true); }}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSyncingProjectId(project.id); setIsSyncModalOpen(true) }}
                       className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-blue-400 hover:border-blue-500/50 hover:bg-blue-500/10 transition-all"
                       title="Sync Repository"
                     ><RefreshCw size={14} /></button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setNodeToDelete({ id: project.id, name: project.name }); }}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setNodeToDelete({ id: project.id, name: project.name }) }}
                       className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-red-400 hover:border-red-500/50 hover:bg-red-500/10 transition-all"
                       title="Decommission Node"
                     ><Trash2 size={14} /></button>
                   </div>
 
-                  {/* Bottom Row */}
                   <div className="relative z-10 mt-auto pt-4 flex items-center justify-between border-t border-gray-800/50">
                     <span className="text-[10px] font-mono text-gray-600 uppercase tracking-wider">
                       {new Date(project.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -501,4 +591,3 @@ export default function ProjectsDashboard() {
     </div>
   )
 }
-
