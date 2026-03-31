@@ -14,43 +14,49 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 const getRelativeTime = (dateString: string | null) => {
   if (!dateString) return 'Awaiting Sync'
-  
   const date = new Date(dateString)
   const now = new Date()
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-
   if (diffInSeconds < 60) return 'Just now'
-  
   const diffInMinutes = Math.floor(diffInSeconds / 60)
   if (diffInMinutes < 60) return `${diffInMinutes}m ago`
-  
   const diffInHours = Math.floor(diffInMinutes / 60)
   if (diffInHours < 24) return `${diffInHours}h ago`
-  
   const diffInDays = Math.floor(diffInHours / 24)
   return `${diffInDays}d ago`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX 1: Supabase Singleton (Mobile connection stability)
+// FIX 1: Lazy Supabase singleton — avoids env var timing issues with Turbopack.
+// The client is still created only once (cached in the variable after first
+// call), but we defer reading process.env until the first actual render cycle,
+// by which point Next.js guarantees env vars are injected.
 // ─────────────────────────────────────────────────────────────────────────────
-const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+let _supabaseClient: ReturnType<typeof createBrowserClient> | null = null
+const getSupabase = () => {
+  if (!_supabaseClient) {
+    _supabaseClient = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+  }
+  return _supabaseClient
+}
 
 export default function ProjectsDashboard() {
   const router = useRouter()
+  // Resolve once — stable reference for the component lifetime
+  const supabase = getSupabase()
 
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
 
-  const [nodeToDelete, setNodeToDelete] = useState<{ id: string, name: string } | null>(null)
+  const [nodeToDelete, setNodeToDelete] = useState<{ id: string; name: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [notification, setNotification] = useState<{
-    visible: boolean,
-    type: 'success' | 'error' | 'info',
+    visible: boolean
+    type: 'success' | 'error' | 'info'
     message: string
   }>({ visible: false, type: 'info', message: '' })
 
@@ -85,11 +91,17 @@ export default function ProjectsDashboard() {
     })
   }, [])
 
-  const loadNodes = useCallback(async () => {
+  // ─────────────────────────────────────────────────────────────────────────
+  // FIX 2: loadNodes no longer sets loading=true when called from realtime.
+  // A separate `silent` flag skips the full-page spinner for background
+  // refreshes triggered by INSERT/DELETE events, preventing the jarring
+  // loading flash the original code caused on every realtime update.
+  // ─────────────────────────────────────────────────────────────────────────
+  const loadNodes = useCallback(async (silent = false) => {
     try {
-      setLoading(true)
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (!silent) setLoading(true)
 
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
       if (!user || authError) {
         window.location.href = '/login'
         return
@@ -113,80 +125,117 @@ export default function ProjectsDashboard() {
         setProjects([])
       }
     } catch (err: any) {
-      console.error("Vault Load Error:", err)
+      console.error('Vault Load Error:', err)
       showToast('error', 'Failed to initialize vault data.')
       setProjects([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
-  }, [showToast])
+  }, [supabase, showToast])
 
   // ─────────────────────────────────────────────────────────────────────────
-  // FIX 2: Mobile Realtime Subscription with Visibility Wake-up
+  // FIX 3: Realtime subscription — three issues resolved:
+  //
+  // a) async removeChannel: we now await channel removal before subscribing
+  //    again, preventing duplicate channel conflicts on rapid re-subscribes.
+  //
+  // b) Debounced visibilitychange: a 300ms debounce prevents mobile from
+  //    spawning multiple channels during rapid tab focus/blur cycles.
+  //
+  // c) try/catch in payload handler: malformed payloads no longer silently
+  //    break state — errors are logged and a toast is shown instead.
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-    const subscribe = () => {
-      if (channel) supabase.removeChannel(channel)
+    // Generate a unique channel name per subscription instance to avoid
+    // Supabase rejecting a re-subscription on the same named channel.
+    const getChannelName = () => `projects-realtime-${Date.now()}`
+
+    const subscribe = async () => {
+      // FIX 3a: await removal before creating a new channel
+      if (channel) {
+        await supabase.removeChannel(channel)
+        channel = null
+      }
 
       channel = supabase
-        .channel('projects-realtime-dashboard')
+        .channel(getChannelName())
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'projects',
-          },
+          { event: '*', schema: 'public', table: 'projects' },
           (payload) => {
-            console.log('[Realtime] projects change received:', payload)
+            // FIX 3c: wrap handler in try/catch
+            try {
+              console.log('[Realtime] projects change received:', payload)
 
-            if (payload.eventType === 'UPDATE') {
-              const updated = payload.new as any
-              setProjects(prev =>
-                prev.map(p =>
-                  p.id === updated.id
-                    ? { ...p, ...updated } // This injects both maturity_score AND updated_at instantly
-                    : p
+              if (payload.eventType === 'UPDATE') {
+                const updated = payload.new as any
+                if (!updated?.id) throw new Error('UPDATE payload missing id')
+
+                setProjects(prev =>
+                  prev.map(p => (p.id === updated.id ? { ...p, ...updated } : p))
                 )
-              )
-              showToast('success', `⚡ Neural sync complete — "${updated.name}" updated.`)
-            } else {
-              loadNodes()
-              if (payload.eventType === 'INSERT') {
+                showToast('success', `⚡ Neural sync complete — "${updated.name}" updated.`)
+
+              } else if (payload.eventType === 'INSERT') {
+                // FIX 2 in action: silent=true skips spinner
+                loadNodes(true)
                 showToast('info', 'New node detected in the vault.')
+
               } else if (payload.eventType === 'DELETE') {
+                const deleted = payload.old as any
+                if (deleted?.id) {
+                  setProjects(prev => prev.filter(p => p.id !== deleted.id))
+                } else {
+                  loadNodes(true)
+                }
                 showToast('info', 'A node was removed from the vault.')
               }
+            } catch (err) {
+              console.error('[Realtime] Error handling payload:', err)
+              showToast('error', 'Realtime sync error — refreshing data.')
+              loadNodes(true)
             }
           }
         )
         .subscribe((status, err) => {
           console.log('[Realtime] subscription status:', status, err ?? '')
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('[Realtime] ⚠️ Channel issue detected')
+          }
         })
     }
 
     subscribe()
 
+    // FIX 3b: debounced visibility handler
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        console.log('[Realtime] Tab visible again — re-subscribing')
-        subscribe()
+        if (debounceTimer) clearTimeout(debounceTimer)
+        debounceTimer = setTimeout(() => {
+          console.log('[Realtime] Tab visible — re-subscribing')
+          subscribe()
+        }, 300)
       }
     }
+
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      if (debounceTimer) clearTimeout(debounceTimer)
       if (channel) supabase.removeChannel(channel)
     }
-  }, [loadNodes, showToast])
+  }, [supabase, loadNodes, showToast])
 
+  // Initial data load
   useEffect(() => {
     loadNodes()
   }, [loadNodes])
 
+  // Cleanup toast timer on unmount
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
@@ -234,19 +283,26 @@ export default function ProjectsDashboard() {
         router.push(`/dashboard/projects/${data.id}/doc`)
       }
     } catch (err: any) {
-      console.error("Vault Creation Error:", err)
+      console.error('Vault Creation Error:', err)
       showToast('error', err.message || 'An unexpected error occurred.')
       setCreating(false)
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // FIX 4: Use functional state updater in confirmDecommission.
+  // The original used the `projects` variable directly from the closure, which
+  // could be stale if the list changed between when the modal opened and when
+  // the user confirmed. Functional updater always operates on the latest state.
+  // ─────────────────────────────────────────────────────────────────────────
   const confirmDecommission = async () => {
     if (!nodeToDelete) return
     setIsDeleting(true)
     try {
       const { error } = await supabase.from('projects').delete().eq('id', nodeToDelete.id)
       if (error) throw error
-      setProjects(projects.filter(p => p.id !== nodeToDelete.id))
+      // FIX 4: functional updater — no stale closure
+      setProjects(prev => prev.filter(p => p.id !== nodeToDelete.id))
       showToast('success', `Node "${nodeToDelete.name}" successfully decommissioned.`)
       setNodeToDelete(null)
     } catch (err: any) {
@@ -256,6 +312,12 @@ export default function ProjectsDashboard() {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // FIX 5: Clear syncingProjectId after sync modal closes.
+  // The original left the stale project ID in state after a successful sync,
+  // meaning a subsequent modal open could accidentally target the wrong project
+  // if the user didn't explicitly click a new sync button first.
+  // ─────────────────────────────────────────────────────────────────────────
   const handleSyncTrigger = async () => {
     if (!repoName.trim() || !syncingProjectId) return
     setIsSyncing(true)
@@ -293,6 +355,7 @@ export default function ProjectsDashboard() {
         await loadNodes()
         setIsSyncModalOpen(false)
         setRepoName('')
+        setSyncingProjectId(null) // FIX 5: clear stale project ID
       } else {
         showToast('error', `Sync Error: ${result.error}`)
       }
@@ -324,12 +387,12 @@ export default function ProjectsDashboard() {
       <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[500] transition-all duration-300 pointer-events-none ${notification.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95'}`}>
         <div className={`flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto ${
           notification.type === 'success' ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-200' :
-          notification.type === 'error' ? 'bg-red-950/80 border-red-500/30 text-red-200' :
-          'bg-blue-950/80 border-blue-500/30 text-blue-200'
+          notification.type === 'error'   ? 'bg-red-950/80 border-red-500/30 text-red-200' :
+                                            'bg-blue-950/80 border-blue-500/30 text-blue-200'
         }`}>
           {notification.type === 'success' && <CheckCircle2 size={16} className="text-emerald-500" />}
-          {notification.type === 'error' && <AlertCircle size={16} className="text-red-500" />}
-          {notification.type === 'info' && <Info size={16} className="text-blue-500" />}
+          {notification.type === 'error'   && <AlertCircle  size={16} className="text-red-500" />}
+          {notification.type === 'info'    && <Info         size={16} className="text-blue-500" />}
           <span className="text-sm font-medium whitespace-nowrap">{notification.message}</span>
         </div>
       </div>
@@ -363,7 +426,7 @@ export default function ProjectsDashboard() {
 
         {/* Heat Map */}
         <div className="bg-[#0a0a0a] border border-gray-800/80 rounded-2xl p-6 mb-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 overflow-hidden relative group shadow-xl">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
           <div className="flex-shrink-0 z-10">
             <div className="flex items-center gap-2 text-white font-medium mb-1">
               <Activity size={18} className="text-blue-500" /> Neural Activity
@@ -373,7 +436,16 @@ export default function ProjectsDashboard() {
           <div className="flex gap-1.5 overflow-x-auto pb-2 md:pb-0 scrollbar-hide w-full md:w-auto z-10">
             <div className="grid grid-rows-7 grid-flow-col gap-1.5">
               {heatMapData.map((level, i) => (
-                <div key={i} className={`w-3 h-3 rounded-[2px] transition-colors duration-300 hover:ring-1 hover:ring-white/50 cursor-crosshair ${level === 0 ? 'bg-gray-800/40' : level === 1 ? 'bg-blue-900/60' : level === 2 ? 'bg-blue-600/80' : 'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.6)]'}`} title={`Activity level: ${level}`} />
+                <div
+                  key={i}
+                  className={`w-3 h-3 rounded-[2px] transition-colors duration-300 hover:ring-1 hover:ring-white/50 cursor-crosshair ${
+                    level === 0 ? 'bg-gray-800/40' :
+                    level === 1 ? 'bg-blue-900/60' :
+                    level === 2 ? 'bg-blue-600/80' :
+                                  'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.6)]'
+                  }`}
+                  title={`Activity level: ${level}`}
+                />
               ))}
             </div>
           </div>
@@ -407,10 +479,13 @@ export default function ProjectsDashboard() {
                   onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)}
                 >
                   <div className={`absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r transition-all duration-500 ${
-                    isGrounded ? 'from-transparent via-gray-600 to-transparent opacity-20 group-hover:opacity-50' : 'from-transparent via-blue-500 to-transparent opacity-70 group-hover:opacity-100 group-hover:shadow-[0_0_15px_rgba(59,130,246,1)]'
+                    isGrounded
+                      ? 'from-transparent via-gray-600 to-transparent opacity-20 group-hover:opacity-50'
+                      : 'from-transparent via-blue-500 to-transparent opacity-70 group-hover:opacity-100 group-hover:shadow-[0_0_15px_rgba(59,130,246,1)]'
                   }`} />
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-white/[0.02] via-transparent to-transparent pointer-events-none" />
 
+                  {/* Card Header */}
                   <div className="relative z-10 flex justify-between items-start mb-5">
                     <div className="flex items-center gap-3">
                       <div className="p-3 bg-[#111] border border-gray-800/80 rounded-xl group-hover:border-blue-500/30 group-hover:bg-blue-500/10 transition-colors">
@@ -421,60 +496,74 @@ export default function ProjectsDashboard() {
                       </h3>
                     </div>
                     <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border flex items-center gap-1.5 transition-colors ${
-                      isGrounded ? 'bg-gray-900/50 text-gray-400 border-gray-800' : 'bg-green-500/10 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]'
+                      isGrounded
+                        ? 'bg-gray-900/50 text-gray-400 border-gray-800'
+                        : 'bg-green-500/10 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]'
                     }`}>
-                      <div className={`w-1.5 h-1.5 rounded-full ${isGrounded ? 'bg-gray-500' : 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.8)]'}`}></div>
+                      <div className={`w-1.5 h-1.5 rounded-full ${isGrounded ? 'bg-gray-500' : 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.8)]'}`} />
                       {isGrounded ? 'Grounded' : 'Active'}
                     </span>
                   </div>
 
+                  {/* Meta chips */}
                   <div className="relative z-10 flex flex-wrap items-center gap-2 mb-5">
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#111] border border-gray-800/80 rounded-md">
                       <Database size={12} className="text-gray-500" />
                       <span className="text-[10px] font-mono text-gray-400">ID: {project.id.split('-')[0]}</span>
                     </div>
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#111] border border-gray-800/80 rounded-md">
-                      <Activity size={12} className={isGrounded ? "text-gray-500" : "text-blue-400"} />
+                      <Activity size={12} className={isGrounded ? 'text-gray-500' : 'text-blue-400'} />
                       <span className="text-[10px] font-mono text-gray-400">
                         {fileCount} {fileCount === 1 ? 'File' : 'Files'}
                       </span>
                     </div>
                   </div>
 
+                  {/* Codebase Maturity */}
                   <div className="relative z-10 mb-6 group/progress">
                     <div className="flex justify-between items-end mb-1.5">
-                      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider group-hover/progress:text-gray-400 transition-colors">Codebase Maturity</span>
-                      <span className={`text-[10px] font-mono font-bold ${isGrounded ? 'text-gray-600' : 'text-cyan-400 drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]'}`}>{codebaseMaturity}%</span>
+                      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider group-hover/progress:text-gray-400 transition-colors">
+                        Codebase Maturity
+                      </span>
+                      <span className={`text-[10px] font-mono font-bold ${isGrounded ? 'text-gray-600' : 'text-cyan-400 drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]'}`}>
+                        {codebaseMaturity}%
+                      </span>
                     </div>
                     <div className="w-full bg-[#161b22] rounded-full h-1.5 overflow-hidden border border-gray-800 shadow-inner">
-                      {/* FIX 3: Progress Bar CSS mobile rendering fix */}
                       <div
                         className={`h-1.5 rounded-full relative transition-all duration-1000 ease-out ${isGrounded ? 'bg-gray-700' : 'bg-gradient-to-r from-blue-600 to-cyan-400'}`}
                         style={{ width: `${codebaseMaturity > 0 ? codebaseMaturity : 0}%`, minWidth: '2px' }}
                       >
-                        {!isGrounded && <div className="absolute top-0 right-0 bottom-0 w-3 bg-white/40 blur-[2px] animate-[shimmer_2s_infinite]"></div>}
+                        {!isGrounded && (
+                          <div className="absolute top-0 right-0 bottom-0 w-3 bg-white/40 blur-[2px] animate-[shimmer_2s_infinite]" />
+                        )}
                       </div>
                     </div>
                   </div>
 
+                  {/* Action buttons */}
                   <div className="relative z-10 flex items-center gap-2 mb-5">
                     <button
                       onClick={(e) => { e.stopPropagation(); setSyncingProjectId(project.id); setIsSyncModalOpen(true) }}
                       className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-blue-400 hover:border-blue-500/50 hover:bg-blue-500/10 transition-all"
                       title="Sync Repository"
-                    ><RefreshCw size={14} /></button>
+                    >
+                      <RefreshCw size={14} />
+                    </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setNodeToDelete({ id: project.id, name: project.name }) }}
                       className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-red-400 hover:border-red-500/50 hover:bg-red-500/10 transition-all"
                       title="Decommission Node"
-                    ><Trash2 size={14} /></button>
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
 
-                  {/* FIX 4: Telemetry Bottom Row added here */}
+                  {/* Telemetry footer */}
                   <div className="relative z-10 mt-auto pt-4 flex items-center justify-between border-t border-gray-800/50">
                     <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider">
-                      <Activity size={12} className={isGrounded ? "text-gray-700" : "text-green-500 animate-pulse"} />
-                      <span className={isGrounded ? "text-gray-600" : "text-gray-400"}>
+                      <Activity size={12} className={isGrounded ? 'text-gray-700' : 'text-green-500 animate-pulse'} />
+                      <span className={isGrounded ? 'text-gray-600' : 'text-gray-400'}>
                         Sync: <strong className="text-gray-300">{getRelativeTime(project.updated_at)}</strong>
                       </span>
                     </div>
@@ -489,7 +578,7 @@ export default function ProjectsDashboard() {
         </div>
       </div>
 
-      {/* Delete Modal */}
+      {/* ── Delete Modal ────────────────────────────────────────────────────── */}
       {nodeToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isDeleting && setNodeToDelete(null)} />
@@ -507,7 +596,9 @@ export default function ProjectsDashboard() {
               </p>
             </div>
             <div className="flex gap-3 px-6 md:px-8 pb-6 md:pb-8">
-              <button onClick={() => setNodeToDelete(null)} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] hover:bg-gray-800 text-gray-300 transition-colors">Cancel</button>
+              <button onClick={() => setNodeToDelete(null)} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] hover:bg-gray-800 text-gray-300 transition-colors">
+                Cancel
+              </button>
               <button onClick={confirmDecommission} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/20 transition-colors flex items-center justify-center gap-2">
                 {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Confirm Deletion'}
               </button>
@@ -516,7 +607,7 @@ export default function ProjectsDashboard() {
         </div>
       )}
 
-      {/* Sync Modal */}
+      {/* ── Sync Modal ──────────────────────────────────────────────────────── */}
       {isSyncModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isSyncing && setIsSyncModalOpen(false)} />
@@ -526,17 +617,27 @@ export default function ProjectsDashboard() {
                 <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg"><RefreshCw size={20} /></div>
                 <h2 className="text-xl font-bold text-white">Initialize Sync Pipeline</h2>
               </div>
-              <button onClick={() => setIsSyncModalOpen(false)} disabled={isSyncing} className="text-gray-500 hover:text-white transition-colors"><X size={20} /></button>
+              <button onClick={() => setIsSyncModalOpen(false)} disabled={isSyncing} className="text-gray-500 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
             </div>
             <div className="p-6 overflow-y-auto custom-scrollbar">
               <p className="text-sm text-gray-400 mb-6">Connect a remote repository to inject its codebase into this node's memory banks.</p>
               <div className="grid grid-cols-3 gap-3 mb-6">
                 {[
-                  { id: 'github', icon: Github, label: 'GitHub', activeColor: 'border-white text-white bg-white/10 shadow-[0_0_15px_rgba(255,255,255,0.15)]' },
-                  { id: 'gitlab', icon: Gitlab, label: 'GitLab', activeColor: 'border-orange-500 text-orange-400 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' },
-                  { id: 'bitbucket', icon: Cloud, label: 'Bitbucket', activeColor: 'border-blue-500 text-blue-400 bg-blue-500/10 shadow-[0_0_15px_rgba(59,130,246,0.2)]' }
+                  { id: 'github',    icon: Github, label: 'GitHub',    activeColor: 'border-white text-white bg-white/10 shadow-[0_0_15px_rgba(255,255,255,0.15)]' },
+                  { id: 'gitlab',    icon: Gitlab, label: 'GitLab',    activeColor: 'border-orange-500 text-orange-400 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' },
+                  { id: 'bitbucket', icon: Cloud,  label: 'Bitbucket', activeColor: 'border-blue-500 text-blue-400 bg-blue-500/10 shadow-[0_0_15px_rgba(59,130,246,0.2)]' }
                 ].map((provider) => (
-                  <button key={provider.id} onClick={() => setActiveProvider(provider.id as any)} className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${activeProvider === provider.id ? provider.activeColor : 'bg-[#161b22] border-gray-800 text-gray-500 hover:text-gray-300 hover:bg-gray-800'}`}>
+                  <button
+                    key={provider.id}
+                    onClick={() => setActiveProvider(provider.id as any)}
+                    className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${
+                      activeProvider === provider.id
+                        ? provider.activeColor
+                        : 'bg-[#161b22] border-gray-800 text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                    }`}
+                  >
                     <provider.icon size={24} />
                     <span className="text-xs font-semibold tracking-wider uppercase">{provider.label}</span>
                   </button>
@@ -545,15 +646,28 @@ export default function ProjectsDashboard() {
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Repository Target</label>
                 <div className="relative">
-                  <input type="text" value={repoName} onChange={(e) => setRepoName(e.target.value)} placeholder="e.g. facebook/react" className="w-full bg-[#111] border border-gray-700 rounded-xl py-3 pl-4 pr-10 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-mono text-sm" />
+                  <input
+                    type="text"
+                    value={repoName}
+                    onChange={(e) => setRepoName(e.target.value)}
+                    placeholder="e.g. facebook/react"
+                    className="w-full bg-[#111] border border-gray-700 rounded-xl py-3 pl-4 pr-10 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-mono text-sm"
+                  />
                   <Zap className="absolute right-3 top-3.5 text-gray-500" size={16} />
                 </div>
                 <p className="text-[11px] text-gray-500 font-mono mt-1">Format: username/repository</p>
               </div>
             </div>
             <div className="p-6 bg-black/20 border-t border-gray-800/50 mt-auto">
-              <button onClick={handleSyncTrigger} disabled={isSyncing || !repoName.trim()} className="w-full flex items-center justify-center gap-2 py-3 bg-white text-black font-semibold rounded-xl hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                {isSyncing ? <><Loader2 size={18} className="animate-spin text-black" /><span>Establishing Connection...</span></> : <><RefreshCw size={18} /><span>Confirm Sync</span></>}
+              <button
+                onClick={handleSyncTrigger}
+                disabled={isSyncing || !repoName.trim()}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-white text-black font-semibold rounded-xl hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSyncing
+                  ? <><Loader2 size={18} className="animate-spin text-black" /><span>Establishing Connection...</span></>
+                  : <><RefreshCw size={18} /><span>Confirm Sync</span></>
+                }
               </button>
             </div>
           </div>
