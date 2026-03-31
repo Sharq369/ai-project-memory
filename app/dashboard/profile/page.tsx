@@ -4,7 +4,7 @@ import React, { useEffect, useState, memo, useCallback } from 'react';
 import {
   User, Mail, Shield, Zap, Activity,
   Cpu, ArrowUpRight, Fingerprint, Lock, CheckCircle2,
-  Database, Edit3, X, Save, AlertCircle
+  Database, Edit3, X, Save, AlertCircle, Camera, Eye, EyeOff, KeyRound, Loader2
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
@@ -59,7 +59,16 @@ export default function ProfilePage() {
     plan: PlanType;
     createdAt: string;
     displayName?: string;
+    avatarUrl?: string | null;
   } | null>(null);
+
+  // Password change state
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [isSavingPw, setIsSavingPw] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   const [usage, setUsage] = useState({
     aiMessages: 0,
@@ -78,7 +87,7 @@ export default function ProfilePage() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('plan_type, created_at, display_name')
+        .select('plan_type, created_at, display_name, avatar_url')
         .eq('id', user.id)
         .single();
 
@@ -94,6 +103,7 @@ export default function ProfilePage() {
         plan: plan,
         createdAt: profile?.created_at || new Date().toISOString(),
         displayName: profile?.display_name || '',
+        avatarUrl: profile?.avatar_url || null,
       });
 
       // Initialise the edit field with current display name
@@ -126,35 +136,76 @@ export default function ProfilePage() {
     fetchProfileData();
   }, [fetchProfileData]);
 
-  // ── Save display name handler ───────────────────────────────────
+  // ── Save display name — UPSERT so new users don't silently fail ──────────────
   const handleSaveProfile = async () => {
     if (!userProfile) return;
     setEditSaving(true);
     setEditError(null);
     setEditSuccess(false);
-
     try {
+      // upsert guarantees the row is created if it doesn't exist yet
       const { error } = await supabase
         .from('profiles')
-        .update({ display_name: editDisplayName.trim() })
-        .eq('id', userProfile.id);
-
+        .upsert({ id: userProfile.id, display_name: editDisplayName.trim() }, { onConflict: 'id' });
       if (error) throw error;
-
-      // Update local state so UI reflects change immediately
+      // Update local state immediately — no refresh needed
       setUserProfile(prev => prev ? { ...prev, displayName: editDisplayName.trim() } : prev);
       setEditSuccess(true);
-
-      // Auto-close modal after short success delay
-      setTimeout(() => {
-        setShowEditModal(false);
-        setEditSuccess(false);
-      }, 1200);
-
+      setTimeout(() => { setShowEditModal(false); setEditSuccess(false); }, 1200);
     } catch (err: any) {
       setEditError(err?.message || 'Failed to save. Please try again.');
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  // ── Avatar upload ──────────────────────────────────────────────────────────
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userProfile) return;
+    if (file.size > 2 * 1024 * 1024) { setEditError('Image must be under 2MB.'); return; }
+    setIsUploadingAvatar(true); setEditError(null);
+    try {
+      const ext = file.name.split('.').pop();
+      const path = `avatars/${userProfile.id}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+      // Persist to profiles table
+      const { error: dbErr } = await supabase
+        .from('profiles')
+        .upsert({ id: userProfile.id, avatar_url: publicUrl }, { onConflict: 'id' });
+      if (dbErr) throw dbErr;
+      // Update local state — persists across refresh via DB
+      setUserProfile(prev => prev ? { ...prev, avatarUrl: publicUrl } : prev);
+      setEditSuccess(true);
+      setTimeout(() => setEditSuccess(false), 2000);
+    } catch (err: any) {
+      setEditError(err?.message || 'Upload failed.');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  // ── Password change ────────────────────────────────────────────────────────
+  const handleChangePassword = async () => {
+    setEditError(null); setEditSuccess(false);
+    if (!newPassword) { setEditError('Enter a new password.'); return; }
+    if (newPassword.length < 8) { setEditError('Password must be at least 8 characters.'); return; }
+    if (newPassword !== confirmPassword) { setEditError('Passwords do not match.'); return; }
+    setIsSavingPw(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setNewPassword(''); setConfirmPassword('');
+      setEditSuccess(true);
+      setTimeout(() => setEditSuccess(false), 2000);
+    } catch (err: any) {
+      setEditError(err?.message || 'Password update failed.');
+    } finally {
+      setIsSavingPw(false);
     }
   };
 
@@ -218,8 +269,10 @@ export default function ProfilePage() {
                 <div className="flex flex-col md:flex-row items-start md:items-center gap-8">
                   <div className="relative">
                     <div className="absolute inset-0 bg-cyan-500/20 blur-xl rounded-full" />
-                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] flex items-center justify-center border border-cyan-500/30 relative z-10 shadow-[0_0_20px_rgba(34,211,238,0.2)]">
-                      <User size={40} className="text-cyan-400" />
+                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] flex items-center justify-center border border-cyan-500/30 relative z-10 shadow-[0_0_20px_rgba(34,211,238,0.2)] overflow-hidden">
+                      {userProfile?.avatarUrl
+                        ? <img src={userProfile.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                        : <User size={40} className="text-cyan-400" />}
                     </div>
                     <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-[#0b0b16] rounded-full border border-[#1a1a3a] flex items-center justify-center z-20">
                       <CheckCircle2 size={16} className="text-green-500" />
@@ -237,6 +290,8 @@ export default function ProfilePage() {
                           setEditDisplayName(userProfile?.displayName || '');
                           setEditError(null);
                           setEditSuccess(false);
+                          setNewPassword('');
+                          setConfirmPassword('');
                           setShowEditModal(true);
                         }}
                         className="p-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/10 border border-white/10 hover:border-cyan-500/30 text-slate-500 hover:text-cyan-400 transition-all duration-200"
@@ -410,6 +465,28 @@ export default function ProfilePage() {
             {/* Modal Body */}
             <div className="px-6 py-6 space-y-5">
 
+              {/* ── AVATAR UPLOAD ── */}
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">
+                  Profile Picture
+                </label>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] border border-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
+                    {userProfile?.avatarUrl
+                      ? <img src={userProfile.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                      : <User size={26} className="text-cyan-400" />}
+                  </div>
+                  <label className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all">
+                    {isUploadingAvatar ? <Loader2 size={12} className="animate-spin text-cyan-400" /> : <Camera size={12} />}
+                    {isUploadingAvatar ? 'Uploading...' : 'Upload Photo'}
+                    <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handleAvatarUpload} disabled={isUploadingAvatar} />
+                  </label>
+                  <span className="text-[9px] text-slate-600 font-mono">Max 2MB</span>
+                </div>
+              </div>
+
+              <div className="border-t border-white/5" />
+
               {/* Display Name Field */}
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
@@ -435,6 +512,52 @@ export default function ProfilePage() {
                 <div className="w-full bg-[#030308] border border-[#0f0f20] rounded-xl px-4 py-3 text-sm font-mono text-slate-500 flex items-center gap-2">
                   <Mail size={13} className="text-slate-600 shrink-0" />
                   {userProfile?.email}
+                </div>
+              </div>
+
+              <div className="border-t border-white/5" />
+
+              {/* ── PASSWORD CHANGE ── */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <KeyRound size={11} className="text-fuchsia-400" />
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Change Password
+                  </label>
+                </div>
+                <div className="space-y-3">
+                  <div className="relative">
+                    <input
+                      type={showNewPw ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      placeholder="New password (min 8 chars)"
+                      className="w-full bg-[#05050a] border border-[#1a1a3a] focus:border-fuchsia-500/50 text-white placeholder-slate-600 rounded-xl px-4 py-3 pr-12 text-sm font-mono outline-none transition-all"
+                    />
+                    <button onClick={() => setShowNewPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
+                      {showNewPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPw ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                      className="w-full bg-[#05050a] border border-[#1a1a3a] focus:border-fuchsia-500/50 text-white placeholder-slate-600 rounded-xl px-4 py-3 pr-12 text-sm font-mono outline-none transition-all"
+                    />
+                    <button onClick={() => setShowConfirmPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
+                      {showConfirmPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={isSavingPw || !newPassword || !confirmPassword}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-fuchsia-500/15 hover:bg-fuchsia-500/25 border border-fuchsia-500/25 text-fuchsia-400 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+                  >
+                    {isSavingPw ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
+                    {isSavingPw ? 'Updating...' : 'Update Password'}
+                  </button>
                 </div>
               </div>
 
@@ -485,3 +608,4 @@ export default function ProfilePage() {
     // ── End ROOT wrapper ───────────────────────────────────────────
   );
 }
+
