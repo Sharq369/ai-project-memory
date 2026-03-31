@@ -27,11 +27,18 @@ export async function POST(req: Request) {
 
     // 3. Fetch from Google Custom Search API
     let webResults: any[] = []
+    
+    console.log("Checking Env Vars: ", { 
+      hasKey: !!process.env.GOOGLE_SEARCH_API_KEY, 
+      hasCX: !!process.env.GOOGLE_SEARCH_CX 
+    });
+
     if (process.env.GOOGLE_SEARCH_API_KEY && process.env.GOOGLE_SEARCH_CX) {
       try {
         const googleRes = await fetch(
           `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_SEARCH_API_KEY}&cx=${process.env.GOOGLE_SEARCH_CX}&q=${encodeURIComponent(query)}&num=3`
         )
+        
         if (googleRes.ok) {
           const googleData = await googleRes.json()
           webResults = googleData.items?.map((item: any) => ({
@@ -39,12 +46,19 @@ export async function POST(req: Request) {
             link: item.link,
             snippet: item.snippet
           })) || []
+          console.log(`Google API Success: Found ${webResults.length} results.`);
+        } else {
+          // THIS IS THE FIX: Actually read the error Google sends back
+          const errorData = await googleRes.json();
+          console.error("Google API Rejected the Request:", errorData);
         }
       } catch (e) {
-        console.error("Google Search API Error:", e)
+        console.error("Google Search Network Error:", e)
       }
-    }
-
+    } else {
+      console.warn("Skipping Google Search: Environment variables are missing.");
+      }
+    
     // 4. Initialize Gemini
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
