@@ -10,15 +10,29 @@ import {
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX #1: Create the Supabase client ONCE outside the component.
-//
-// WHY: When created inside the component body, React re-runs that line on every
-// render, producing a new client instance each time. Each new instance opens a
-// new WebSocket, and the old one (with your active subscription) gets silently
-// dropped. On mobile, where React re-renders more aggressively due to viewport
-// events, orientation changes, and focus/blur cycles, this kills the realtime
-// connection constantly. A module-level singleton is created exactly once for
-// the lifetime of the page.
+// HELPER: Telemetry Time Formatting
+// ─────────────────────────────────────────────────────────────────────────────
+const getRelativeTime = (dateString: string | null) => {
+  if (!dateString) return 'Awaiting Sync'
+  
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+
+  if (diffInSeconds < 60) return 'Just now'
+  
+  const diffInMinutes = Math.floor(diffInSeconds / 60)
+  if (diffInMinutes < 60) return `${diffInMinutes}m ago`
+  
+  const diffInHours = Math.floor(diffInMinutes / 60)
+  if (diffInHours < 24) return `${diffInHours}h ago`
+  
+  const diffInDays = Math.floor(diffInHours / 24)
+  return `${diffInDays}d ago`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX 1: Supabase Singleton (Mobile connection stability)
 // ─────────────────────────────────────────────────────────────────────────────
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -46,20 +60,9 @@ export default function ProjectsDashboard() {
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
   const [isSyncing, setIsSyncing] = useState(false)
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // FIX #2: Wrap showToast in useCallback so its reference is stable.
-  //
-  // WHY: showToast is called inside the realtime subscription callback. If its
-  // reference changes on every render (as it did before), the useEffect
-  // cleanup/re-run logic can't depend on it reliably. useCallback with an empty
-  // dep array ensures it's the same function reference for the lifetime of the
-  // component, which is correct since it only calls setNotification (a stable
-  // setter from useState).
-  // ─────────────────────────────────────────────────────────────────────────
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const showToast = useCallback((type: 'success' | 'error' | 'info', message: string) => {
-    // Clear any existing timer to avoid premature dismissal when toasts stack
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     setNotification({ visible: true, type, message })
     toastTimerRef.current = setTimeout(
@@ -82,14 +85,6 @@ export default function ProjectsDashboard() {
     })
   }, [])
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // FIX #3: Wrap loadNodes in useCallback so it's a stable reference.
-  //
-  // WHY: loadNodes is called both on mount AND inside the realtime callback to
-  // refresh the project list after a DB update. If it's re-created on every
-  // render, the realtime subscription closure would hold a stale version of it.
-  // useCallback with [] gives us a permanent, stable function reference.
-  // ─────────────────────────────────────────────────────────────────────────
   const loadNodes = useCallback(async () => {
     try {
       setLoading(true)
@@ -127,27 +122,12 @@ export default function ProjectsDashboard() {
   }, [showToast])
 
   // ─────────────────────────────────────────────────────────────────────────
-  // FIX #4: Add a dedicated useEffect for the Realtime subscription.
-  //
-  // WHY (the core bug): There was NO realtime subscription in the original code
-  // at all — just loadNodes() on mount. The toast could never fire from a DB
-  // change because nothing was listening for one.
-  //
-  // The subscription is set up in its own useEffect with [loadNodes, showToast]
-  // as dependencies. Because both are wrapped in useCallback with [], this
-  // effect runs exactly once on mount, and the cleanup removes the channel on
-  // unmount — no leaks, no duplicate channels on mobile re-mounts.
-  //
-  // MOBILE NOTE: On mobile, the page can be backgrounded, causing the
-  // WebSocket to drop. The visibilitychange listener detects when the user
-  // returns to the tab and re-subscribes automatically, which is the key fix
-  // for mobile reliability.
+  // FIX 2: Mobile Realtime Subscription with Visibility Wake-up
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null
 
     const subscribe = () => {
-      // Remove any existing channel before creating a new one
       if (channel) supabase.removeChannel(channel)
 
       channel = supabase
@@ -155,7 +135,7 @@ export default function ProjectsDashboard() {
         .on(
           'postgres_changes',
           {
-            event: '*',           // INSERT, UPDATE, DELETE
+            event: '*',
             schema: 'public',
             table: 'projects',
           },
@@ -164,18 +144,15 @@ export default function ProjectsDashboard() {
 
             if (payload.eventType === 'UPDATE') {
               const updated = payload.new as any
-              // Optimistically update the changed row in state immediately —
-              // no full reload needed for updates, which is faster on mobile.
               setProjects(prev =>
                 prev.map(p =>
                   p.id === updated.id
-                    ? { ...p, ...updated }
+                    ? { ...p, ...updated } // This injects both maturity_score AND updated_at instantly
                     : p
                 )
               )
-              showToast('success', `⚡ Neural sync complete — "${updated.name}" maturity updated to ${updated.maturity_score ?? '?'}%`)
+              showToast('success', `⚡ Neural sync complete — "${updated.name}" updated.`)
             } else {
-              // For INSERT or DELETE, reload the full list to stay in sync
               loadNodes()
               if (payload.eventType === 'INSERT') {
                 showToast('info', 'New node detected in the vault.')
@@ -187,20 +164,11 @@ export default function ProjectsDashboard() {
         )
         .subscribe((status, err) => {
           console.log('[Realtime] subscription status:', status, err ?? '')
-          if (status === 'SUBSCRIBED') {
-            console.log('[Realtime] ✅ Listening for project changes')
-          }
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.warn('[Realtime] ⚠️ Channel issue — will retry on visibility change')
-          }
         })
     }
 
-    // Initial subscription
     subscribe()
 
-    // Mobile fix: re-subscribe when the user returns to the tab/app.
-    // Mobile browsers aggressively kill WebSocket connections when backgrounded.
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         console.log('[Realtime] Tab visible again — re-subscribing')
@@ -215,12 +183,10 @@ export default function ProjectsDashboard() {
     }
   }, [loadNodes, showToast])
 
-  // Initial data load on mount
   useEffect(() => {
     loadNodes()
   }, [loadNodes])
 
-  // Cleanup toast timer on unmount
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
@@ -481,9 +447,10 @@ export default function ProjectsDashboard() {
                       <span className={`text-[10px] font-mono font-bold ${isGrounded ? 'text-gray-600' : 'text-cyan-400 drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]'}`}>{codebaseMaturity}%</span>
                     </div>
                     <div className="w-full bg-[#161b22] rounded-full h-1.5 overflow-hidden border border-gray-800 shadow-inner">
+                      {/* FIX 3: Progress Bar CSS mobile rendering fix */}
                       <div
                         className={`h-1.5 rounded-full relative transition-all duration-1000 ease-out ${isGrounded ? 'bg-gray-700' : 'bg-gradient-to-r from-blue-600 to-cyan-400'}`}
-                        style={{ width: `${codebaseMaturity}%` }}
+                        style={{ width: `${codebaseMaturity > 0 ? codebaseMaturity : 0}%`, minWidth: '2px' }}
                       >
                         {!isGrounded && <div className="absolute top-0 right-0 bottom-0 w-3 bg-white/40 blur-[2px] animate-[shimmer_2s_infinite]"></div>}
                       </div>
@@ -503,10 +470,14 @@ export default function ProjectsDashboard() {
                     ><Trash2 size={14} /></button>
                   </div>
 
+                  {/* FIX 4: Telemetry Bottom Row added here */}
                   <div className="relative z-10 mt-auto pt-4 flex items-center justify-between border-t border-gray-800/50">
-                    <span className="text-[10px] font-mono text-gray-600 uppercase tracking-wider">
-                      {new Date(project.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </span>
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider">
+                      <Activity size={12} className={isGrounded ? "text-gray-700" : "text-green-500 animate-pulse"} />
+                      <span className={isGrounded ? "text-gray-600" : "text-gray-400"}>
+                        Sync: <strong className="text-gray-300">{getRelativeTime(project.updated_at)}</strong>
+                      </span>
+                    </div>
                     <button className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 group-hover:text-blue-400 transition-colors">
                       Enter Node <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                     </button>
