@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useEffect, useState, memo, useCallback } from 'react';
-import { 
-  User, Mail, Shield, Zap, Activity, 
-  Cpu, ArrowUpRight, Fingerprint, Lock, CheckCircle2, Database,
-  Pencil, Eye, EyeOff, Save, X, KeyRound, Camera, Loader2
+import {
+  User, Mail, Shield, Zap, Activity,
+  Cpu, ArrowUpRight, Fingerprint, Lock, CheckCircle2,
+  Database, Edit3, X, Save, AlertCircle
 } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
@@ -14,7 +14,11 @@ import { getLimits, PlanType, PLAN_LABELS, PLAN_DESCRIPTIONS, isDeveloper } from
 // 1. REUSABLE UI COMPONENTS (Matched exactly to Dashboard)
 // ------------------------------------------------------------------
 
-const Card = memo(({ children, className = '', glowColor = 'none' }: { children: React.ReactNode; className?: string; glowColor?: 'fuchsia' | 'cyan' | 'none' }) => {
+const Card = memo(({ children, className = '', glowColor = 'none' }: {
+  children: React.ReactNode;
+  className?: string;
+  glowColor?: 'fuchsia' | 'cyan' | 'none';
+}) => {
   const edgeGlows = {
     fuchsia: 'bg-gradient-to-r from-transparent via-fuchsia-400 to-transparent shadow-[0_2px_20px_-2px_rgba(217,70,239,0.7)]',
     cyan: 'bg-gradient-to-r from-transparent via-cyan-300 to-transparent shadow-[0_2px_20px_-2px_rgba(34,211,238,0.7)]',
@@ -30,132 +34,6 @@ const Card = memo(({ children, className = '', glowColor = 'none' }: { children:
       )}
       {children}
     </div>
-
-      {/* ── EDIT PROFILE MODAL ─────────────────────────────────────────────── */}
-      {showEditModal && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="relative w-full max-w-lg rounded-2xl border border-[#1a1a3a] bg-[#07070f] shadow-2xl overflow-hidden">
-            {/* Top accent */}
-            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400 to-fuchsia-500" />
-
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
-              <div className="flex items-center gap-2">
-                <Pencil size={14} className="text-cyan-400" />
-                <span className="text-[11px] font-black uppercase tracking-widest text-white">Edit Profile</span>
-              </div>
-              <button onClick={() => setShowEditModal(false)} className="p-1.5 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-
-              {/* Feedback */}
-              {editError && (
-                <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold">
-                  {editError}
-                </div>
-              )}
-              {editSuccess && (
-                <div className="px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold">
-                  {editSuccess}
-                </div>
-              )}
-
-              {/* ── AVATAR UPLOAD ── */}
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-3">Profile Picture</p>
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] border border-cyan-500/30 flex items-center justify-center overflow-hidden">
-                    {userProfile?.avatarUrl ? (
-                      <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                    ) : (
-                      <User size={28} className="text-cyan-400" />
-                    )}
-                  </div>
-                  <label className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all">
-                    {isUploadingAvatar ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
-                    {isUploadingAvatar ? 'Uploading...' : 'Upload Photo'}
-                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={isUploadingAvatar} />
-                  </label>
-                  <span className="text-[9px] text-slate-600">Max 2MB</span>
-                </div>
-              </div>
-
-              <div className="border-t border-white/5" />
-
-              {/* ── DISPLAY NAME ── */}
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-3">Display Name</p>
-                <div className="flex gap-3">
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    placeholder="Your display name..."
-                    className="flex-1 bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-cyan-500/50 transition-colors font-mono"
-                  />
-                  <button
-                    onClick={handleSaveName}
-                    disabled={isSavingName || !editName.trim()}
-                    className="flex items-center gap-2 px-4 py-3 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-400 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
-                  >
-                    {isSavingName ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-                    Save
-                  </button>
-                </div>
-              </div>
-
-              <div className="border-t border-white/5" />
-
-              {/* ── CHANGE PASSWORD ── */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <KeyRound size={12} className="text-fuchsia-400" />
-                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Change Password</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="relative">
-                    <input
-                      type={showNewPw ? 'text' : 'password'}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="New password (min 8 chars)..."
-                      className="w-full bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 pr-12 text-sm text-white outline-none focus:border-fuchsia-500/50 transition-colors font-mono"
-                    />
-                    <button onClick={() => setShowNewPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
-                      {showNewPw ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type={showCurrentPw ? 'text' : 'password'}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Confirm new password..."
-                      className="w-full bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 pr-12 text-sm text-white outline-none focus:border-fuchsia-500/50 transition-colors font-mono"
-                    />
-                    <button onClick={() => setShowCurrentPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
-                      {showCurrentPw ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                  <button
-                    onClick={handleChangePassword}
-                    disabled={isSavingPw || !newPassword || !confirmPassword}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-fuchsia-500/20 hover:bg-fuchsia-500/30 border border-fuchsia-500/30 text-fuchsia-400 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
-                  >
-                    {isSavingPw ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
-                    {isSavingPw ? 'Updating...' : 'Update Password'}
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
   );
 });
 Card.displayName = "Card";
@@ -167,29 +45,21 @@ Card.displayName = "Card";
 export default function ProfilePage() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
-  
+
+  // ── Edit Modal State ────────────────────────────────────────────
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSuccess, setEditSuccess] = useState(false);
+
   const [userProfile, setUserProfile] = useState<{
     id: string;
     email: string;
     plan: PlanType;
     createdAt: string;
-    displayName: string;
-    avatarUrl: string | null;
+    displayName?: string;
   } | null>(null);
-
-  // Edit modal state
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showCurrentPw, setShowCurrentPw] = useState(false);
-  const [showNewPw, setShowNewPw] = useState(false);
-  const [isSavingName, setIsSavingName] = useState(false);
-  const [isSavingPw, setIsSavingPw] = useState(false);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [editError, setEditError] = useState('');
-  const [editSuccess, setEditSuccess] = useState('');
 
   const [usage, setUsage] = useState({
     aiMessages: 0,
@@ -208,24 +78,28 @@ export default function ProfilePage() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('plan_type, created_at, display_name, avatar_url')
+        .select('plan_type, created_at, display_name')
         .eq('id', user.id)
         .single();
 
-      // Fix applied here: Check if developer, override if true
+      // Check if developer, override plan if true
       let plan = (profile?.plan_type as PlanType) || 'free';
       if (isDeveloper(user.id)) {
         plan = 'platinum';
       }
-      
+
       setUserProfile({
         id: user.id,
         email: user.email || 'Unknown',
         plan: plan,
-        createdAt: profile?.created_at || new Date().toISOString()
+        createdAt: profile?.created_at || new Date().toISOString(),
+        displayName: profile?.display_name || '',
       });
 
-      // Get Today's Usage (AI Messages & Decomposer Runs)
+      // Initialise the edit field with current display name
+      setEditDisplayName(profile?.display_name || '');
+
+      // Get Today's Usage
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       const todayIso = startOfDay.toISOString();
@@ -245,88 +119,42 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  }, []); // supabase client is stable — no need in deps
+  }, []);
 
   useEffect(() => {
     setMounted(true);
     fetchProfileData();
   }, [fetchProfileData]);
 
-  // ── Edit handlers ───────────────────────────────────────────────────────────
-  const openEdit = () => {
-    setEditName(userProfile?.displayName || '');
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setEditError('');
-    setEditSuccess('');
-    setShowEditModal(true);
-  };
+  // ── Save display name handler ───────────────────────────────────
+  const handleSaveProfile = async () => {
+    if (!userProfile) return;
+    setEditSaving(true);
+    setEditError(null);
+    setEditSuccess(false);
 
-  const handleSaveName = async () => {
-    if (!editName.trim()) return;
-    setIsSavingName(true); setEditError(''); setEditSuccess('');
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
       const { error } = await supabase
         .from('profiles')
-        .update({ display_name: editName.trim() })
-        .eq('id', user.id);
-      if (error) throw error;
-      setUserProfile(prev => prev ? { ...prev, displayName: editName.trim() } : prev);
-      setEditSuccess('Display name updated.');
-    } catch (e: any) {
-      setEditError(e.message || 'Failed to update name.');
-    } finally {
-      setIsSavingName(false);
-    }
-  };
+        .update({ display_name: editDisplayName.trim() })
+        .eq('id', userProfile.id);
 
-  const handleChangePassword = async () => {
-    setEditError(''); setEditSuccess('');
-    if (!newPassword) { setEditError('Enter a new password.'); return; }
-    if (newPassword.length < 8) { setEditError('Password must be at least 8 characters.'); return; }
-    if (newPassword !== confirmPassword) { setEditError('Passwords do not match.'); return; }
-    setIsSavingPw(true);
-    try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
-      setEditSuccess('Password updated successfully.');
-      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
-    } catch (e: any) {
-      setEditError(e.message || 'Failed to update password.');
-    } finally {
-      setIsSavingPw(false);
-    }
-  };
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { setEditError('Image must be under 2MB.'); return; }
-    setIsUploadingAvatar(true); setEditError('');
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-      const ext = file.name.split('.').pop();
-      const path = `avatars/${user.id}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(path, file, { upsert: true, contentType: file.type });
-      if (uploadError) throw uploadError;
-      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ avatar_url: publicUrl })
-        .eq('id', user.id);
-      if (updateError) throw updateError;
-      setUserProfile(prev => prev ? { ...prev, avatarUrl: publicUrl } : prev);
-      setEditSuccess('Profile picture updated.');
-    } catch (e: any) {
-      setEditError(e.message || 'Upload failed.');
+      // Update local state so UI reflects change immediately
+      setUserProfile(prev => prev ? { ...prev, displayName: editDisplayName.trim() } : prev);
+      setEditSuccess(true);
+
+      // Auto-close modal after short success delay
+      setTimeout(() => {
+        setShowEditModal(false);
+        setEditSuccess(false);
+      }, 1200);
+
+    } catch (err: any) {
+      setEditError(err?.message || 'Failed to save. Please try again.');
     } finally {
-      setIsUploadingAvatar(false);
+      setEditSaving(false);
     }
   };
 
@@ -334,18 +162,26 @@ export default function ProfilePage() {
 
   const limits = userProfile ? getLimits(userProfile.plan) : getLimits('free');
 
-  // Calculate percentages safely
-  const msgPercent = limits.aiMessagesPerDay === Infinity ? 100 : Math.min((usage.aiMessages / limits.aiMessagesPerDay) * 100, 100);
-  const decompPercent = limits.decomposerRunsPerDay === Infinity ? 100 : Math.min((usage.decomposerRuns / limits.decomposerRunsPerDay) * 100, 100);
+  const msgPercent = limits.aiMessagesPerDay === Infinity
+    ? 100
+    : Math.min((usage.aiMessages / limits.aiMessagesPerDay) * 100, 100);
+  const decompPercent = limits.decomposerRunsPerDay === Infinity
+    ? 100
+    : Math.min((usage.decomposerRuns / limits.decomposerRunsPerDay) * 100, 100);
+
+  // Displayed name: prefer display name, fall back to email prefix
+  const displayedName = userProfile?.displayName || userProfile?.email.split('@')[0] || '';
 
   return (
+    // ── ROOT wrapper — modal lives inside here ──────────────────────
     <div className="min-h-[calc(100vh-4rem)] bg-[#030308] text-slate-200 font-sans selection:bg-cyan-500/30 relative">
-      
-      {/* Ambient background (Matches Dashboard) */}
+
+      {/* Ambient background */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_20%,rgba(217,70,239,0.03),transparent_40%),radial-gradient(circle_at_90%_80%,rgba(34,211,238,0.03),transparent_40%)] pointer-events-none" />
 
+      {/* ── MAIN CONTENT ─────────────────────────────────────────────── */}
       <div className="relative z-10 w-full max-w-5xl mx-auto">
-        
+
         {/* Header */}
         <header className="mb-10 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -355,7 +191,7 @@ export default function ProfilePage() {
               <h1 className="text-2xl font-black text-white uppercase tracking-tight drop-shadow-md">Operative Profile</h1>
             </div>
           </div>
-          
+
           {!loading && userProfile && (
             <div className="hidden md:flex px-4 py-2 bg-fuchsia-500/10 border border-fuchsia-500/20 rounded-xl items-center gap-3">
               <Shield size={16} className="text-fuchsia-400 drop-shadow-[0_0_5px_rgba(217,70,239,0.8)]" />
@@ -373,45 +209,48 @@ export default function ProfilePage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            
-            {/* Left Column: Identity & Security */}
+
+            {/* Left Column */}
             <div className="xl:col-span-2 space-y-6">
-              
+
               {/* Core Identity Card */}
               <Card glowColor="cyan" className="overflow-visible">
                 <div className="flex flex-col md:flex-row items-start md:items-center gap-8">
-                  {/* Avatar */}
-                  <div className="relative shrink-0">
+                  <div className="relative">
                     <div className="absolute inset-0 bg-cyan-500/20 blur-xl rounded-full" />
-                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] flex items-center justify-center border border-cyan-500/30 relative z-10 shadow-[0_0_20px_rgba(34,211,238,0.2)] overflow-hidden">
-                      {userProfile?.avatarUrl ? (
-                        <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                      ) : (
-                        <User size={40} className="text-cyan-400" />
-                      )}
+                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] flex items-center justify-center border border-cyan-500/30 relative z-10 shadow-[0_0_20px_rgba(34,211,238,0.2)]">
+                      <User size={40} className="text-cyan-400" />
                     </div>
                     <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-[#0b0b16] rounded-full border border-[#1a1a3a] flex items-center justify-center z-20">
                       <CheckCircle2 size={16} className="text-green-500" />
                     </div>
                   </div>
-                  
+
                   <div className="flex-1">
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3 mb-2">
                       <h2 className="text-2xl font-black text-white tracking-tight">
-                        {userProfile?.displayName}
+                        {displayedName}
                       </h2>
-                      {/* Edit Button */}
+                      {/* Edit Profile Button */}
                       <button
-                        onClick={openEdit}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-cyan-500/10 border border-white/10 hover:border-cyan-500/30 text-slate-400 hover:text-cyan-400 text-[10px] font-black uppercase tracking-widest transition-all"
+                        onClick={() => {
+                          setEditDisplayName(userProfile?.displayName || '');
+                          setEditError(null);
+                          setEditSuccess(false);
+                          setShowEditModal(true);
+                        }}
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/10 border border-white/10 hover:border-cyan-500/30 text-slate-500 hover:text-cyan-400 transition-all duration-200"
+                        title="Edit display name"
                       >
-                        <Pencil size={12} /> Edit
+                        <Edit3 size={13} />
                       </button>
                     </div>
+
                     <div className="flex items-center gap-3 text-sm text-slate-400 font-mono mb-4">
                       <Mail size={14} className="text-slate-500" />
                       {userProfile?.email}
                     </div>
+
                     <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-[#05050a] px-4 py-2 rounded-lg border border-white/5 inline-flex">
                       <Fingerprint size={12} />
                       UUID: <span className="text-slate-300">{userProfile?.id.split('-')[0]}...</span>
@@ -439,7 +278,7 @@ export default function ProfilePage() {
                       </span>
                     </div>
                     <div className="w-full h-[6px] bg-[#05050a] rounded-full overflow-hidden shadow-[inset_0_1px_3px_rgba(0,0,0,0.8)] border border-white/5">
-                      <div 
+                      <div
                         className={`h-full relative transition-all duration-1000 ${limits.aiMessagesPerDay === Infinity ? 'bg-gradient-to-r from-fuchsia-600 to-cyan-400' : 'bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.8)]'}`}
                         style={{ width: `${msgPercent}%` }}
                       >
@@ -457,11 +296,11 @@ export default function ProfilePage() {
                       </span>
                     </div>
                     <div className="w-full h-[6px] bg-[#05050a] rounded-full overflow-hidden shadow-[inset_0_1px_3px_rgba(0,0,0,0.8)] border border-white/5">
-                      <div 
+                      <div
                         className={`h-full relative transition-all duration-1000 ${limits.decomposerRunsPerDay === Infinity ? 'bg-gradient-to-r from-fuchsia-600 to-cyan-400' : 'bg-fuchsia-400 shadow-[0_0_10px_rgba(217,70,239,0.8)]'}`}
                         style={{ width: `${decompPercent}%` }}
                       >
-                         <div className="absolute top-0 right-0 bottom-0 w-10 bg-gradient-to-l from-white/30 to-transparent mix-blend-overlay" />
+                        <div className="absolute top-0 right-0 bottom-0 w-10 bg-gradient-to-l from-white/30 to-transparent mix-blend-overlay" />
                       </div>
                     </div>
                   </div>
@@ -490,7 +329,9 @@ export default function ProfilePage() {
                   <div className="bg-[#05050a] p-4 rounded-xl border border-white/5">
                     <span className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Memory Editing</span>
                     <span className="text-lg font-black text-white tracking-tighter">
-                      {limits.memoryEdit ? <span className="text-green-400">Enabled</span> : <span className="text-slate-600">Locked</span>}
+                      {limits.memoryEdit
+                        ? <span className="text-green-400">Enabled</span>
+                        : <span className="text-slate-600">Locked</span>}
                     </span>
                   </div>
                 </div>
@@ -499,7 +340,6 @@ export default function ProfilePage() {
 
             {/* Right Column: Active Plan & Settings */}
             <div className="xl:col-span-1 space-y-6">
-              
               <Card glowColor="none" className="flex flex-col h-full border-fuchsia-500/20 bg-gradient-to-b from-[#101024]/50 to-[#0b0b16]">
                 <div className="flex-1">
                   <div className="w-12 h-12 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30 flex items-center justify-center mb-6">
@@ -511,18 +351,18 @@ export default function ProfilePage() {
                   <p className="text-[11px] text-slate-400 leading-relaxed mb-6">
                     {PLAN_DESCRIPTIONS[userProfile?.plan || 'free']}
                   </p>
-                  
+
                   <div className="space-y-3 mb-8">
                     <div className="flex items-center gap-3 text-[10px] uppercase font-bold text-slate-300">
-                      <Lock size={12} className={limits.privateRepos ? "text-green-400" : "text-slate-600"} /> 
+                      <Lock size={12} className={limits.privateRepos ? "text-green-400" : "text-slate-600"} />
                       Private Repositories
                     </div>
                     <div className="flex items-center gap-3 text-[10px] uppercase font-bold text-slate-300">
-                      <Zap size={12} className={limits.webhookAutoSync ? "text-green-400" : "text-slate-600"} /> 
+                      <Zap size={12} className={limits.webhookAutoSync ? "text-green-400" : "text-slate-600"} />
                       Webhook Auto-Sync
                     </div>
                     <div className="flex items-center gap-3 text-[10px] uppercase font-bold text-slate-300">
-                      <Database size={12} className={limits.dataExport ? "text-green-400" : "text-slate-600"} /> 
+                      <Database size={12} className={limits.dataExport ? "text-green-400" : "text-slate-600"} />
                       Full Data Export
                     </div>
                   </div>
@@ -534,139 +374,114 @@ export default function ProfilePage() {
                   </button>
                 </Link>
               </Card>
-
             </div>
+
           </div>
         )}
       </div>
-    </div>
 
       {/* ── EDIT PROFILE MODAL ─────────────────────────────────────────────── */}
       {showEditModal && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="relative w-full max-w-lg rounded-2xl border border-[#1a1a3a] bg-[#07070f] shadow-2xl overflow-hidden">
-            {/* Top accent */}
-            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400 to-fuchsia-500" />
 
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
-              <div className="flex items-center gap-2">
-                <Pencil size={14} className="text-cyan-400" />
-                <span className="text-[11px] font-black uppercase tracking-widest text-white">Edit Profile</span>
+            {/* Modal top glow line */}
+            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-80" />
+
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/5">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+                  <Edit3 size={14} className="text-cyan-400" />
+                </div>
+                <div>
+                  <p className="text-[9px] text-cyan-400 font-bold uppercase tracking-[0.2em]">Identity Matrix</p>
+                  <h2 className="text-sm font-black text-white uppercase tracking-tight">Edit Profile</h2>
+                </div>
               </div>
-              <button onClick={() => setShowEditModal(false)} className="p-1.5 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-white/5 transition-all"
+              >
                 <X size={16} />
               </button>
             </div>
 
-            <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+            {/* Modal Body */}
+            <div className="px-6 py-6 space-y-5">
 
-              {/* Feedback */}
+              {/* Display Name Field */}
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                  Display Name
+                </label>
+                <input
+                  type="text"
+                  value={editDisplayName}
+                  onChange={e => setEditDisplayName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveProfile()}
+                  placeholder={userProfile?.email.split('@')[0]}
+                  maxLength={32}
+                  className="w-full bg-[#05050a] border border-[#1a1a3a] focus:border-cyan-500/50 text-white placeholder-slate-600 rounded-xl px-4 py-3 text-sm font-mono outline-none transition-all duration-200 focus:shadow-[0_0_0_1px_rgba(34,211,238,0.2)]"
+                />
+                <p className="text-[10px] text-slate-600 mt-1.5 font-mono">{editDisplayName.length}/32 characters</p>
+              </div>
+
+              {/* Read-only email display */}
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                  Email Address <span className="text-slate-600 normal-case font-normal">(read-only)</span>
+                </label>
+                <div className="w-full bg-[#030308] border border-[#0f0f20] rounded-xl px-4 py-3 text-sm font-mono text-slate-500 flex items-center gap-2">
+                  <Mail size={13} className="text-slate-600 shrink-0" />
+                  {userProfile?.email}
+                </div>
+              </div>
+
+              {/* Error message */}
               {editError && (
-                <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-bold">
+                <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-[11px] text-red-400 font-mono">
+                  <AlertCircle size={14} className="shrink-0" />
                   {editError}
                 </div>
               )}
+
+              {/* Success message */}
               {editSuccess && (
-                <div className="px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold">
-                  {editSuccess}
+                <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-3 text-[11px] text-green-400 font-mono">
+                  <CheckCircle2 size={14} className="shrink-0" />
+                  Profile updated successfully.
                 </div>
               )}
+            </div>
 
-              {/* ── AVATAR UPLOAD ── */}
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-3">Profile Picture</p>
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#0b0b16] to-[#1a1a3a] border border-cyan-500/30 flex items-center justify-center overflow-hidden">
-                    {userProfile?.avatarUrl ? (
-                      <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                    ) : (
-                      <User size={28} className="text-cyan-400" />
-                    )}
-                  </div>
-                  <label className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all">
-                    {isUploadingAvatar ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
-                    {isUploadingAvatar ? 'Uploading...' : 'Upload Photo'}
-                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={isUploadingAvatar} />
-                  </label>
-                  <span className="text-[9px] text-slate-600">Max 2MB</span>
-                </div>
-              </div>
-
-              <div className="border-t border-white/5" />
-
-              {/* ── DISPLAY NAME ── */}
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-3">Display Name</p>
-                <div className="flex gap-3">
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    placeholder="Your display name..."
-                    className="flex-1 bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-cyan-500/50 transition-colors font-mono"
-                  />
-                  <button
-                    onClick={handleSaveName}
-                    disabled={isSavingName || !editName.trim()}
-                    className="flex items-center gap-2 px-4 py-3 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-400 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
-                  >
-                    {isSavingName ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-                    Save
-                  </button>
-                </div>
-              </div>
-
-              <div className="border-t border-white/5" />
-
-              {/* ── CHANGE PASSWORD ── */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <KeyRound size={12} className="text-fuchsia-400" />
-                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Change Password</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="relative">
-                    <input
-                      type={showNewPw ? 'text' : 'password'}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="New password (min 8 chars)..."
-                      className="w-full bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 pr-12 text-sm text-white outline-none focus:border-fuchsia-500/50 transition-colors font-mono"
-                    />
-                    <button onClick={() => setShowNewPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
-                      {showNewPw ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type={showCurrentPw ? 'text' : 'password'}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Confirm new password..."
-                      className="w-full bg-[#0b0b16] border border-[#1a1a3a] rounded-xl px-4 py-3 pr-12 text-sm text-white outline-none focus:border-fuchsia-500/50 transition-colors font-mono"
-                    />
-                    <button onClick={() => setShowCurrentPw(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
-                      {showCurrentPw ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                  <button
-                    onClick={handleChangePassword}
-                    disabled={isSavingPw || !newPassword || !confirmPassword}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-fuchsia-500/20 hover:bg-fuchsia-500/30 border border-fuchsia-500/30 text-fuchsia-400 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
-                  >
-                    {isSavingPw ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
-                    {isSavingPw ? 'Updating...' : 'Update Password'}
-                  </button>
-                </div>
-              </div>
-
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 px-6 pb-6">
+              <button
+                onClick={() => setShowEditModal(false)}
+                disabled={editSaving}
+                className="px-5 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveProfile}
+                disabled={editSaving || editSuccess}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-fuchsia-600 hover:from-cyan-500 hover:to-fuchsia-500 text-white text-[10px] font-black uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(34,211,238,0.2)] flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {editSaving ? (
+                  <Activity size={13} className="animate-spin" />
+                ) : (
+                  <Save size={13} />
+                )}
+                {editSaving ? 'Saving...' : 'Save Changes'}
+              </button>
             </div>
           </div>
         </div>
       )}
+
     </div>
+    // ── End ROOT wrapper ───────────────────────────────────────────
   );
 }
-
-
