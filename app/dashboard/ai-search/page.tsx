@@ -1,120 +1,208 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { supabase } from '../../../lib/supabase'
-import { Search, Sparkles, Loader2, Folder, ArrowRight, Brain } from 'lucide-react'
-import Link from 'next/link'
+import React, { useState, useEffect } from 'react';
+import { createBrowserClient } from '@supabase/ssr';
+import { Search, Sparkles, Send, BrainCircuit, History, Loader2, Globe, Folder, Database, ExternalLink } from 'lucide-react';
 
-export default function GlobalSearchPage() {
-  const [query, setQuery] = useState('')
-  const [projectResults, setProjectResults] = useState<any[]>([])
-  const [memoryResults, setMemoryResults] = useState<any[]>([])
-  const [isSearching, setIsSearching] = useState(false)
-  const [hasSearched, setHasSearched] = useState(false)
+export default function AISearchPage() {
+  const [query, setQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [result, setResult] = useState<{ answer: string; sources: any } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const handleSearch = async () => {
-    if (!query.trim()) return
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
-    setIsSearching(true)
-    setHasSearched(true)
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setUserId(data.user.id);
+    });
+  }, [supabase]);
 
-    // Parallel Search: Project names AND Memory content
-    const [projRes, memRes] = await Promise.all([
-      supabase.from('projects').select('*').ilike('name', `%${query}%`).limit(5),
-      supabase.from('memories').select('*, projects(name)').ilike('content', `%${query}%`).limit(10)
-    ])
+  const suggestions = [
+    "What was the schema for the database?",
+    "Summarize my recent project notes",
+    "How do I center a div using TailwindCSS?"
+  ];
 
-    setProjectResults(projRes.data || [])
-    setMemoryResults(memRes.data || [])
-    setIsSearching(false)
-  }
+  const handleSearch = async (searchQuery: string = query) => {
+    if (!searchQuery.trim() || !userId) return;
+    
+    setQuery(searchQuery);
+    setIsSearching(true);
+    setResult(null);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/ai-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: searchQuery, userId })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.error || "Failed to fetch intelligence.");
+      
+      setResult(data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Helper to format Gemini's markdown response
+  const formatMarkdown = (text: string) => {
+    return text.split(/(```[\s\S]*?```)/g).map((segment, index) => {
+      if (segment.startsWith('```') && segment.endsWith('```')) {
+        const code = segment.slice(3, -3).replace(/^[a-z]+\n/, ''); // strips language tag
+        return (
+          <div key={index} className="my-4 rounded-xl border border-gray-800 bg-[#050505] overflow-hidden shadow-lg">
+            <div className="px-4 py-2 bg-[#111] border-b border-gray-800 flex gap-2">
+               <div className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
+               <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
+               <div className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
+            </div>
+            <pre className="p-4 text-sm font-mono text-cyan-300 overflow-x-auto whitespace-pre-wrap">
+              <code>{code.trim()}</code>
+            </pre>
+          </div>
+        );
+      }
+      return (
+        <p key={index} className="text-gray-300 leading-relaxed mb-4 whitespace-pre-wrap">
+          {segment.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')}
+        </p>
+      );
+    });
+  };
 
   return (
-    <div className="min-h-screen bg-[#0f1117] text-gray-300 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto">
-        
-        {/* Header */}
-        <div className="flex flex-col items-center mb-10 text-center">
-          <div className="p-3 bg-blue-600/10 rounded-2xl border border-blue-500/20 mb-4">
-            <Sparkles className="text-blue-400" size={24} />
-          </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Global Intelligence Search</h1>
-          <p className="text-gray-500 text-sm mt-2">Scanning Projects & Knowledge Base</p>
-        </div>
+    <div className="max-w-4xl mx-auto space-y-8 p-4">
+      <div className="text-center space-y-2 mb-10">
+        <h1 className="text-3xl font-bold text-white flex items-center justify-center gap-3">
+          <Sparkles className="text-blue-500" />
+          Neural Intelligence
+        </h1>
+        <p className="text-gray-400 text-lg">Query your codebase, memories, and the live web simultaneously.</p>
+      </div>
 
-        {/* Search Bar */}
-        <div className="bg-[#16181e] rounded-2xl border border-gray-800 p-2 mb-12 shadow-2xl">
-          <div className="flex items-center px-4 gap-3">
-            <Search size={18} className="text-gray-500" />
-            <input
-              className="flex-1 bg-transparent py-4 outline-none text-white placeholder:text-gray-600 text-lg"
-              placeholder="Search projects or memories..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            />
+      {/* Search Input Box */}
+      <div className="relative group z-20">
+        <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl blur opacity-25 group-focus-within:opacity-50 transition duration-1000"></div>
+        <div className="relative flex items-center bg-[#121212] border border-white/10 rounded-xl p-2 shadow-2xl">
+          <div className="pl-4 text-gray-500">
+            <BrainCircuit size={20} />
+          </div>
+          <input 
+            type="text" 
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder="Ask your external brain..."
+            className="flex-1 bg-transparent border-none px-4 py-3 text-white focus:outline-none text-lg"
+          />
+          <button 
+            onClick={() => handleSearch()}
+            disabled={isSearching || !query.trim()}
+            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:bg-gray-800 p-3 rounded-lg text-white transition-all shadow-lg"
+          >
+            {isSearching ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Default State: Suggestions */}
+      {!result && !isSearching && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 animate-in fade-in duration-500">
+          {suggestions.map((text, i) => (
             <button 
-              onClick={handleSearch}
-              disabled={isSearching || !query.trim()}
-              className="bg-blue-600 h-12 px-8 rounded-xl text-white text-xs font-black uppercase tracking-widest transition-all hover:bg-blue-500 disabled:opacity-50"
+              key={i}
+              onClick={() => handleSearch(text)}
+              className="p-4 bg-white/5 border border-white/10 rounded-xl text-left text-sm text-gray-400 hover:text-white hover:bg-white/10 transition-all flex items-start gap-3"
             >
-              {isSearching ? <Loader2 className="animate-spin h-4 w-4" /> : 'Execute'}
+              <History size={16} className="mt-0.5 shrink-0 text-blue-500" />
+              {text}
             </button>
+          ))}
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-center">
+          <p>System Error: {error}</p>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {isSearching && (
+        <div className="py-20 flex flex-col items-center justify-center space-y-4">
+          <div className="relative w-16 h-16 flex items-center justify-center">
+            <div className="absolute inset-0 border-t-2 border-blue-500 rounded-full animate-spin"></div>
+            <BrainCircuit size={24} className="text-blue-500 animate-pulse" />
+          </div>
+          <div className="text-sm font-mono text-gray-500 uppercase tracking-widest flex flex-col items-center gap-1">
+            <span>Scanning Vault...</span>
+            <span>Querying Live Web...</span>
+            <span>Synthesizing...</span>
           </div>
         </div>
+      )}
 
-        {/* Unified Results Feed */}
-        <div className="space-y-10">
+      {/* Results State */}
+      {result && !isSearching && (
+        <div className="space-y-6 animate-in slide-in-from-bottom-4 fade-in duration-500">
           
-          {/* PROJECTS SECTION */}
-          {projectResults.length > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-4 px-2">
-                <Folder className="text-blue-500" size={16} />
-                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Project Nodes</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {projectResults.map(p => (
-                  <Link key={p.id} href={`/dashboard/projects/${p.id}/doc`}>
-                    <div className="bg-[#16181e] p-5 rounded-2xl border border-gray-800 hover:border-blue-500/50 transition-all group">
-                      <div className="flex justify-between items-center">
-                        <span className="text-white font-bold">{p.name}</span>
-                        <ArrowRight size={14} className="text-gray-600 group-hover:text-blue-400 transition-colors" />
-                      </div>
+          {/* Context Sources Chips */}
+          <div className="flex flex-wrap gap-2">
+             {result.sources.projects.length > 0 && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[10px] uppercase font-bold tracking-widest rounded-full">
+                  <Folder size={12} /> {result.sources.projects.length} Nodes Accessed
+                </div>
+             )}
+             {result.sources.memories.length > 0 && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] uppercase font-bold tracking-widest rounded-full">
+                  <Database size={12} /> {result.sources.memories.length} Memories Accessed
+                </div>
+             )}
+             {result.sources.web.length > 0 && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/10 border border-green-500/20 text-green-400 text-[10px] uppercase font-bold tracking-widest rounded-full">
+                  <Globe size={12} /> Web Context Integrated
+                </div>
+             )}
+          </div>
+
+          {/* Gemini Answer Box */}
+          <div className="bg-[#111218] border border-gray-800 rounded-2xl p-6 md:p-8 shadow-2xl">
+             <div dangerouslySetInnerHTML={{ __html: formatMarkdown(result.answer).map(r => r?.props?.children || r).join('') }} />
+          </div>
+
+          {/* Web References (Clickable Links) */}
+          {result.sources.web.length > 0 && (
+            <div className="pt-4">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-4 flex items-center gap-2">
+                <Globe size={14} /> Web References
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {result.sources.web.map((site: any, idx: number) => (
+                  <a key={idx} href={site.link} target="_blank" rel="noopener noreferrer" className="p-4 bg-[#16181e] border border-gray-800 hover:border-blue-500/50 rounded-xl transition-all group">
+                    <div className="flex justify-between items-start mb-2">
+                      <h4 className="text-sm font-bold text-gray-200 line-clamp-1 group-hover:text-blue-400 transition-colors">{site.title}</h4>
+                      <ExternalLink size={14} className="text-gray-600 group-hover:text-blue-400 shrink-0" />
                     </div>
-                  </Link>
+                    <p className="text-xs text-gray-500 line-clamp-2">{site.snippet}</p>
+                  </a>
                 ))}
               </div>
-            </section>
-          )}
-
-          {/* MEMORIES SECTION */}
-          {memoryResults.length > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-4 px-2">
-                <Brain className="text-purple-500" size={16} />
-                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Knowledge Fragments</h2>
-              </div>
-              <div className="space-y-3">
-                {memoryResults.map(m => (
-                  <div key={m.id} className="bg-[#16181e]/40 border border-gray-800 p-5 rounded-2xl hover:bg-[#16181e] transition-colors">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[8px] font-black bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded uppercase">{m.projects?.name}</span>
-                    </div>
-                    <p className="text-sm text-gray-300 leading-relaxed">{m.content}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {hasSearched && projectResults.length === 0 && memoryResults.length === 0 && (
-            <div className="text-center py-20 bg-[#16181e]/20 rounded-[3rem] border border-dashed border-gray-800">
-              <p className="text-gray-500">No intelligence found for "{query}"</p>
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
-  )
+  );
 }
