@@ -16,16 +16,17 @@ function calculateMaturity(filePaths: string[]): number {
   return Math.min(100, score)
 }
 
-// Insert a notification row — client realtime picks it up instantly
 async function notify(
-  supabase: any,  // <--- CHANGED THIS FROM ReturnType<typeof createClient>
+  supabase: any,
   userId: string,
   type: 'success' | 'error' | 'info' | 'warning',
   title: string,
   message: string,
   link?: string
 ) {
-  await (supabase as any).from('notifications').insert({ user_id: userId, type, title, message, link: link || null })
+  await supabase.from('notifications').insert({
+    user_id: userId, type, title, message, link: link || null
+  })
 }
 
 export async function POST(req: Request) {
@@ -39,7 +40,8 @@ export async function POST(req: Request) {
 
     let plan: PlanType = 'free'
     if (userId) {
-      const { data: profile } = await supabase.from('profiles').select('plan_type').eq('id', userId).single()
+      const { data: profile } = await supabase
+        .from('profiles').select('plan_type').eq('id', userId).single()
       plan = (profile?.plan_type as PlanType) || 'free'
     }
     const limits = getLimits(plan)
@@ -52,13 +54,17 @@ export async function POST(req: Request) {
 
     const repoRes = await fetch(`https://api.github.com/repos/${repo}`, { headers: authHeaders })
     if (!repoRes.ok) {
-      if (userId) await notify(supabase, userId, 'error', 'Sync Failed', `Could not reach ${repo}. Check the repo name and visibility.`)
+      if (userId) await notify(supabase, userId, 'error', 'Sync Failed',
+        `Could not reach ${repo}. Check the repo name and visibility.`)
       throw new Error(`GitHub Error: ${repoRes.status}. Check repo is public.`)
     }
 
     const { default_branch } = await repoRes.json()
 
-    const treeRes = await fetch(`https://api.github.com/repos/${repo}/git/trees/${default_branch}?recursive=1`, { headers: authHeaders })
+    const treeRes = await fetch(
+      `https://api.github.com/repos/${repo}/git/trees/${default_branch}?recursive=1`,
+      { headers: authHeaders }
+    )
     if (!treeRes.ok) throw new Error('Failed to fetch file tree.')
     const { tree } = await treeRes.json()
 
@@ -67,14 +73,15 @@ export async function POST(req: Request) {
       .filter((f: any) => !f.path.match(/\.(png|jpg|jpeg|gif|ico|pdf|zip|mp4|webp)$/i))
       .slice(0, FILE_LIMIT)
 
-    // Delete existing files before re-sync — prevents unique constraint error
     await supabase.from('code_memories').delete().eq('project_id', projectId)
 
     let syncedCount = 0
     const syncedPaths: string[] = []
 
     for (const file of files) {
-      const fileRes = await fetch(`https://raw.githubusercontent.com/${repo}/${default_branch}/${file.path}`)
+      const fileRes = await fetch(
+        `https://raw.githubusercontent.com/${repo}/${default_branch}/${file.path}`
+      )
       if (!fileRes.ok) continue
       const { error } = await supabase.from('code_memories').insert({
         project_id: projectId,
@@ -87,9 +94,29 @@ export async function POST(req: Request) {
     }
 
     const maturityScore = calculateMaturity(syncedPaths)
-    await supabase.from('projects').update({ maturity_score: maturityScore }).eq('id', projectId)
 
-    // Push notification to client via realtime
+    // ─────────────────────────────────────────────────────────────────────────
+    // THE FIX: Write updated_at and last_sync alongside maturity_score.
+    //
+    // Before this fix, only maturity_score was updated. The realtime listener
+    // on the dashboard received the UPDATE payload but project.updated_at never
+    // changed, so the "Sync: X ago" telemetry on the card always showed stale
+    // time. Now we stamp updated_at and last_sync with the exact moment the
+    // sync completed — Supabase Realtime broadcasts this immediately to the
+    // dashboard, the card updates live, and getRelativeTime() shows "Just now".
+    // ─────────────────────────────────────────────────────────────────────────
+    const syncedAt = new Date().toISOString()
+
+    await supabase
+      .from('projects')
+      .update({
+        maturity_score:     maturityScore,
+        updated_at:         syncedAt,   // ← drives the "Sync: X ago" card label
+        last_sync:          syncedAt,   // ← explicit sync timestamp for future use
+        deployment_status:  'synced',   // ← optional: visible status on card
+      })
+      .eq('id', projectId)
+
     if (userId) {
       const capped = files.length >= FILE_LIMIT
       await notify(
@@ -98,12 +125,20 @@ export async function POST(req: Request) {
         capped ? 'Sync Capped' : 'Sync Complete',
         capped
           ? `Only ${syncedCount} of ${FILE_LIMIT} files pulled from ${repo}. Upgrade to sync more.`
-          : `${syncedCount} files synced from ${repo}.`,
+          : `⚡ ${syncedCount} files synced from ${repo}.`,
         `/dashboard/projects/${projectId}/doc`
       )
     }
 
-    return NextResponse.json({ success: true, count: syncedCount, score: maturityScore, plan, limit: FILE_LIMIT, capped: files.length >= FILE_LIMIT })
+    return NextResponse.json({
+      success: true,
+      count: syncedCount,
+      score: maturityScore,
+      plan,
+      limit: FILE_LIMIT,
+      capped: files.length >= FILE_LIMIT,
+      syncedAt,
+    })
 
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
