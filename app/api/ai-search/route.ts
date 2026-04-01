@@ -25,39 +25,77 @@ export async function POST(req: Request) {
     const localProjects = projRes.data || []
     const localMemories = memRes.data || []
 
-    // 3. Fetch from Google Custom Search API
-    let webResults: any[] = []
-    
-    console.log("Checking Env Vars: ", { 
-      hasKey: !!process.env.GOOGLE_SEARCH_API_KEY, 
-      hasCX: !!process.env.GOOGLE_SEARCH_CX 
-    });
+// --- START OF SEARCH LOGIC ---
+    let webResults: any[] = [];
 
-    if (process.env.GOOGLE_SEARCH_API_KEY && process.env.GOOGLE_SEARCH_CX) {
+    // 1. PRIMARY ENGINE: Tavily AI (Optimized for LLM reading)
+    if (process.env.TAVILY_API_KEY) {
       try {
-        const googleRes = await fetch(
-          `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_SEARCH_API_KEY}&cx=${process.env.GOOGLE_SEARCH_CX}&q=${encodeURIComponent(query)}&num=3`
-        )
-        
-        if (googleRes.ok) {
-          const googleData = await googleRes.json()
-          webResults = googleData.items?.map((item: any) => ({
-            title: item.title,
-            link: item.link,
-            snippet: item.snippet
-          })) || []
-          console.log(`Google API Success: Found ${webResults.length} results.`);
+        console.log("🔍 Attempting Tavily Search...");
+        const tavilyRes = await fetch('https://api.tavily.com/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_key: process.env.TAVILY_API_KEY,
+            query: query,
+            search_depth: "basic",
+            max_results: 3
+          })
+        });
+
+        if (tavilyRes.ok) {
+          const data = await tavilyRes.json();
+          webResults = data.results.map((r: any) => ({
+            title: r.title,
+            link: r.url,
+            snippet: r.content
+          }));
+          console.log(`✅ Tavily Success: Found ${webResults.length} results.`);
         } else {
-          // THIS IS THE FIX: Actually read the error Google sends back
-          const errorData = await googleRes.json();
-          console.error("Google API Rejected the Request:", errorData);
+          // If Tavily returns a 400/500 error (e.g., out of credits), throw to trigger fallback
+          throw new Error(`Tavily API error: ${tavilyRes.status}`);
         }
-      } catch (e) {
-        console.error("Google Search Network Error:", e)
+      } catch (tavilyError) {
+        console.warn("⚠️ Tavily Failed or Limit Reached. Switching to Serper...", tavilyError);
+        
+        // 2. FALLBACK ENGINE: Serper.dev (Classic Google Search Clone)
+        if (process.env.SERPER_API_KEY) {
+          try {
+            console.log("🔄 Attempting Serper Fallback...");
+            const serperRes = await fetch('https://google.serper.dev/search', {
+              method: 'POST',
+              headers: {
+                'X-API-KEY': process.env.SERPER_API_KEY,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ q: query, num: 3 })
+            });
+
+            if (serperRes.ok) {
+              const data = await serperRes.json();
+              // Serper returns results inside an 'organic' array
+              webResults = data.organic?.map((r: any) => ({
+                title: r.title,
+                link: r.link,
+                snippet: r.snippet
+              })) || [];
+              console.log(`✅ Serper Fallback Success: Found ${webResults.length} results.`);
+            } else {
+              console.error("❌ Serper API error:", serperRes.status);
+            }
+          } catch (serperError) {
+            console.error("❌ Critical: Both Search Providers Failed.", serperError);
+          }
+        } else {
+          console.warn("⚠️ No Serper API Key found for fallback.");
+        }
       }
     } else {
-      console.warn("Skipping Google Search: Environment variables are missing.");
-      }
+      console.error("❌ No Tavily API Key found in Environment Variables.");
+    }
+    // --- END OF SEARCH LOGIC ---
+    
+    // Now pass 'webResults' to Gemini exactly as you were doing before!
     
     // 4. Initialize Gemini
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
