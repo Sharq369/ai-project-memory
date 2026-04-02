@@ -136,19 +136,21 @@ export default function ProfilePage() {
     fetchProfileData();
   }, [fetchProfileData]);
 
-  // ── Save display name — UPSERT so new users don't silently fail ──────────────
+  // ── Save display name via server route — bypasses RLS completely ─────────────
   const handleSaveProfile = async () => {
     if (!userProfile) return;
     setEditSaving(true);
     setEditError(null);
     setEditSuccess(false);
     try {
-      // upsert guarantees the row is created if it doesn't exist yet
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({ id: userProfile.id, display_name: editDisplayName.trim() }, { onConflict: 'id' });
-      if (error) throw error;
-      // Update local state immediately — no refresh needed
+      const res = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: editDisplayName.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save.');
+      // Update local state immediately — persists on refresh via DB
       setUserProfile(prev => prev ? { ...prev, displayName: editDisplayName.trim() } : prev);
       setEditSuccess(true);
       setTimeout(() => { setShowEditModal(false); setEditSuccess(false); }, 1200);
@@ -174,10 +176,14 @@ export default function ProfilePage() {
       if (upErr) throw upErr;
       const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
       // Persist to profiles table
-      const { error: dbErr } = await supabase
-        .from('profiles')
-        .upsert({ id: userProfile.id, avatar_url: publicUrl }, { onConflict: 'id' });
-      if (dbErr) throw dbErr;
+      // Save avatar_url via server route — bypasses RLS
+      const saveRes = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar_url: publicUrl })
+      });
+      const saveData = await saveRes.json();
+      if (!saveRes.ok) throw new Error(saveData.error || 'Failed to save avatar URL.');
       // Update local state — persists across refresh via DB
       setUserProfile(prev => prev ? { ...prev, avatarUrl: publicUrl } : prev);
       setEditSuccess(true);
