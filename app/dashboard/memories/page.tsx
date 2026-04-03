@@ -18,7 +18,7 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
     })
   }
   const FENCE = '```'
-  const segments = content.split(new RegExp('(' + FENCE + '[\s\S]*?' + FENCE + ')', 'g'))
+  const segments = content.split(new RegExp('(' + FENCE + '[\\s\\S]*?' + FENCE + ')', 'g'))
   return (
     <div className="space-y-2 text-sm">
       {segments.map((seg, si) => {
@@ -430,8 +430,7 @@ export default function MemoriesPage() {
                   )}
                   {!isExpanded && !isEditing && (
                     <span className="text-[12px] text-gray-500 truncate ml-1">
-                      {m.content.replace(/
-/g, ' ').replace(/[#*`>]/g, '').trim().slice(0, 80)}
+                      {m.content.replace(/\n/g, ' ').replace(/[#*`>]/g, '').trim().slice(0, 80)}
                     </span>
                   )}
                 </div>
