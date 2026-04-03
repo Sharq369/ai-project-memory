@@ -161,31 +161,24 @@ export default function ProfilePage() {
     }
   };
 
-  // ── Avatar upload ──────────────────────────────────────────────────────────
+  // ── Avatar upload — sent to server route, bypasses storage RLS ───────────────
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !userProfile) return;
     if (file.size > 2 * 1024 * 1024) { setEditError('Image must be under 2MB.'); return; }
     setIsUploadingAvatar(true); setEditError(null);
     try {
-      const ext = file.name.split('.').pop();
-      const path = `avatars/${userProfile.id}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from('avatars')
-        .upload(path, file, { upsert: true, contentType: file.type });
-      if (upErr) throw upErr;
-      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
-      // Persist to profiles table
-      // Save avatar_url via server route — bypasses RLS
-      const saveRes = await fetch('/api/profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatar_url: publicUrl })
+      // Send file to server route which uses service role key
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        body: formData,
       });
-      const saveData = await saveRes.json();
-      if (!saveRes.ok) throw new Error(saveData.error || 'Failed to save avatar URL.');
-      // Update local state — persists across refresh via DB
-      setUserProfile(prev => prev ? { ...prev, avatarUrl: publicUrl } : prev);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      // Update local state immediately
+      setUserProfile(prev => prev ? { ...prev, avatarUrl: data.publicUrl } : prev);
       setEditSuccess(true);
       setTimeout(() => setEditSuccess(false), 2000);
     } catch (err: any) {
