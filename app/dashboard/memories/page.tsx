@@ -4,6 +4,74 @@ import { useState, useEffect, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag, Lock, ArrowRight } from 'lucide-react'
 
+
+// ── Markdown Renderer ─────────────────────────────────────────────────────────
+// Matches the exact same renderer used in project doc page
+const MarkdownRenderer = ({ content }: { content: string }) => {
+  const formatInline = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g)
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**'))
+        return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>
+      if (part.startsWith('`') && part.endsWith('`'))
+        return <code key={i} className="bg-blue-900/30 text-blue-300 px-1.5 py-0.5 rounded-md border border-blue-500/20 font-mono text-xs">{part.slice(1, -1)}</code>
+      return <span key={i}>{part}</span>
+    })
+  }
+
+  const segments = content.split(/(```[\s\S]*?```)/g)
+  return (
+    <div className="space-y-2 text-sm">
+      {segments.map((segment, si) => {
+        if (segment.startsWith('```') && segment.endsWith('```')) {
+          const inner = segment.slice(3, -3)
+          const nl = inner.indexOf('\n')
+          const lang = nl !== -1 ? inner.slice(0, nl).trim() : ''
+          const codeContent = nl !== -1 ? inner.slice(nl + 1) : inner
+          return (
+            <div key={si} className="rounded-xl border border-[#1E293B] bg-[#020617] overflow-hidden my-3">
+              <div className="flex items-center justify-between px-4 py-2 bg-[#0B1120] border-b border-[#1E293B]">
+                <div className="flex gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f56]" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#27c93f]" />
+                </div>
+                {lang && <span className="text-[9px] font-mono text-gray-500 uppercase tracking-widest">{lang}</span>}
+              </div>
+              <pre className="p-4 overflow-x-auto text-xs font-mono text-cyan-300 leading-relaxed whitespace-pre"><code>{codeContent}</code></pre>
+            </div>
+          )
+        }
+        return (
+          <div key={si} className="space-y-1.5 text-gray-300 leading-relaxed">
+            {segment.split('\n').map((line, li) => {
+              if (!line.trim()) return <div key={li} className="h-1" />
+              if (line.startsWith('# ')) return <h1 key={li} className="text-base font-black text-white mt-3 mb-1">{line.slice(2)}</h1>
+              if (line.startsWith('## ')) return <h2 key={li} className="text-sm font-bold text-blue-300 mt-2 mb-1 border-b border-white/5 pb-1">{line.slice(3)}</h2>
+              if (line.startsWith('### ')) return <h3 key={li} className="text-xs font-bold text-slate-300 mt-2 mb-0.5 uppercase tracking-wide">{line.slice(4)}</h3>
+              if (line.match(/^[-*] /)) return (
+                <div key={li} className="flex gap-2 ml-2">
+                  <span className="text-blue-500 mt-0.5 shrink-0">•</span>
+                  <span className="text-[13px]">{formatInline(line.slice(2))}</span>
+                </div>
+              )
+              if (line.match(/^\d+\. /)) return (
+                <div key={li} className="flex gap-2 ml-2">
+                  <span className="text-blue-400 shrink-0 text-[11px] font-bold">{line.match(/^\d+/)?.[0]}.</span>
+                  <span className="text-[13px]">{formatInline(line.replace(/^\d+\. /, ''))}</span>
+                </div>
+              )
+              if (line.startsWith('> ')) return <blockquote key={li} className="border-l-2 border-blue-500/40 pl-3 text-slate-400 italic text-[13px]">{formatInline(line.slice(2))}</blockquote>
+              if (line.startsWith('---')) return <hr key={li} className="border-white/10 my-2" />
+              return <p key={li} className="text-[13px]">{formatInline(line)}</p>
+            })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ------------------------------------------------------------------
 // UPGRADE MODAL COMPONENT
 // ------------------------------------------------------------------
@@ -387,9 +455,7 @@ export default function MemoriesPage() {
                   </div>
                 ) : (
                   <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-96 overflow-y-auto custom-scrollbar">
-                    <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap font-mono">
-                      {m.content}
-                    </p>
+                    <MarkdownRenderer content={m.content} />
                   </div>
                 )}
               </div>
