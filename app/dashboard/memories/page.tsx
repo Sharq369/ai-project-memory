@@ -5,7 +5,6 @@ import { createBrowserClient } from '@supabase/ssr'
 import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag, Lock, ArrowRight, ChevronDown, ChevronRight, FileText } from 'lucide-react'
 
 
-// ── Markdown Renderer ─────────────────────────────────────────────────────────
 const MarkdownRenderer = ({ content }: { content: string }) => {
   const formatInline = (text: string) => {
     const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g)
@@ -18,14 +17,15 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
     })
   }
 
-  const segments = content.split(/(```[\s\S]*?```)/g)
+  const CODE_FENCE = '```'
+  const segments = content.split(new RegExp('(' + CODE_FENCE + '[\\s\\S]*?' + CODE_FENCE + ')', 'g'))
+
   return (
     <div className="space-y-2 text-sm">
       {segments.map((seg, si) => {
-        if (seg.startsWith('```') && seg.endsWith('```')) {
+        if (seg.startsWith(CODE_FENCE) && seg.endsWith(CODE_FENCE)) {
           const inner = seg.slice(3, -3)
-          const nl = inner.indexOf('
-')
+          const nl = inner.indexOf('\n')
           const lang = nl !== -1 ? inner.slice(0, nl).trim() : ''
           const codeText = nl !== -1 ? inner.slice(nl + 1) : inner
           return (
@@ -44,22 +44,21 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
         }
         return (
           <div key={si} className="space-y-1.5 text-gray-300 leading-relaxed">
-            {seg.split('
-').map((line, li) => {
+            {seg.split('\n').map((line, li) => {
               if (!line.trim()) return <div key={li} className="h-1" />
               if (line.startsWith('# ')) return <h1 key={li} className="text-base font-black text-white mt-3 mb-1">{line.slice(2)}</h1>
               if (line.startsWith('## ')) return <h2 key={li} className="text-sm font-bold text-blue-300 mt-2 mb-1 border-b border-white/5 pb-1">{line.slice(3)}</h2>
               if (line.startsWith('### ')) return <h3 key={li} className="text-xs font-bold text-slate-300 mt-2 mb-0.5 uppercase tracking-wide">{line.slice(4)}</h3>
-              if (line.match(/^[-*] /)) return (
+              if (line.startsWith('- ') || line.startsWith('* ')) return (
                 <div key={li} className="flex gap-2 ml-2">
                   <span className="text-blue-500 mt-0.5 shrink-0">•</span>
                   <span className="text-[13px]">{formatInline(line.slice(2))}</span>
                 </div>
               )
-              if (line.match(/^\d+\. /)) return (
+              if (/^\d+\.\s/.test(line)) return (
                 <div key={li} className="flex gap-2 ml-2">
                   <span className="text-blue-400 shrink-0 text-[11px] font-bold">{line.match(/^\d+/)?.[0]}.</span>
-                  <span className="text-[13px]">{formatInline(line.replace(/^\d+\. /, ''))}</span>
+                  <span className="text-[13px]">{formatInline(line.replace(/^\d+\.\s/, ''))}</span>
                 </div>
               )
               if (line.startsWith('> ')) return <blockquote key={li} className="border-l-2 border-blue-500/40 pl-3 text-slate-400 italic text-[13px]">{formatInline(line.slice(2))}</blockquote>
@@ -126,7 +125,6 @@ export default function MemoriesPage() {
   const [memoryToDelete, setMemoryToDelete] = useState<{ id: string, content: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  // Expand/collapse state — which memory card is open
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Gatekeeper state
@@ -401,24 +399,20 @@ export default function MemoriesPage() {
           const isEditing = editingId === m.id
 
           return (
-            <div key={m.id} className={`bg-[#16181e]/50 border rounded-2xl overflow-hidden transition-all group ${
-              isExpanded ? 'border-blue-500/30 bg-[#16181e]' : 'border-gray-800/50 hover:border-gray-700/50'
+            <div key={m.id} className={`border rounded-2xl overflow-hidden transition-all group ${
+              isExpanded ? 'border-blue-500/30 bg-[#16181e]' : 'bg-[#16181e]/50 border-gray-800/50 hover:border-gray-700/50'
             }`}>
 
-              {/* ── COLLAPSED ROW — always visible ── */}
+              {/* Row header — always visible, click to expand */}
               <div
                 className={`flex items-center justify-between px-4 py-3.5 cursor-pointer transition-colors ${
                   isExpanded ? 'bg-blue-500/5 border-b border-blue-500/10' : 'hover:bg-[#16181e]'
                 }`}
-                onClick={() => {
-                  if (!isEditing) setExpandedId(prev => prev === m.id ? null : m.id)
-                }}
+                onClick={() => { if (!isEditing) setExpandedId(prev => prev === m.id ? null : m.id) }}
               >
-                {/* Left: icon + label */}
                 <div className="flex items-center gap-3 flex-1 overflow-hidden">
-                  <FileText size={15} className={`shrink-0 transition-colors ${isExpanded ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
+                  <FileText size={15} className={`shrink-0 ${isExpanded ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
 
-                  {/* Tag — inline edit on click, stops propagation */}
                   {editingTagId === m.id ? (
                     <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                       <input
@@ -447,30 +441,26 @@ export default function MemoriesPage() {
                     </button>
                   )}
 
-                  {/* Content preview when collapsed */}
                   {!isExpanded && !isEditing && (
                     <span className="text-[12px] text-gray-500 truncate ml-1">
-                      {m.content.replace(/```[\s\S]*?```/g, '[code]').replace(/[#*`>
-]/g, ' ').trim().slice(0, 80)}
+                      {m.content.replace(/
+/g, ' ').replace(/[#*`>]/g, '').trim().slice(0, 80)}
                     </span>
                   )}
                 </div>
 
-                {/* Right: action buttons + chevron */}
                 <div className="flex items-center gap-1 ml-2 shrink-0">
                   {!isEditing && (
                     <>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleStartEdit(m); setExpandedId(m.id) }}
                         className="p-1.5 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                        title="Edit"
                       >
                         <Pencil size={14} />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setMemoryToDelete({ id: m.id, content: m.content }) }}
                         className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                        title="Delete"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -483,7 +473,7 @@ export default function MemoriesPage() {
                 </div>
               </div>
 
-              {/* ── EXPANDED CONTENT ── */}
+              {/* Expanded content panel */}
               {isExpanded && (
                 <div className="px-4 py-4">
                   {isEditing ? (
