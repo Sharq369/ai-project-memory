@@ -5,8 +5,9 @@ import { createBrowserClient } from '@supabase/ssr'
 import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag, Lock, ArrowRight, ChevronDown, ChevronRight, FileText } from 'lucide-react'
 
 
+// ── Markdown Renderer (module-level component) ────────────────────────────────
 const MarkdownRenderer = ({ content }: { content: string }) => {
-  const formatInline = (text: string) => {
+  const formatInline = (text: string): React.ReactNode[] => {
     const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g)
     return parts.map((part, i) => {
       if (part.startsWith('**') && part.endsWith('**'))
@@ -16,14 +17,12 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
       return <span key={i}>{part}</span>
     })
   }
-
-  const CODE_FENCE = '```'
-  const segments = content.split(new RegExp('(' + CODE_FENCE + '[\\s\\S]*?' + CODE_FENCE + ')', 'g'))
-
+  const FENCE = '```'
+  const segments = content.split(new RegExp('(' + FENCE + '[\s\S]*?' + FENCE + ')', 'g'))
   return (
     <div className="space-y-2 text-sm">
       {segments.map((seg, si) => {
-        if (seg.startsWith(CODE_FENCE) && seg.endsWith(CODE_FENCE)) {
+        if (seg.startsWith(FENCE) && seg.endsWith(FENCE)) {
           const inner = seg.slice(3, -3)
           const nl = inner.indexOf('\n')
           const lang = nl !== -1 ? inner.slice(0, nl).trim() : ''
@@ -397,22 +396,15 @@ export default function MemoriesPage() {
           const label = getLabel(m)
           const isExpanded = expandedId === m.id
           const isEditing = editingId === m.id
-
           return (
-            <div key={m.id} className={`border rounded-2xl overflow-hidden transition-all group ${
-              isExpanded ? 'border-blue-500/30 bg-[#16181e]' : 'bg-[#16181e]/50 border-gray-800/50 hover:border-gray-700/50'
-            }`}>
-
-              {/* Row header — always visible, click to expand */}
+            <div key={m.id} className={`border rounded-2xl overflow-hidden transition-all group ${isExpanded ? 'border-blue-500/30 bg-[#16181e]' : 'bg-[#16181e]/50 border-gray-800/50 hover:border-gray-700/50'}`}>
+              {/* Collapsed row header */}
               <div
-                className={`flex items-center justify-between px-4 py-3.5 cursor-pointer transition-colors ${
-                  isExpanded ? 'bg-blue-500/5 border-b border-blue-500/10' : 'hover:bg-[#16181e]'
-                }`}
+                className={`flex items-center justify-between px-4 py-3.5 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-500/5 border-b border-blue-500/10' : 'hover:bg-[#16181e]'}`}
                 onClick={() => { if (!isEditing) setExpandedId(prev => prev === m.id ? null : m.id) }}
               >
                 <div className="flex items-center gap-3 flex-1 overflow-hidden">
                   <FileText size={15} className={`shrink-0 ${isExpanded ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
-
                   {editingTagId === m.id ? (
                     <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                       <input
@@ -430,17 +422,12 @@ export default function MemoriesPage() {
                   ) : (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleStartTagEdit(m) }}
-                      className={`group/tag flex items-center gap-1 text-[8px] font-black px-2.5 py-1 rounded-md uppercase tracking-tighter border transition-all shrink-0 ${
-                        label
-                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:border-blue-400/50'
-                          : 'bg-gray-500/10 text-gray-500 border-gray-500/20 hover:border-gray-400/40 hover:text-gray-400'
-                      }`}
+                      className={`group/tag flex items-center gap-1 text-[8px] font-black px-2.5 py-1 rounded-md uppercase tracking-tighter border transition-all shrink-0 ${label ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:border-blue-400/50' : 'bg-gray-500/10 text-gray-500 border-gray-500/20 hover:border-gray-400/40 hover:text-gray-400'}`}
                     >
                       {label || 'Unassigned'}
                       <Pencil size={7} className="opacity-0 group-hover/tag:opacity-60 transition-opacity" />
                     </button>
                   )}
-
                   {!isExpanded && !isEditing && (
                     <span className="text-[12px] text-gray-500 truncate ml-1">
                       {m.content.replace(/
@@ -448,55 +435,31 @@ export default function MemoriesPage() {
                     </span>
                   )}
                 </div>
-
                 <div className="flex items-center gap-1 ml-2 shrink-0">
                   {!isEditing && (
                     <>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleStartEdit(m); setExpandedId(m.id) }}
-                        className="p-1.5 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                      >
+                      <button onClick={(e) => { e.stopPropagation(); handleStartEdit(m); setExpandedId(m.id) }} className="p-1.5 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100">
                         <Pencil size={14} />
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setMemoryToDelete({ id: m.id, content: m.content }) }}
-                        className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                      >
+                      <button onClick={(e) => { e.stopPropagation(); setMemoryToDelete({ id: m.id, content: m.content }) }} className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100">
                         <Trash2 size={14} />
                       </button>
                     </>
                   )}
-                  {isExpanded
-                    ? <ChevronDown size={15} className="text-blue-400 ml-1" />
-                    : <ChevronRight size={15} className="text-gray-600 group-hover:text-gray-400 ml-1" />
-                  }
+                  {isExpanded ? <ChevronDown size={15} className="text-blue-400 ml-1" /> : <ChevronRight size={15} className="text-gray-600 group-hover:text-gray-400 ml-1" />}
                 </div>
               </div>
-
-              {/* Expanded content panel */}
+              {/* Expanded content */}
               {isExpanded && (
                 <div className="px-4 py-4">
                   {isEditing ? (
                     <div className="space-y-3">
-                      <textarea
-                        value={editContent}
-                        onChange={(e) => setEditContent(e.target.value)}
-                        className="w-full bg-[#0f1117] border border-blue-500/50 rounded-xl p-4 text-sm text-gray-300 outline-none font-mono min-h-[140px] resize-none transition-all"
-                        autoFocus
-                      />
+                      <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="w-full bg-[#0f1117] border border-blue-500/50 rounded-xl p-4 text-sm text-gray-300 outline-none font-mono min-h-[140px] resize-none transition-all" autoFocus />
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => handleSaveEdit(m.id)}
-                          disabled={isSavingEdit || !editContent.trim()}
-                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
-                        >
-                          {isSavingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                          Save
+                        <button onClick={() => handleSaveEdit(m.id)} disabled={isSavingEdit || !editContent.trim()} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all">
+                          {isSavingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
                         </button>
-                        <button
-                          onClick={handleCancelEdit}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
-                        >
+                        <button onClick={handleCancelEdit} className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all">
                           <X size={12} /> Cancel
                         </button>
                       </div>
