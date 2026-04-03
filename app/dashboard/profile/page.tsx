@@ -87,7 +87,7 @@ export default function ProfilePage() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('plan_type, created_at, display_name, avatar_url')
+        .select('plan_type, updated_at, display_name, avatar_url')
         .eq('id', user.id)
         .single();
 
@@ -101,7 +101,7 @@ export default function ProfilePage() {
         id: user.id,
         email: user.email || 'Unknown',
         plan: plan,
-        createdAt: profile?.created_at || new Date().toISOString(),
+        createdAt: profile?.updated_at || new Date().toISOString(),
         displayName: profile?.display_name || '',
         avatarUrl: profile?.avatar_url || null,
       });
@@ -161,24 +161,31 @@ export default function ProfilePage() {
     }
   };
 
-  // ── Avatar upload — sent to server route, bypasses storage RLS ───────────────
+  // ── Avatar upload ──────────────────────────────────────────────────────────
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !userProfile) return;
     if (file.size > 2 * 1024 * 1024) { setEditError('Image must be under 2MB.'); return; }
     setIsUploadingAvatar(true); setEditError(null);
     try {
-      // Send file to server route which uses service role key
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/profile', {
-        method: 'PUT',
-        body: formData,
+      const ext = file.name.split('.').pop();
+      const path = `avatars/${userProfile.id}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+      // Persist to profiles table
+      // Save avatar_url via server route — bypasses RLS
+      const saveRes = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar_url: publicUrl })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Upload failed.');
-      // Update local state immediately
-      setUserProfile(prev => prev ? { ...prev, avatarUrl: data.publicUrl } : prev);
+      const saveData = await saveRes.json();
+      if (!saveRes.ok) throw new Error(saveData.error || 'Failed to save avatar URL.');
+      // Update local state — persists across refresh via DB
+      setUserProfile(prev => prev ? { ...prev, avatarUrl: publicUrl } : prev);
       setEditSuccess(true);
       setTimeout(() => setEditSuccess(false), 2000);
     } catch (err: any) {
