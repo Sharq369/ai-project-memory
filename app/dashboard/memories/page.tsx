@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag, Lock, ArrowRight, ChevronDown, ChevronRight, FileText } from 'lucide-react'
-
+import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag, Lock, ArrowRight, ChevronDown, ChevronRight, FileText, Copy } from 'lucide-react'
 
 // ── Markdown Renderer (module-level component) ────────────────────────────────
 const MarkdownRenderer = ({ content }: { content: string }) => {
@@ -43,7 +42,7 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
         }
         return (
           <div key={si} className="space-y-1.5 text-gray-300 leading-relaxed">
-            {seg.split('\n').map((line, li) => {
+            {seg.split(/\n/g).map((line, li) => {
               if (!line.trim()) return <div key={li} className="h-1" />
               if (line.startsWith('# ')) return <h1 key={li} className="text-base font-black text-white mt-3 mb-1">{line.slice(2)}</h1>
               if (line.startsWith('## ')) return <h2 key={li} className="text-sm font-bold text-blue-300 mt-2 mb-1 border-b border-white/5 pb-1">{line.slice(3)}</h2>
@@ -135,10 +134,13 @@ export default function MemoriesPage() {
   const [editContent, setEditContent] = useState('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
 
-  // Tag edit state — inline on the label itself
+  // Tag edit state
   const [editingTagId, setEditingTagId] = useState<string | null>(null)
   const [editTagValue, setEditTagValue] = useState('')
   const tagInputRef = useRef<HTMLInputElement>(null)
+
+  // Copy state
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -177,7 +179,6 @@ export default function MemoriesPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error("Not authenticated")
 
-      // 1. Check Limits
       const enforceRes = await fetch('/api/enforce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -185,7 +186,6 @@ export default function MemoriesPage() {
       });
       const authCheck = await enforceRes.json();
 
-      // 2. Block if needed
       if (!authCheck.allowed) {
         setUpgradeReason(authCheck.reason);
         setShowUpgrade(true);
@@ -193,7 +193,6 @@ export default function MemoriesPage() {
         return;
       }
 
-      // 3. Proceed if allowed
       const { data, error } = await supabase.from('memories').insert([{
         content,
         tag: newTag.trim() || null,
@@ -221,7 +220,6 @@ export default function MemoriesPage() {
     setEditTagValue(m.tag || '')
   }
 
-  // Tagging is allowed on all plans, no gatekeeper needed here
   const handleSaveTag = async (id: string) => {
     const trimmed = editTagValue.trim()
     try {
@@ -231,7 +229,7 @@ export default function MemoriesPage() {
         .from('memories')
         .update({ tag: trimmed || null })
         .eq('id', id)
-        .eq('user_id', user.id) // ownership check
+        .eq('user_id', user.id)
       if (error) throw error
       setMemories(prev => prev.map(m => m.id === id ? { ...m, tag: trimmed || null } : m))
     } catch (error) {
@@ -257,6 +255,18 @@ export default function MemoriesPage() {
     setEditContent('')
   }
 
+  // ── COPY TO CLIPBOARD ──────────────────────────────────────────────
+  const handleCopy = async (e: React.MouseEvent, id: string, textToCopy: string) => {
+    e.stopPropagation() // Prevent tab from expanding/collapsing
+    try {
+      await navigator.clipboard.writeText(textToCopy)
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+    }
+  }
+
   // ── GATEKEEPER ENABLED: EDIT MEMORY ────────────────────────────────
   const handleSaveEdit = async (id: string) => {
     if (!editContent.trim()) return
@@ -266,7 +276,6 @@ export default function MemoriesPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error("Not authenticated")
 
-      // 1. Check if user is allowed to edit (Free plan = false)
       const enforceRes = await fetch('/api/enforce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -274,7 +283,6 @@ export default function MemoriesPage() {
       });
       const authCheck = await enforceRes.json();
 
-      // 2. Block if needed
       if (!authCheck.allowed) {
         setUpgradeReason(authCheck.reason);
         setShowUpgrade(true);
@@ -282,7 +290,6 @@ export default function MemoriesPage() {
         return;
       }
 
-      // 3. Proceed if allowed
       const { error } = await supabase
         .from('memories')
         .update({ content: editContent })
@@ -348,7 +355,6 @@ export default function MemoriesPage() {
           className="w-full bg-[#0f1117] border border-gray-800 rounded-2xl p-5 text-sm text-gray-300 outline-none focus:border-blue-500 min-h-[120px] transition-all font-mono"
         />
 
-        {/* Tag input */}
         <div className="flex items-center gap-3 bg-[#0f1117] border border-gray-800 rounded-xl px-4 py-3 focus-within:border-blue-500/50 transition-colors">
           <Tag size={14} className="text-gray-500 shrink-0" />
           <input
@@ -398,6 +404,7 @@ export default function MemoriesPage() {
           const isEditing = editingId === m.id
           return (
             <div key={m.id} className={`border rounded-2xl overflow-hidden transition-all group ${isExpanded ? 'border-blue-500/30 bg-[#16181e]' : 'bg-[#16181e]/50 border-gray-800/50 hover:border-gray-700/50'}`}>
+              
               {/* Collapsed row header */}
               <div
                 className={`flex items-center justify-between px-4 py-3.5 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-500/5 border-b border-blue-500/10' : 'hover:bg-[#16181e]'}`}
@@ -434,13 +441,35 @@ export default function MemoriesPage() {
                     </span>
                   )}
                 </div>
+                
+                {/* Action Buttons */}
                 <div className="flex items-center gap-1 ml-2 shrink-0">
                   {!isEditing && (
                     <>
-                      <button onClick={(e) => { e.stopPropagation(); handleStartEdit(m); setExpandedId(m.id) }} className="p-1.5 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100">
+                      {/* Copy Button */}
+                      <button 
+                        onClick={(e) => handleCopy(e, m.id, m.content)} 
+                        className="p-1.5 text-gray-600 hover:text-green-400 hover:bg-green-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        title="Copy text"
+                      >
+                        {copiedId === m.id ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                      </button>
+
+                      {/* Edit Button */}
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleStartEdit(m); setExpandedId(m.id) }} 
+                        className="p-1.5 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        title="Edit memory"
+                      >
                         <Pencil size={14} />
                       </button>
-                      <button onClick={(e) => { e.stopPropagation(); setMemoryToDelete({ id: m.id, content: m.content }) }} className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100">
+
+                      {/* Delete Button */}
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setMemoryToDelete({ id: m.id, content: m.content }) }} 
+                        className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        title="Delete memory"
+                      >
                         <Trash2 size={14} />
                       </button>
                     </>
@@ -448,6 +477,7 @@ export default function MemoriesPage() {
                   {isExpanded ? <ChevronDown size={15} className="text-blue-400 ml-1" /> : <ChevronRight size={15} className="text-gray-600 group-hover:text-gray-400 ml-1" />}
                 </div>
               </div>
+              
               {/* Expanded content */}
               {isExpanded && (
                 <div className="px-4 py-4">
@@ -464,7 +494,7 @@ export default function MemoriesPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-[500px] overflow-y-auto">
+                    <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-[500px] overflow-y-auto relative group/content">
                       <MarkdownRenderer content={m.content} />
                     </div>
                   )}
