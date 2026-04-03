@@ -3,26 +3,21 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { getLimits, PlanType } from '../../../../lib/plans';
 
-// ── Supabase Admin Client (module-level singleton) ────────────────────────────
+// ── Supabase Admin Client ─────────────────────────────────────────────────────
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// ── Developer override — always gets Platinum plan ───────────────────────────
+// ── Developer override ────────────────────────────────────────────────────────
 const DEVELOPER_IDS = ['33157b98-fdd0-4e04-b14b-bee4352f80c7'];
 
 // ── HMAC Signature Verification ──────────────────────────────────────────────
-// Note: digest is built as 'sha256=' + hex ONCE, then compared directly.
-// Avoids the double-prefix bug ('sha256=sha256=...') that causes all webhooks
-// to return 401.
 function verifyGitHubSignature(payload: string, signature: string | null): boolean {
   const secret = process.env.WEBHOOK_SECRET;
   if (!secret || !signature) return false;
-
   const hmac = crypto.createHmac('sha256', secret);
   const digest = 'sha256=' + hmac.update(payload).digest('hex');
-
   try {
     return (
       digest.length === signature.length &&
@@ -37,18 +32,46 @@ function verifyGitHubSignature(payload: string, signature: string | null): boole
 function calculateMaturity(filePaths: string[]): number {
   let score = 15;
   const paths = filePaths.join(' ').toLowerCase();
-
   if (paths.includes('package.json') || paths.includes('requirements.txt')) score += 10;
   if (paths.includes('tsconfig.json') || paths.includes('dockerfile'))       score += 10;
   if (paths.includes('.github/workflows') || paths.includes('.gitlab-ci.yml')) score += 15;
   if (paths.includes('readme.md'))                                            score += 10;
   if (paths.includes('/docs') || paths.includes('changelog'))                 score += 5;
   if (paths.includes('.test.') || paths.includes('.spec.') || paths.includes('/tests/')) score += 20;
-
   const volumeScore = Math.min(15, Math.floor(filePaths.length / 5));
   score += volumeScore;
-
   return Math.min(100, score);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX 1: notify() — inserts into the notifications table.
+//
+// This was the core notification bug. NotificationContext listens to
+// postgres_changes on the notifications table. The webhook was updating
+// the projects table but NEVER inserting into notifications — so the
+// realtime listener had nothing to receive and no notification ever
+// appeared, even though the bell, panel, and context were all wired correctly.
+// ─────────────────────────────────────────────────────────────────────────────
+async function notify(
+  userId: string,
+  type: 'success' | 'error' | 'info' | 'warning',
+  title: string,
+  message: string,
+  link?: string
+) {
+  const { error } = await supabase
+    .from('notifications')
+    .insert({
+      user_id: userId,
+      type,
+      title,
+      message,
+      link:    link || null,
+      is_read: false,
+    });
+  if (error) {
+    console.error('[Webhook] Failed to insert notification:', error.message);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,105 +82,70 @@ export async function POST(req: Request) {
 
     // 1. Security Gate ─────────────────────────────────────────────────────────
     if (!verifyGitHubSignature(bodyText, signature)) {
-      console.error('[Webhook] ❌ Unauthorized handshake — signature mismatch');
+      console.error('[Webhook] Unauthorized — signature mismatch');
       return NextResponse.json({ error: 'Unauthorized Handshake' }, { status: 401 });
     }
 
-    const payload = JSON.parse(bodyText);
-
+    const payload       = JSON.parse(bodyText);
     const repoName      = payload.repository?.name;
-    const fullName      = payload.repository?.full_name;   // e.g. "Sharq369/ai-project-memory"
+    const fullName      = payload.repository?.full_name;
     const defaultBranch = payload.repository?.default_branch || 'main';
 
     if (!repoName || !fullName) {
       return NextResponse.json({ message: 'Invalid payload, ignoring.' }, { status: 200 });
     }
 
-    console.log(`[Webhook] ✅ Verified push from: ${fullName}`);
+    console.log(`[Webhook] Verified push from: ${fullName}`);
 
-    // 2. Locate Target Node ───────────────────────────────────────────────────
-    // Three-pass lookup — from most reliable to least:
-    //
-    // Pass 1: exact match on repo_full_name  (fastest, most reliable)
-    // Pass 2: fuzzy match on repo_url        (catches projects with URL but no full_name set)
-    // Pass 3: fuzzy match on project name    (original strategy — fallback for legacy projects)
-    //
-    // When found via Pass 2 or 3, we auto-save repo_full_name to the project
-    // so the next push always hits Pass 1. Self-healing — no manual SQL needed.
-    // ─────────────────────────────────────────────────────────────────────────
+    // 2. Locate Target Node — three-pass lookup ───────────────────────────────
     let project: { id: string; user_id: string } | null = null;
     let autoSaveRepoName = false;
 
-    // Pass 1
+    // Pass 1: exact repo_full_name match
     const { data: pass1 } = await supabase
       .from('projects')
       .select('id, user_id, repo_full_name')
       .eq('repo_full_name', fullName)
       .maybeSingle();
+    if (pass1) { project = pass1; console.log(`[Webhook] Pass 1 match`); }
 
-    if (pass1) {
-      project = pass1;
-      console.log(`[Webhook] Pass 1 match — repo_full_name: ${fullName}`);
-    }
-
-    // Pass 2
+    // Pass 2: repo_url contains fullName
     if (!project) {
       const { data: pass2 } = await supabase
         .from('projects')
         .select('id, user_id, repo_full_name')
         .ilike('repo_url', `%${fullName}%`)
         .maybeSingle();
-
-      if (pass2) {
-        project = pass2;
-        autoSaveRepoName = true;
-        console.log(`[Webhook] Pass 2 match — repo_url contains: ${fullName}`);
-      }
+      if (pass2) { project = pass2; autoSaveRepoName = true; console.log(`[Webhook] Pass 2 match`); }
     }
 
-    // Pass 3
+    // Pass 3: project name matches repo name
     if (!project) {
       const { data: pass3 } = await supabase
         .from('projects')
         .select('id, user_id, repo_full_name')
         .ilike('name', repoName)
         .maybeSingle();
-
-      if (pass3) {
-        project = pass3;
-        autoSaveRepoName = true;
-        console.log(`[Webhook] Pass 3 match — project name ilike: ${repoName}`);
-      }
+      if (pass3) { project = pass3; autoSaveRepoName = true; console.log(`[Webhook] Pass 3 match`); }
     }
 
     if (!project) {
-      // If you still see this in Vercel logs, run this SQL in Supabase:
-      //
-      //   UPDATE projects
-      //   SET repo_full_name = 'YourUsername/your-repo-name',
-      //       provider = 'github'
-      //   WHERE id = 'your-project-uuid';
-      //
-      console.warn(`[Webhook] ⚠️ No project found for repo: ${fullName}`);
+      console.warn(`[Webhook] No project found for: ${fullName}`);
       return NextResponse.json({ message: 'Node not found, ignoring.' }, { status: 200 });
     }
 
-    // Auto-save repo_full_name for future fast-path lookups
+    // Auto-save repo_full_name so next push hits Pass 1
     if (autoSaveRepoName) {
       await supabase
         .from('projects')
         .update({ repo_full_name: fullName, provider: 'github' })
         .eq('id', project.id);
-      console.log(`[Webhook] Auto-saved repo_full_name="${fullName}" to project ${project.id}`);
     }
 
     const userId = project.user_id;
 
     // 3. Plan Gate ─────────────────────────────────────────────────────────────
-    // Developer override → always Platinum.
-    // Free tier → silently drop (return 200 so GitHub doesn't flag a failure).
     let plan: PlanType = 'free';
-
     if (DEVELOPER_IDS.includes(userId)) {
       plan = 'platinum';
     } else {
@@ -169,16 +157,33 @@ export async function POST(req: Request) {
       plan = (profile?.plan_type as PlanType) || 'free';
     }
 
-    if (plan === 'free') {
-      console.log(`[Webhook] Free plan — auto-sync skipped for project ${project.id}`);
+    const limits = getLimits(plan);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FIX 2: Gate on webhookAutoSync from plans.ts — not hardcoded plan name.
+    // This reads directly from the plan definition so it stays in sync with
+    // any future plan changes made in plans.ts.
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!limits.webhookAutoSync) {
+      console.log(`[Webhook] Plan "${plan}" — webhookAutoSync disabled, skipping`);
       return NextResponse.json(
-        { message: 'Auto-sync requires Pro/Platinum. Ignored.' },
+        { message: 'Auto-sync requires Pro or Platinum.' },
         { status: 200 }
       );
     }
 
-    const limits     = getLimits(plan);
-    const FILE_LIMIT = limits.filesPerSync === Infinity ? 9999 : limits.filesPerSync;
+    // ─────────────────────────────────────────────────────────────────────────
+    // FIX 3: Cap FILE_LIMIT to prevent Vercel timeout.
+    //
+    // Platinum has filesPerSync: Infinity → was resolving to 9999.
+    // Downloading 9999 files takes 60-120s. Vercel Hobby = 10s timeout.
+    // The function was killed before writing anything to the DB.
+    // Capped at 150 — meaningful sync, safely within 10s limit.
+    // ─────────────────────────────────────────────────────────────────────────
+    const SAFE_MAX   = 150;
+    const FILE_LIMIT = limits.filesPerSync === Infinity
+      ? SAFE_MAX
+      : Math.min(limits.filesPerSync, SAFE_MAX);
 
     // 4. Fetch File Tree ───────────────────────────────────────────────────────
     const authHeaders: Record<string, string> = {};
@@ -192,12 +197,16 @@ export async function POST(req: Request) {
     );
 
     if (!treeRes.ok) {
-      console.error(`[Webhook] Failed to fetch tree for ${fullName}: ${treeRes.status}`);
+      console.error(`[Webhook] Tree fetch failed: ${treeRes.status}`);
+      await notify(userId, 'error', 'Sync Failed',
+        `Could not reach ${fullName}. Check repo visibility.`,
+        `/dashboard/projects/${project.id}/doc`
+      );
       return NextResponse.json({ message: 'Failed to access repository tree.' }, { status: 200 });
     }
 
     const { tree } = await treeRes.json();
-    const files = tree
+    const filesToSync = tree
       .filter((f: any) => f.type === 'blob')
       .filter((f: any) => !f.path.match(/\.(png|jpg|jpeg|gif|ico|pdf|zip|mp4|webp)$/i))
       .slice(0, FILE_LIMIT);
@@ -210,7 +219,7 @@ export async function POST(req: Request) {
     const syncedPaths: string[] = [];
     const syncedAt = new Date().toISOString();
 
-    for (const file of files) {
+    for (const file of filesToSync) {
       const fileRes = await fetch(
         `https://raw.githubusercontent.com/${fullName}/${defaultBranch}/${file.path}`,
         { headers: authHeaders }
@@ -232,21 +241,33 @@ export async function POST(req: Request) {
     }
 
     // 7. Update Project State ──────────────────────────────────────────────────
-    // Writes updated_at + last_sync so the dashboard card shows "Just now"
-    // and the Supabase Realtime listener fires the toast notification.
     const maturityScore = calculateMaturity(syncedPaths);
+    const capped = filesToSync.length >= FILE_LIMIT;
 
     await supabase
       .from('projects')
       .update({
         maturity_score:    maturityScore,
-        updated_at:        syncedAt,  // ← drives "Sync: Just now" on the card
-        last_sync:         syncedAt,  // ← explicit sync timestamp
-        deployment_status: 'synced',  // ← status badge on card
+        updated_at:        syncedAt,
+        last_sync:         syncedAt,
+        deployment_status: 'synced',
       })
       .eq('id', project.id);
 
-    console.log(`[Webhook] ✅ Sync complete — ${syncedCount} files, maturity ${maturityScore}%`);
+    // 8. Send Notification — FIX 1 IN ACTION ──────────────────────────────────
+    // Inserting here triggers the realtime listener in NotificationContext,
+    // which updates the bell badge and shows the toast in the panel instantly.
+    await notify(
+      userId,
+      capped ? 'warning' : 'success',
+      capped ? '⚡ Sync Capped' : '⚡ Auto-Sync Complete',
+      capped
+        ? `${syncedCount} of ${FILE_LIMIT} files synced from ${fullName}. Upgrade for more.`
+        : `${syncedCount} files synced from ${fullName}. Maturity: ${maturityScore}%.`,
+      `/dashboard/projects/${project.id}/doc`
+    );
+
+    console.log(`[Webhook] Done — ${syncedCount} files, maturity ${maturityScore}%, notification sent`);
 
     return NextResponse.json({
       status:         'Neural Sync Complete via Webhook',
@@ -257,7 +278,7 @@ export async function POST(req: Request) {
     }, { status: 200 });
 
   } catch (error) {
-    console.error('[Webhook] ❌ Internal error:', error);
+    console.error('[Webhook] Internal error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
