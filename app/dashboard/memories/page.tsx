@@ -2,11 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag, Lock, ArrowRight } from 'lucide-react'
+import { Brain, Plus, Loader2, Layers, Trash2, AlertTriangle, Search, Filter, AlignLeft, Pencil, Check, X, Tag, Lock, ArrowRight, ChevronDown, ChevronRight, FileText } from 'lucide-react'
 
 
 // ── Markdown Renderer ─────────────────────────────────────────────────────────
-// Matches the exact same renderer used in project doc page
 const MarkdownRenderer = ({ content }: { content: string }) => {
   const formatInline = (text: string) => {
     const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g)
@@ -14,7 +13,7 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
       if (part.startsWith('**') && part.endsWith('**'))
         return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>
       if (part.startsWith('`') && part.endsWith('`'))
-        return <code key={i} className="bg-blue-900/30 text-blue-300 px-1.5 py-0.5 rounded-md border border-blue-500/20 font-mono text-xs">{part.slice(1, -1)}</code>
+        return <code key={i} className="bg-blue-900/30 text-blue-300 px-1.5 py-0.5 rounded border border-blue-500/20 font-mono text-xs">{part.slice(1, -1)}</code>
       return <span key={i}>{part}</span>
     })
   }
@@ -22,14 +21,15 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
   const segments = content.split(/(```[\s\S]*?```)/g)
   return (
     <div className="space-y-2 text-sm">
-      {segments.map((segment, si) => {
-        if (segment.startsWith('```') && segment.endsWith('```')) {
-          const inner = segment.slice(3, -3)
-          const nl = inner.indexOf('\n')
+      {segments.map((seg, si) => {
+        if (seg.startsWith('```') && seg.endsWith('```')) {
+          const inner = seg.slice(3, -3)
+          const nl = inner.indexOf('
+')
           const lang = nl !== -1 ? inner.slice(0, nl).trim() : ''
-          const codeContent = nl !== -1 ? inner.slice(nl + 1) : inner
+          const codeText = nl !== -1 ? inner.slice(nl + 1) : inner
           return (
-            <div key={si} className="rounded-xl border border-[#1E293B] bg-[#020617] overflow-hidden my-3">
+            <div key={si} className="rounded-xl border border-[#1E293B] bg-[#020617] overflow-hidden my-2">
               <div className="flex items-center justify-between px-4 py-2 bg-[#0B1120] border-b border-[#1E293B]">
                 <div className="flex gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f56]" />
@@ -38,13 +38,14 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
                 </div>
                 {lang && <span className="text-[9px] font-mono text-gray-500 uppercase tracking-widest">{lang}</span>}
               </div>
-              <pre className="p-4 overflow-x-auto text-xs font-mono text-cyan-300 leading-relaxed whitespace-pre"><code>{codeContent}</code></pre>
+              <pre className="p-4 overflow-x-auto text-xs font-mono text-cyan-300 leading-relaxed whitespace-pre"><code>{codeText}</code></pre>
             </div>
           )
         }
         return (
           <div key={si} className="space-y-1.5 text-gray-300 leading-relaxed">
-            {segment.split('\n').map((line, li) => {
+            {seg.split('
+').map((line, li) => {
               if (!line.trim()) return <div key={li} className="h-1" />
               if (line.startsWith('# ')) return <h1 key={li} className="text-base font-black text-white mt-3 mb-1">{line.slice(2)}</h1>
               if (line.startsWith('## ')) return <h2 key={li} className="text-sm font-bold text-blue-300 mt-2 mb-1 border-b border-white/5 pb-1">{line.slice(3)}</h2>
@@ -124,6 +125,9 @@ export default function MemoriesPage() {
   const [localSearch, setLocalSearch] = useState('')
   const [memoryToDelete, setMemoryToDelete] = useState<{ id: string, content: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // Expand/collapse state — which memory card is open
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Gatekeeper state
   const [showUpgrade, setShowUpgrade] = useState(false)
@@ -393,90 +397,125 @@ export default function MemoriesPage() {
 
         {filteredMemories.map((m) => {
           const label = getLabel(m)
+          const isExpanded = expandedId === m.id
+          const isEditing = editingId === m.id
+
           return (
-            <div key={m.id} className="bg-[#16181e]/50 border border-gray-800/50 p-6 rounded-2xl flex justify-between items-start group hover:bg-[#16181e] transition-all">
-              <div className="space-y-3 w-full pr-6">
+            <div key={m.id} className={`bg-[#16181e]/50 border rounded-2xl overflow-hidden transition-all group ${
+              isExpanded ? 'border-blue-500/30 bg-[#16181e]' : 'border-gray-800/50 hover:border-gray-700/50'
+            }`}>
 
-                {/* LABEL — click to edit inline */}
-                {editingTagId === m.id ? (
-                  <div className="flex items-center gap-2">
-                    <Tag size={11} className="text-blue-400 shrink-0" />
-                    <input
-                      ref={tagInputRef}
-                      type="text"
-                      value={editTagValue}
-                      onChange={(e) => setEditTagValue(e.target.value)}
-                      onKeyDown={(e) => handleTagKeyDown(e, m.id)}
-                      onBlur={() => handleSaveTag(m.id)}
-                      placeholder="Enter label..."
-                      className="bg-transparent border-b border-blue-500 outline-none text-[11px] font-black uppercase tracking-widest text-blue-400 w-40 pb-0.5"
-                    />
-                    <span className="text-[9px] text-gray-600 font-mono">↵ to save</span>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => handleStartTagEdit(m)}
-                    className={`group/tag flex items-center gap-1.5 text-[8px] font-black px-3 py-1 rounded-md uppercase tracking-tighter border transition-all ${
-                      label
-                        ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:border-blue-400/50'
-                        : 'bg-gray-500/10 text-gray-500 border-gray-500/20 hover:border-gray-400/40 hover:text-gray-400'
-                    }`}
-                    title="Click to edit label"
-                  >
-                    {label || 'Unassigned'}
-                    <Pencil size={8} className="opacity-0 group-hover/tag:opacity-60 transition-opacity" />
-                  </button>
-                )}
+              {/* ── COLLAPSED ROW — always visible ── */}
+              <div
+                className={`flex items-center justify-between px-4 py-3.5 cursor-pointer transition-colors ${
+                  isExpanded ? 'bg-blue-500/5 border-b border-blue-500/10' : 'hover:bg-[#16181e]'
+                }`}
+                onClick={() => {
+                  if (!isEditing) setExpandedId(prev => prev === m.id ? null : m.id)
+                }}
+              >
+                {/* Left: icon + label */}
+                <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                  <FileText size={15} className={`shrink-0 transition-colors ${isExpanded ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
 
-                {editingId === m.id ? (
-                  <div className="space-y-3">
-                    <textarea
-                      value={editContent}
-                      onChange={(e) => setEditContent(e.target.value)}
-                      className="w-full bg-[#0f1117] border border-blue-500/50 rounded-xl p-4 text-sm text-gray-300 outline-none font-mono min-h-[120px] resize-none transition-all"
-                      autoFocus
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleSaveEdit(m.id)}
-                        disabled={isSavingEdit || !editContent.trim()}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
-                      >
-                        {isSavingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                        Save
-                      </button>
-                      <button
-                        onClick={handleCancelEdit}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
-                      >
-                        <X size={12} /> Cancel
-                      </button>
+                  {/* Tag — inline edit on click, stops propagation */}
+                  {editingTagId === m.id ? (
+                    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                      <input
+                        ref={tagInputRef}
+                        type="text"
+                        value={editTagValue}
+                        onChange={(e) => setEditTagValue(e.target.value)}
+                        onKeyDown={(e) => handleTagKeyDown(e, m.id)}
+                        onBlur={() => handleSaveTag(m.id)}
+                        placeholder="Enter label..."
+                        className="bg-transparent border-b border-blue-500 outline-none text-[11px] font-black uppercase tracking-widest text-blue-400 w-32 pb-0.5"
+                      />
+                      <span className="text-[9px] text-gray-600 font-mono">↵</span>
                     </div>
-                  </div>
-                ) : (
-                  <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-96 overflow-y-auto custom-scrollbar">
-                    <MarkdownRenderer content={m.content} />
-                  </div>
-                )}
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleStartTagEdit(m) }}
+                      className={`group/tag flex items-center gap-1 text-[8px] font-black px-2.5 py-1 rounded-md uppercase tracking-tighter border transition-all shrink-0 ${
+                        label
+                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:border-blue-400/50'
+                          : 'bg-gray-500/10 text-gray-500 border-gray-500/20 hover:border-gray-400/40 hover:text-gray-400'
+                      }`}
+                    >
+                      {label || 'Unassigned'}
+                      <Pencil size={7} className="opacity-0 group-hover/tag:opacity-60 transition-opacity" />
+                    </button>
+                  )}
+
+                  {/* Content preview when collapsed */}
+                  {!isExpanded && !isEditing && (
+                    <span className="text-[12px] text-gray-500 truncate ml-1">
+                      {m.content.replace(/```[\s\S]*?```/g, '[code]').replace(/[#*`>
+]/g, ' ').trim().slice(0, 80)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Right: action buttons + chevron */}
+                <div className="flex items-center gap-1 ml-2 shrink-0">
+                  {!isEditing && (
+                    <>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleStartEdit(m); setExpandedId(m.id) }}
+                        className="p-1.5 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        title="Edit"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setMemoryToDelete({ id: m.id, content: m.content }) }}
+                        className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  )}
+                  {isExpanded
+                    ? <ChevronDown size={15} className="text-blue-400 ml-1" />
+                    : <ChevronRight size={15} className="text-gray-600 group-hover:text-gray-400 ml-1" />
+                  }
+                </div>
               </div>
 
-              {editingId !== m.id && (
-                <div className="flex flex-col items-center gap-2 pt-1 min-w-[30px]">
-                  <Brain className="text-gray-700 group-hover:text-blue-500 transition-colors mb-2" size={20} />
-                  <button
-                    onClick={() => handleStartEdit(m)}
-                    className="p-2 text-gray-600 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                    title="Edit Content"
-                  >
-                    <Pencil size={16} />
-                  </button>
-                  <button
-                    onClick={() => setMemoryToDelete({ id: m.id, content: m.content })}
-                    className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                    title="Purge Sequence"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+              {/* ── EXPANDED CONTENT ── */}
+              {isExpanded && (
+                <div className="px-4 py-4">
+                  {isEditing ? (
+                    <div className="space-y-3">
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        className="w-full bg-[#0f1117] border border-blue-500/50 rounded-xl p-4 text-sm text-gray-300 outline-none font-mono min-h-[140px] resize-none transition-all"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleSaveEdit(m.id)}
+                          disabled={isSavingEdit || !editContent.trim()}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
+                        >
+                          {isSavingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                          Save
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all"
+                        >
+                          <X size={12} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-[#0f1117] p-4 rounded-xl border border-gray-800/50 max-h-[500px] overflow-y-auto">
+                      <MarkdownRenderer content={m.content} />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
