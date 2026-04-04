@@ -5,12 +5,14 @@ import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import {
   ChevronRight, Loader2, Copy, Check, Download,
-  BrainCircuit, ShieldCheck, AlertCircle, ArrowLeft, Database, CheckCircle2, X, Lock
+  BrainCircuit, ShieldCheck, AlertCircle, ArrowLeft, Database, CheckCircle2, X, Lock,
+  Upload, Trash2, Cpu, FileText, Paperclip
 } from 'lucide-react';
 
 function extractJSONBlock(text: string): string {
-  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (codeBlockMatch) return codeBlockMatch[1].trim();
+  const codeBlockMatch = text.match(/
+http://googleusercontent.com/immersive_entry_chip/0
+if (codeBlockMatch) return codeBlockMatch[1].trim();
   const arrayMatch = text.match(/(\[[\s\S]*\])/);
   if (arrayMatch) return arrayMatch[1].trim();
   const objectMatch = text.match(/(\{[\s\S]*\})/);
@@ -20,7 +22,6 @@ function extractJSONBlock(text: string): string {
 
 function safeParse(input: any, context: string): any {
   const raw = String(input)
-  // Multiple strip attempts in order of aggression
   const attempts = [
     raw,
     raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim(),
@@ -111,9 +112,6 @@ MANDATORY RULES:
 5. If image upload mentioned: define upload→CDN→store URL→return flow
 6. If search mentioned: define keyword search + filters + pagination + sorting
 
-Example of the ONLY acceptable response format:
-{"allowed_technologies":["Next.js","Supabase","Tailwind"],"system_phases":["Phase 1: Setup","Phase 2: Core Backend","Phase 3: Frontend Foundation","Phase 4: Feature Implementation","Phase 5: Hardening & Integration"],"data_models":["User: id, email, password_hash, plan, created_at","Project: id, user_id, name, status, created_at"],"frontend":["Login/Register pages with form validation","Dashboard with loading skeleton","Global auth state via React Context","API error boundary component"],"backend":["POST /auth/register with bcrypt hash","POST /auth/login returning httpOnly cookie","JWT stored in httpOnly cookie (not localStorage)","GET/POST/PUT/DELETE /projects with ownership check","Standard error format: {success, error, message, statusCode}","Rate limiting: 100req/15min per IP","Input validation on all routes","CORS configured for frontend domain only"],"security_requirements":["httpOnly cookie for JWT","Rate limiting per IP","Input sanitization","CORS whitelist"],"error_handling":["Standard API error format","Server-side logging","Client-side error boundaries"]}
-
 Now analyze this PRD and return the JSON object:
 
 `;
@@ -129,8 +127,8 @@ MANDATORY STEP COVERAGE — every pipeline MUST include steps for:
 6. Payment flow (if applicable) — define pending/confirmed/failed states, webhook endpoint with signature verification, idempotency key handling
 7. Image/file upload (if applicable) — upload to CDN, store URL in DB, return URL
 8. Search & filtering (if applicable) — keyword search, filters, pagination (page+limit), sorting (field+direction)
-9. Standard error handling — unified error format: {success: boolean, error: string, message: string, statusCode: number}
-10. Security hardening — rate limiting (express-rate-limit or equivalent), input validation (zod/joi), CORS configuration, Helmet headers, SQL injection prevention
+9. Standard error handling — unified error format
+10. Security hardening — rate limiting, input validation, CORS configuration, Helmet headers
 11. Logging — request logging, error logging
 
 PHASE ASSIGNMENT (use exactly these strings):
@@ -142,24 +140,11 @@ PHASE ASSIGNMENT (use exactly these strings):
 STRICT RULES:
 - Use ONLY the allowed technologies provided
 - Minimum 8 steps, maximum 18 steps
-- Each step is ONE atomic unit of work — never combine unrelated concerns
+- Each step is ONE atomic unit of work
 - depends_on must reference real step_ids in this same array
 - tasks array: minimum 3 specific implementation actions per step
-- output: concrete deliverable (e.g. "Working POST /auth/login endpoint returning httpOnly JWT cookie")
 
 Return ONLY a raw JSON array. No explanation. No markdown fences. No prose.
-[
-  {
-    "step_id": "BE-1",
-    "title": "Project Setup & Dependencies",
-    "phase": "Phase 1: Setup",
-    "depends_on": [],
-    "goal": "Initialize project with all required dependencies configured",
-    "tasks": ["Init project with package manager", "Install core dependencies", "Configure environment variables", "Setup folder structure"],
-    "requirements": ["Node.js", "npm/yarn"],
-    "output": "Runnable project skeleton with all dependencies installed"
-  }
-]
 
 Allowed Technologies:
 `;
@@ -180,19 +165,7 @@ Rules:
 Reference these backend steps for API integration:
 ${JSON.stringify(backendSteps, null, 2)}
 
-Return ONLY a raw JSON array with no explanation, no markdown fences:
-[
-  {
-    "step_id": "FE-1",
-    "title": "Step Title",
-    "phase": "Phase 1: Foundation",
-    "depends_on": [],
-    "goal": "What this step achieves",
-    "tasks": ["Specific action 1"],
-    "requirements": ["Component/Library requirement"],
-    "output": "UI deliverable"
-  }
-]
+Return ONLY a raw JSON array with no explanation, no markdown fences.
 
 Context:
 - Allowed Technologies: ${JSON.stringify(technologies)}
@@ -206,11 +179,11 @@ VALIDATION CHECKLIST:
 1. All required fields exist: step_id, title, phase, goal, tasks, requirements, output, depends_on
 2. No duplicate step_ids — if duplicates found, append -A, -B suffix
 3. tasks array has minimum 2 items — if empty or 1 item, expand with logical sub-tasks
-4. depends_on only references step_ids that exist in this array — remove any that don't
-5. phase must be one of exactly: "Phase 1: Setup", "Phase 2: Core Backend", "Phase 3: Feature Implementation", "Phase 4: Hardening & Integration" (for backend) OR "Phase 1: Foundation", "Phase 2: Core UI", "Phase 3: Feature Pages", "Phase 4: Polish & Integration" (for frontend) — fix any that don't match
-6. output must be a concrete deliverable sentence, not vague — rewrite if vague
-7. goal must clearly state what the step achieves — rewrite if vague
-8. No step should combine more than one major concern — if a step title contains "and" with unrelated concerns, flag it but keep it (do not split, just clean the tasks)
+4. depends_on only references step_ids that exist in this array
+5. phase must be valid
+6. output must be a concrete deliverable sentence
+7. goal must clearly state what the step achieves
+8. No step should combine more than one major concern
 
 CRITICAL: Do NOT remove steps. Do NOT merge steps. Do NOT reduce the array length unless there are true duplicates.
 
@@ -227,16 +200,15 @@ function downloadMarkdown(fileName: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-// 429-aware AI call with 3s breathing gap between successful calls
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function aiCall(prompt: string, retries = 3): Promise<string> {
+async function aiCall(prompt: string, selectedStacks: string[] = [], uploadedFiles: any[] = [], retries = 3): Promise<string> {
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetch('/api/decomposer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, selectedStacks, files: uploadedFiles }),
       });
 
       if (res.status === 429) {
@@ -253,7 +225,7 @@ async function aiCall(prompt: string, retries = 3): Promise<string> {
       const data = await res.json();
       if (!data.text || data.text.trim().length < 10) throw new Error('Empty or too-short response from AI');
 
-      await sleep(3000); // breathing gap to avoid RPM burst
+      await sleep(3000);
       return data.text;
     } catch (e: any) {
       console.error(`Attempt ${i + 1} failed:`, e);
@@ -264,8 +236,40 @@ async function aiCall(prompt: string, retries = 3): Promise<string> {
   throw new Error('AI call exhausted all retries');
 }
 
+const KNOWN_STACKS = [
+  'Next.js', 'React', 'Vue.js', 'Nuxt.js', 'Svelte', 'SvelteKit', 'Astro',
+  'Angular', 'Remix', 'Vite', 'Tailwind CSS', 'Shadcn/ui', 'Radix UI',
+  'Framer Motion', 'Three.js', 'React Native', 'Expo',
+  'Node.js', 'Express', 'Fastify', 'Hono', 'Bun', 'Deno',
+  'NestJS', 'tRPC', 'GraphQL', 'REST', 'gRPC', 'WebSockets',
+  'Supabase', 'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'SQLite',
+  'PlanetScale', 'Neon', 'Turso', 'DynamoDB', 'Cassandra', 'CockroachDB',
+  'Drizzle ORM', 'Prisma', 'TypeORM', 'Mongoose',
+  'Clerk', 'Auth.js', 'NextAuth', 'Lucia', 'Supabase Auth', 'Firebase Auth',
+  'Auth0', 'Cognito', 'Keycloak', 'Passport.js',
+  'Vercel', 'Netlify', 'Railway', 'Render', 'Fly.io', 'AWS', 'GCP',
+  'Azure', 'Cloudflare Workers', 'Cloudflare Pages', 'DigitalOcean',
+  'Heroku', 'Coolify',
+  'AWS S3', 'Cloudinary', 'Uploadthing', 'Supabase Storage',
+  'Backblaze B2', 'Bunny CDN', 'Cloudflare R2',
+  'Stripe', 'NOWPayments', 'Paddle', 'LemonSqueezy', 'Paystack',
+  'Flutterwave', 'PayPal', 'Braintree',
+  'OpenAI', 'Anthropic Claude', 'Google Gemini', 'Groq', 'Mistral',
+  'Hugging Face', 'Replicate', 'Langchain', 'LlamaIndex', 'Pinecone',
+  'Weaviate', 'Chroma',
+  'Resend', 'SendGrid', 'Mailgun', 'Postmark', 'Twilio', 'Vonage',
+  'Pusher', 'Ably', 'Socket.io',
+  'Sentry', 'Datadog', 'LogRocket', 'PostHog', 'Mixpanel', 'Amplitude',
+  'Better Stack', 'Axiom', 'Grafana', 'Prometheus',
+  'GitHub Actions', 'GitLab CI', 'Docker', 'Kubernetes', 'Terraform',
+  'Ansible', 'Jenkins', 'CircleCI',
+  'Sanity', 'Contentful', 'Strapi', 'Payload CMS', 'Ghost',
+  'Directus', 'Hygraph', 'Builder.io',
+  'Jest', 'Vitest', 'Playwright', 'Cypress', 'Testing Library',
+  'Zustand', 'Redux', 'Jotai', 'React Query', 'SWR', 'Zod',
+  'TypeScript', 'GraphQL Codegen', 'Nx', 'Turborepo',
+]
 
-// ── UPGRADE MODAL ─────────────────────────────────────────────────────────────
 const UpgradeModal = ({ isOpen, onClose, reason }: { isOpen: boolean; onClose: () => void; reason: string }) => {
   if (!isOpen) return null;
   return (
@@ -313,6 +317,12 @@ export default function DecomposerPage() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState('');
 
+  const [selectedStacks, setSelectedStacks] = useState<string[]>([]);
+  const [stackSearch, setStackSearch] = useState('');
+
+  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; type: string; base64: string }[]>([]);
+  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ visible: true, type, message });
     setTimeout(() => setToast(t => ({ ...t, visible: false })), 4000);
@@ -323,10 +333,30 @@ export default function DecomposerPage() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files || [])
+    if (!picked.length) return
+    setIsProcessingFiles(true)
+    const results: { name: string; type: string; base64: string }[] = []
+    for (const file of picked) {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve((reader.result as string).split(',')[1])
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      results.push({ name: file.name, type: file.type, base64 })
+    }
+    setUploadedFiles(prev => [...prev, ...results])
+    setIsProcessingFiles(false)
+    e.target.value = ''
+  }
+
+  const removeFile = (idx: number) => setUploadedFiles(prev => prev.filter((_, i) => i !== idx))
+
   const handleDecompose = async () => {
     if (!prd.trim()) { setError('Please enter PRD content'); return; }
 
-    // ── GATEKEEPER: check decomposer_run limit before firing ──────────────
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setError('You must be logged in.'); return; }
@@ -347,19 +377,17 @@ export default function DecomposerPage() {
       setError('Could not verify plan limits. Please try again.');
       return;
     }
-    // ─────────────────────────────────────────────────────────────────────
 
     setLoading(true); setError(''); setFiles([]); setProgress('Initializing...');
 
     try {
-      setProgress('Phase 1: Analyzing PRD...');
-      const p1 = await aiCall(PHASE_1_PROMPT + prd);
+      setProgress('Phase 1: Analyzing PRD & Reading Uploaded Context...');
+      const p1 = await aiCall(PHASE_1_PROMPT + prd, selectedStacks, uploadedFiles);
       const req = safeParse(p1, 'Phase 1');
       if (!req.allowed_technologies || !Array.isArray(req.frontend) || !Array.isArray(req.backend)) {
         throw new Error('Phase 1: PRD analysis returned incomplete data. Make sure your PRD mentions technologies, frontend features, and backend requirements.');
       }
 
-      // Collect all enriched context from Phase 1
       const dataModels = Array.isArray(req.data_models) ? req.data_models : [];
       const securityReqs = Array.isArray(req.security_requirements) ? req.security_requirements : [];
       const errorHandling = Array.isArray(req.error_handling) ? req.error_handling : [];
@@ -372,23 +400,15 @@ export default function DecomposerPage() {
         `Error Handling Strategy: ${JSON.stringify(errorHandling)}`,
         `Requirements: ${JSON.stringify(req.backend)}`
       ].join('\n\n');
-      const bRaw = await aiCall(BACKEND_PROMPT + backendContext);
+      
+      const bRaw = await aiCall(BACKEND_PROMPT + backendContext, selectedStacks, []);
       let backend = enforceSchema(safeParse(bRaw, 'Backend Generation'), 'backend');
-      if (backend.length < 7) {
-        setProgress('Phase 2: Backend insufficient — retrying...');
-        const bRaw2 = await aiCall(BACKEND_PROMPT + backendContext + '\n\nIMPORTANT: You MUST generate at least 8 detailed, distinct steps covering setup, auth, CRUD, security, and error handling. Do not combine unrelated concerns in one step.');
-        backend = enforceSchema(safeParse(bRaw2, 'Backend Retry'), 'backend');
-      }
 
       setProgress('Phase 3: Generating Frontend Pipeline...');
       const backendRefs = backend.map((b: any) => ({ id: b.step_id, title: b.title }));
-      const fRaw = await aiCall(buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend));
+      
+      const fRaw = await aiCall(buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend), selectedStacks, []);
       let frontend = enforceSchema(safeParse(fRaw, 'Frontend Generation'), 'frontend');
-      if (frontend.length < 8) {
-        setProgress('Phase 3: Frontend insufficient — retrying...');
-        const fRaw2 = await aiCall(buildFrontendPrompt(req.allowed_technologies, backendRefs, req.frontend) + '\n\nIMPORTANT: You MUST generate at least 10 detailed, distinct steps covering init, auth UI, state management, all feature pages, loading states, and error handling. Do not combine unrelated UI concerns.');
-        frontend = enforceSchema(safeParse(fRaw2, 'Frontend Retry'), 'frontend');
-      }
 
       setProgress('Phase 4: Validating Pipelines...');
       const bVal = await aiCall(VALIDATION_PROMPT + JSON.stringify(backend));
@@ -445,7 +465,6 @@ export default function DecomposerPage() {
         </div>
       </nav>
 
-      {/* Premium Toast */}
       <div className={`fixed top-6 right-4 left-4 md:left-auto md:w-96 z-[200] transition-all duration-300 ${toast.visible ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0 pointer-events-none'}`}>
         <div className={`flex items-center gap-3 px-4 py-4 rounded-2xl border shadow-2xl backdrop-blur-xl ${
           toast.type === 'success'
@@ -475,6 +494,122 @@ export default function DecomposerPage() {
             className="w-full h-60 p-6 bg-black/40 border border-white/5 rounded-2xl font-mono text-sm text-blue-100/60 focus:border-blue-500/50 outline-none transition-all mb-4 resize-none"
             placeholder="Paste your Product Requirements Document (PRD) here... Be specific about features, tech stack, and requirements."
           />
+
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Cpu size={14} className="text-blue-400" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Tech Stack</span>
+              <span className="text-[9px] text-gray-600 ml-1">— search and select any stack</span>
+            </div>
+
+            <div className="relative mb-3">
+              <input
+                type="text"
+                value={stackSearch}
+                onChange={e => setStackSearch(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    const val = stackSearch.trim()
+                    if (val && !selectedStacks.includes(val)) {
+                      setSelectedStacks(prev => [...prev, val])
+                    }
+                    setStackSearch('')
+                  }
+                }}
+                placeholder="Search stacks or type any custom stack + Enter..."
+                className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs text-gray-300 placeholder-gray-600 outline-none focus:border-blue-500/40 transition-all font-mono"
+              />
+              {stackSearch.trim() && !KNOWN_STACKS.includes(stackSearch.trim()) && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-gray-600 font-mono">
+                  Press Enter to add custom
+                </div>
+              )}
+            </div>
+
+            {stackSearch.trim().length > 0 && (
+              <div className="bg-[#0a0a0f] border border-white/10 rounded-xl overflow-hidden mb-3 max-h-48 overflow-y-auto">
+                {KNOWN_STACKS
+                  .filter(s => s.toLowerCase().includes(stackSearch.toLowerCase()) && !selectedStacks.includes(s))
+                  .slice(0, 20)
+                  .map(s => (
+                    <button
+                      key={s}
+                      onClick={() => { setSelectedStacks(prev => [...prev, s]); setStackSearch('') }}
+                      className="w-full text-left px-4 py-2.5 text-xs text-gray-400 hover:bg-blue-500/10 hover:text-blue-300 transition-colors font-mono border-b border-white/5 last:border-0"
+                    >
+                      {s}
+                    </button>
+                  ))
+                }
+                {KNOWN_STACKS.filter(s => s.toLowerCase().includes(stackSearch.toLowerCase()) && !selectedStacks.includes(s)).length === 0 && (
+                  <div className="px-4 py-3 text-[11px] text-gray-600 font-mono">
+                    No match — press Enter to add "{stackSearch.trim()}" as custom stack
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectedStacks.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {selectedStacks.map(s => (
+                  <span key={s} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/15 border border-blue-500/25 text-blue-300 text-[10px] font-black uppercase tracking-wider rounded-xl">
+                    {s}
+                    <button
+                      onClick={() => setSelectedStacks(prev => prev.filter(x => x !== s))}
+                      className="hover:text-red-400 transition-colors ml-0.5"
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  onClick={() => setSelectedStacks([])}
+                  className="px-3 py-1.5 text-[9px] text-gray-600 hover:text-red-400 font-mono transition-colors"
+                >
+                  clear all
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Paperclip size={14} className="text-blue-400" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Context Documents</span>
+              <span className="text-[9px] text-gray-600 ml-1">— PDF, DOCX, XLSX</span>
+            </div>
+            <label className={`flex items-center gap-3 px-5 py-3 bg-black/40 border border-dashed border-white/10 hover:border-blue-500/40 rounded-2xl cursor-pointer transition-all group ${isProcessingFiles ? 'opacity-50 pointer-events-none' : ''}`}>
+              {isProcessingFiles
+                ? <Loader2 size={16} className="animate-spin text-blue-400" />
+                : <Upload size={16} className="text-gray-500 group-hover:text-blue-400 transition-colors" />}
+              <span className="text-[11px] text-gray-500 group-hover:text-gray-300 transition-colors font-mono">
+                {isProcessingFiles ? 'Processing...' : 'Click to attach documents'}
+              </span>
+              <input
+                type="file"
+                multiple
+                accept=".pdf,.docx,.xlsx,.txt,.md"
+                className="hidden"
+                onChange={handleFileUpload}
+                disabled={isProcessingFiles}
+              />
+            </label>
+            {uploadedFiles.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                {uploadedFiles.map((f, i) => (
+                  <div key={i} className="flex items-center justify-between px-4 py-2.5 bg-white/5 border border-white/5 rounded-xl">
+                    <div className="flex items-center gap-2">
+                      <FileText size={13} className="text-blue-400 shrink-0" />
+                      <span className="text-[11px] font-mono text-gray-300 truncate max-w-[240px]">{f.name}</span>
+                    </div>
+                    <button onClick={() => removeFile(i)} className="text-gray-600 hover:text-red-400 transition-colors p-1">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {progress && (
             <div className="flex items-center gap-2 text-blue-400 mb-4 text-xs font-mono">
