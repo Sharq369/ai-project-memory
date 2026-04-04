@@ -10,8 +10,8 @@ import {
 } from 'lucide-react';
 
 function extractJSONBlock(text: string): string {
-  const codeBlockMatch = text.match(/http://googleusercontent.com/immersive_entry_chip/0
-if (codeBlockMatch) return codeBlockMatch[1].trim();
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (codeBlockMatch) return codeBlockMatch[1].trim();
   const arrayMatch = text.match(/(\[[\s\S]*\])/);
   if (arrayMatch) return arrayMatch[1].trim();
   const objectMatch = text.match(/(\{[\s\S]*\})/);
