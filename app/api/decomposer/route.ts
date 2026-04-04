@@ -4,7 +4,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 
 export async function POST(req: Request) {
   try {
-    // 1. We now accept 'prompt', 'selectedStacks', and 'files' (base64) from your frontend
     const { prompt, selectedStacks = [], files = [] } = await req.json()
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length < 10) {
@@ -16,33 +15,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Gemini API key not configured on server.' }, { status: 500 })
     }
 
-    // 2. --- THE MCP PING (Calling your new Decomposer-Intel on Render) ---
     let enrichedContext = "";
-    // Only ping Render if we actually have stacks or files to process
+
+    // --- 1. MCP PING TO RENDER ---
     if (selectedStacks.length > 0 || files.length > 0) {
       try {
-        console.log("Pinging Decomposer-Intel MCP...");
         const mcpResponse = await fetch('https://decomposer-intel.onrender.com/orchestrate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ stacks: selectedStacks, files: files }),
-          // 8-second timeout: Protects Vercel from crashing if Render is sleeping
           signal: AbortSignal.timeout(8000) 
         });
 
         if (mcpResponse.ok) {
           const mcpData = await mcpResponse.json();
           enrichedContext = mcpData.enrichedContext;
-          console.log("MCP Intelligence successfully retrieved!");
-        } else {
-          console.warn("MCP Warning - Status:", mcpResponse.status);
         }
       } catch (mcpError) {
         console.warn('MCP Server asleep or unreachable. Proceeding with standard AI knowledge.');
       }
     }
 
-    // 3. --- PROMPT ASSEMBLY ---
+    // --- 2. PROMPT ASSEMBLY ---
     const finalPrompt = `
 You are a Senior Systems Architect and "Vibe Coding" expert. 
 Analyze the following project requirements and break them down into a strict execution plan.
@@ -53,7 +47,7 @@ ${enrichedContext ? `${enrichedContext}\n` : ''}
 ${prompt}
 `;
 
-    // 4. --- EXECUTE GEMINI ---
+    // --- 3. EXECUTE GEMINI ---
     const genAI = new GoogleGenerativeAI(apiKey)
     let model
     try {
@@ -69,7 +63,7 @@ ${prompt}
       return NextResponse.json({ error: 'AI returned an empty response. Try again.' }, { status: 502 })
     }
 
-    // Clean up markdown
+    // Clean up markdown fences
     text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
 
     return NextResponse.json({ text })
