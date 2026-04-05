@@ -354,7 +354,7 @@ export default function DecomposerPage() {
   const removeFile = (idx: number) => setUploadedFiles(prev => prev.filter((_, i) => i !== idx))
 
   const handleDecompose = async () => {
-    if (!prd.trim()) { setError('Please enter PRD content'); return; }
+    if (!prd.trim() && uploadedFiles.length === 0) { setError('Please enter PRD content or upload a document.'); return; }
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -491,7 +491,7 @@ export default function DecomposerPage() {
             value={prd}
             onChange={(e) => setPrd(e.target.value)}
             className="w-full h-60 p-6 bg-black/40 border border-white/5 rounded-2xl font-mono text-sm text-blue-100/60 focus:border-blue-500/50 outline-none transition-all mb-4 resize-none"
-            placeholder="Paste your Product Requirements Document (PRD) here... Be specific about features, tech stack, and requirements."
+            placeholder="Paste your PRD here... or upload a document below and leave this empty — the AI will extract context from your file."
           />
 
           <div className="mb-4">
@@ -628,7 +628,7 @@ export default function DecomposerPage() {
 
           <button
             onClick={handleDecompose}
-            disabled={loading || !prd.trim()}
+            disabled={loading || (!prd.trim() && uploadedFiles.length === 0)}
             className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-30 disabled:cursor-not-allowed text-white py-5 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-[0.99]"
           >
             {loading ? <><Loader2 className="animate-spin" /> Processing...</> : <>Run Neural Extraction <ChevronRight size={20} /></>}
