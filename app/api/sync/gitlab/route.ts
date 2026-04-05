@@ -118,6 +118,8 @@ export async function POST(req: Request) {
         updated_at:        syncedAt,
         last_sync:         syncedAt,
         deployment_status: 'synced',
+        repo_full_name:    repo,         // saves repo so webhook auto-sync matches
+        provider:          'gitlab',
       })
       .eq('id', projectId)
 
