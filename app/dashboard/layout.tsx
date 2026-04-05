@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
   LayoutDashboard, Folder, Brain, Search, 
-  Settings, Menu, X, Zap, User, Shield 
+  Settings, Menu, X, Zap, User, ShieldAlert 
 } from 'lucide-react'
 import { NotificationProvider } from '../../context/NotificationContext'
 import { NotificationBell } from '../../components/NotificationCenter'
@@ -49,7 +49,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Dynamically add Admin Panel if authorized
   const navigation = isAdmin 
-    ? [...baseNavigation, { name: 'Admin Panel', href: '/admin', icon: Shield }]
+    ? [...baseNavigation, { name: 'Admin Command', href: '/admin', icon: ShieldAlert }]
     : baseNavigation
 
   const isActive = (href: string) => {
@@ -91,10 +91,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 onClick={() => setIsOpen(false)}
                 className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-[10px] uppercase font-bold tracking-widest transition-all
                   ${isActive(item.href)
-                    ? item.name === 'Admin Panel' 
+                    ? item.name === 'Admin Command' 
                         ? 'bg-fuchsia-600 text-white shadow-[0_0_20px_rgba(217,70,239,0.3)]' // Special styling for Admin active state
                         : 'bg-blue-600 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]'
-                    : item.name === 'Admin Panel'
+                    : item.name === 'Admin Command'
                         ? 'text-fuchsia-500 hover:text-fuchsia-400 hover:bg-fuchsia-500/10' // Special styling for Admin inactive state
                         : 'text-gray-500 hover:text-white hover:bg-white/5'
                   }
