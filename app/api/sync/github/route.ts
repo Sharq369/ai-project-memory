@@ -111,9 +111,11 @@ export async function POST(req: Request) {
       .from('projects')
       .update({
         maturity_score:     maturityScore,
-        updated_at:         syncedAt,   // ← drives the "Sync: X ago" card label
-        last_sync:          syncedAt,   // ← explicit sync timestamp for future use
-        deployment_status:  'synced',   // ← optional: visible status on card
+        updated_at:         syncedAt,
+        last_sync:          syncedAt,
+        deployment_status:  'synced',
+        repo_full_name:     repo,        // saves repo so webhook auto-sync matches
+        provider:           'github',
       })
       .eq('id', projectId)
 
