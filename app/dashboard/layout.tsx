@@ -1,18 +1,43 @@
 'use client'
 
 // app/dashboard/layout.tsx
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Folder, Brain, Search, Settings, Menu, X, Zap, User } from 'lucide-react'
+import { createBrowserClient } from '@supabase/ssr'
+import { 
+  LayoutDashboard, Folder, Brain, Search, 
+  Settings, Menu, X, Zap, User, Shield 
+} from 'lucide-react'
 import { NotificationProvider } from '../../context/NotificationContext'
 import { NotificationBell } from '../../components/NotificationCenter'
+
+// Your exact Developer ID from lib/plans.ts
+const DEVELOPER_IDS = ['33157b98-fdd0-4e04-b14b-bee4352f80c7']
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
-  const navigation = [
+  // Check if the logged-in user is a Developer/Admin
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (user && DEVELOPER_IDS.includes(user.id)) {
+        setIsAdmin(true)
+      }
+    }
+    checkAdminStatus()
+  }, [])
+
+  // Base navigation for everyone
+  const baseNavigation = [
     { name: 'Overview',    href: '/dashboard',           icon: LayoutDashboard },
     { name: 'Memories',   href: '/dashboard/memories',  icon: Brain           },
     { name: 'Projects',   href: '/dashboard/projects',  icon: Folder          },
@@ -21,6 +46,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: 'Profile',    href: '/dashboard/profile',   icon: User            },
     { name: 'Settings',   href: '/dashboard/settings',  icon: Settings        },
   ]
+
+  // Dynamically add Admin Panel if authorized
+  const navigation = isAdmin 
+    ? [...baseNavigation, { name: 'Admin Panel', href: '/admin', icon: Shield }]
+    : baseNavigation
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard'
@@ -61,8 +91,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 onClick={() => setIsOpen(false)}
                 className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-[10px] uppercase font-bold tracking-widest transition-all
                   ${isActive(item.href)
-                    ? 'bg-blue-600 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]'
-                    : 'text-gray-500 hover:text-white hover:bg-white/5'
+                    ? item.name === 'Admin Panel' 
+                        ? 'bg-fuchsia-600 text-white shadow-[0_0_20px_rgba(217,70,239,0.3)]' // Special styling for Admin active state
+                        : 'bg-blue-600 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)]'
+                    : item.name === 'Admin Panel'
+                        ? 'text-fuchsia-500 hover:text-fuchsia-400 hover:bg-fuchsia-500/10' // Special styling for Admin inactive state
+                        : 'text-gray-500 hover:text-white hover:bg-white/5'
                   }
                 `}
               >
