@@ -11,7 +11,7 @@ import {
   Users, Brain, Folder, FileText, Zap, Activity,
   Crown, Shield, Search, ChevronUp, ChevronDown,
   RefreshCw, Loader2, AlertCircle, BarChart2,
-  TrendingUp, User, Check, X, MessageSquare
+  TrendingUp, User, Check, X, MessageSquare, ArrowLeft
 } from 'lucide-react'
 
 const ADMIN_IDS = ['33157b98-fdd0-4e04-b14b-bee4352f80c7']
@@ -173,7 +173,7 @@ export default function AdminPage() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [router])
+  }, [router, supabase.auth])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -230,6 +230,15 @@ export default function AdminPage() {
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_10%_20%,rgba(217,70,239,0.03),transparent_40%),radial-gradient(circle_at_90%_80%,rgba(34,211,238,0.03),transparent_40%)] pointer-events-none" />
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 py-8">
+
+        {/* ── NEW: BACK TO NEXUS BUTTON ── */}
+        <button 
+          onClick={() => router.push('/dashboard')}
+          className="group flex items-center gap-2 text-slate-500 hover:text-white transition-all mb-6 text-[10px] font-black uppercase tracking-widest"
+        >
+          <ArrowLeft size={14} className="group-hover:-translate-x-1 transition-transform" /> 
+          Return to Nexus
+        </button>
 
         {/* Header */}
         <header className="flex items-center justify-between mb-8">
