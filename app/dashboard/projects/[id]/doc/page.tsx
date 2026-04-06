@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { 
   ChevronLeft, Loader2, MessageSquare, Send, 
-  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Trash2, CheckSquare, Square, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle, Info, FileCode, Download
+  X, Pencil, Github, Gitlab, Cloud, Terminal, Check, Copy, Trash2, 
+  CheckSquare, Square, RefreshCw, AlertTriangle, CheckCircle2, 
+  AlertCircle, Info, FileCode, Download, Folder, FolderOpen, ChevronDown, ChevronRight, Search
 } from 'lucide-react'
 
 export default function ProjectDocPage() {
@@ -36,9 +38,12 @@ export default function ProjectDocPage() {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [repoName, setRepoName] = useState('')
   const [isSyncing, setIsSyncing] = useState(false)
-  const [isPrivateRepo, setIsPrivateRepo] = useState(false)
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
   const [selectedForAI, setSelectedForAI] = useState<string[]>([])
+
+  // --- NEW: Sorting Shelf State ---
+  const [fileSearch, setFileSearch] = useState('')
+  const [collapsedShelves, setCollapsedShelves] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -83,9 +88,41 @@ export default function ProjectDocPage() {
     } finally {
       setLoading(false)
     }
-  }, [id, router])
+  }, [id, router, supabase])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // --- NEW: Sorting Shelf Logic ---
+  const { groups, sortedFolders } = useMemo(() => {
+    const filtered = memories.filter(m => m.file_name.toLowerCase().includes(fileSearch.toLowerCase()))
+    const g: Record<string, any[]> = {}
+    
+    filtered.forEach(mem => {
+      const parts = mem.file_name.split('/')
+      const isRoot = parts.length === 1
+      const folder = isRoot ? 'Root' : parts.slice(0, -1).join('/')
+      if (!g[folder]) g[folder] = []
+      g[folder].push(mem)
+    })
+    
+    const sorted = Object.keys(g).sort((a, b) => {
+      if (a === 'Root') return -1
+      if (b === 'Root') return 1
+      return a.localeCompare(b)
+    })
+    
+    return { groups: g, sortedFolders: sorted }
+  }, [memories, fileSearch])
+
+  const toggleShelf = (folder: string) => {
+    setCollapsedShelves(prev => {
+      const next = new Set(prev)
+      if (next.has(folder)) next.delete(folder)
+      else next.add(folder)
+      return next
+    })
+  }
+  // ---------------------------------
 
   const handleRename = async () => {
     if (!editName.trim() || editName === project?.name) return setIsEditing(false)
@@ -114,7 +151,6 @@ export default function ProjectDocPage() {
     if (!repoName.trim()) return
     setIsSyncing(true)
     
-    // Check if files already exist to determine if it's an update or a fresh pull
     const isUpdate = memories.length > 0
     
     try {
@@ -135,7 +171,6 @@ export default function ProjectDocPage() {
         await loadData()
         setIsSyncModalOpen(false)
         setRepoName('')
-        setIsPrivateRepo(false)
       } else if (result.upgrade) {
         showToast('error', result.error || 'Upgrade your plan to sync more files.')
       } else {
@@ -210,7 +245,6 @@ export default function ProjectDocPage() {
     }
   }
 
-  // --- NATIVE PREMIUM FORMATTER ---
   const formatInlineText = (text: string) => {
     const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g)
     return parts.map((part, i) => {
@@ -274,7 +308,6 @@ export default function ProjectDocPage() {
   return (
     <div className="min-h-screen bg-[#050505] text-gray-200 flex overflow-hidden font-sans selection:bg-blue-500/30">
       
-      {/* IMPROVED TOAST NOTIFICATION - MOVED TO BOTTOM */}
       <div className={`fixed bottom-10 left-1/2 -translate-x-1/2 z-[500] transition-all duration-300 pointer-events-none ${notification.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95'}`}>
         <div className={`flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto ${notification.type === 'success' ? 'bg-green-950/80 border-green-500/30 text-green-200' : notification.type === 'error' ? 'bg-red-950/80 border-red-500/30 text-red-200' : 'bg-blue-950/80 border-blue-500/30 text-blue-200'}`}>
           {notification.type === 'success' && <CheckCircle2 size={16} className="text-green-500" />}
@@ -313,7 +346,7 @@ export default function ProjectDocPage() {
 
               <div className="space-y-3">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Sync Source</p>
-                <div className="flex gap-3">
+                <div className=\"flex gap-3\">
                   <button onClick={() => { setActiveProvider('github'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-white/30 transition-all text-gray-400 hover:text-white"><Github size={18} /></button>
                   <button onClick={() => { setActiveProvider('gitlab'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-orange-500/50 transition-all text-gray-400 hover:text-orange-400"><Gitlab size={18} /></button>
                   <button onClick={() => { setActiveProvider('bitbucket'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-blue-500/50 transition-all text-gray-400 hover:text-blue-400"><Cloud size={18} /></button>
@@ -328,45 +361,90 @@ export default function ProjectDocPage() {
           </header>
 
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-[#0a0a0a] border border-gray-800 p-4 rounded-xl shadow-lg">
-            <div className="flex items-center gap-4">
-              <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Project Files</h2>
+            <div className="flex items-center gap-4 w-full sm:w-auto">
+              <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider shrink-0">Project Files</h2>
+              <div className="relative flex-1 sm:w-64">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input 
+                  type="text"
+                  placeholder="Filter codebase..."
+                  value={fileSearch}
+                  onChange={e => setFileSearch(e.target.value)}
+                  className="w-full bg-[#111] border border-gray-800 rounded-lg py-1.5 pl-9 pr-3 text-xs text-white focus:border-blue-500 outline-none transition-colors"
+                />
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 w-full sm:w-auto">
               {memories.length > 0 && (
-                <button onClick={() => setSelectedForAI(selectedForAI.length === memories.length ? [] : memories.map(m => m.id))} className="text-xs flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors">
+                <button onClick={() => setSelectedForAI(selectedForAI.length === memories.length ? [] : memories.map(m => m.id))} className="text-xs flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors shrink-0">
                   {selectedForAI.length === memories.length ? <CheckSquare size={14}/> : <Square size={14}/>} Select All
                 </button>
               )}
+              <button onClick={copySelectedForAI} disabled={selectedForAI.length === 0} className={`flex items-center justify-center gap-2 px-4 py-2 w-full sm:w-auto rounded-lg text-xs font-medium transition-all ${copied ? 'bg-green-600 text-white shadow-[0_0_10px_rgba(34,197,94,0.3)]' : selectedForAI.length === 0 ? 'bg-[#111] text-gray-600 cursor-not-allowed border border-gray-800' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.3)]'}`}>
+                {copied ? <Check size={14} /> : <Terminal size={14} />} {copied ? 'Copied!' : `Copy Selected (${selectedForAI.length})`}
+              </button>
             </div>
-            <button onClick={copySelectedForAI} disabled={selectedForAI.length === 0} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all ${copied ? 'bg-green-600 text-white shadow-[0_0_10px_rgba(34,197,94,0.3)]' : selectedForAI.length === 0 ? 'bg-[#111] text-gray-600 cursor-not-allowed border border-gray-800' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.3)]'}`}>
-              {copied ? <Check size={14} /> : <Terminal size={14} />} {copied ? 'Copied!' : `Copy Selected (${selectedForAI.length})`}
-            </button>
           </div>
 
-          <div className="space-y-3 pb-32">
+          <div className="space-y-4 pb-32">
             {memories.length === 0 ? (
               <div className="p-12 text-center border border-gray-800 border-dashed rounded-xl bg-gray-900/10">
                 <p className="text-sm text-gray-500 mb-4">No files synced yet. Connect a repository above to pull your code.</p>
               </div>
+            ) : sortedFolders.length === 0 ? (
+               <div className="p-8 text-center text-gray-500 text-sm">No files match your search.</div>
             ) : (
-              memories.map((mem) => {
-                const isSelected = selectedForAI.includes(mem.id)
-                const isExpanded = expandedFileId === mem.id
+              sortedFolders.map(folder => {
+                const isCollapsed = collapsedShelves.has(folder)
+                const isRoot = folder === 'Root'
+                
                 return (
-                  <div key={mem.id} className={`bg-[#0a0a0a] border rounded-lg overflow-hidden transition-colors shadow-sm group ${isSelected ? 'border-blue-500/50 bg-blue-950/10 shadow-[0_0_15px_rgba(37,99,235,0.1)]' : 'border-gray-800 hover:border-gray-600'}`}>
-                    <div onClick={() => setExpandedFileId(prev => prev === mem.id ? null : mem.id)} className={`flex justify-between items-center px-4 py-3 cursor-pointer transition-colors ${isSelected ? 'bg-blue-900/10' : 'bg-[#111] hover:bg-gray-800/50'} ${isExpanded ? 'border-b border-gray-800/50' : ''}`}>
-                      <div className="flex items-center gap-3 overflow-hidden flex-1">
-                        <div onClick={(e) => toggleFileSelection(e, mem.id)} className="p-1 -ml-1 cursor-pointer text-gray-500 hover:text-white transition-colors">
-                          {isSelected ? <CheckSquare size={16} className="text-blue-500"/> : <Square size={16}/>}
-                        </div>
-                        <FileCode className="text-blue-500 flex-shrink-0" size={16} />
-                        <h3 className={`text-sm font-medium truncate ${isSelected ? 'text-blue-100' : 'text-gray-300'}`}>{mem.file_name}</h3>
-                      </div>
-                      <div className="flex items-center gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                        <button onClick={(e) => handleDownloadFile(e, mem.file_name, mem.content)} className="p-1.5 text-gray-400 hover:text-blue-400 rounded-md hover:bg-blue-500/10 transition-colors bg-[#050505] border border-gray-800"><Download size={14} /></button>
-                        <button onClick={(e) => copyIndividualBlock(e, mem.content, mem.id)} className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors bg-[#050505] border border-gray-800">{individualCopiedId === mem.id ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}</button>
-                        <button onClick={(e) => { e.stopPropagation(); setFileToDelete({ id: mem.id, name: mem.file_name }) }} className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#050505] border border-gray-800"><Trash2 size={14}/></button>
-                      </div>
+                  <div key={folder} className="mb-2">
+                    {/* Shelf Header */}
+                    <div 
+                      onClick={() => toggleShelf(folder)}
+                      className={`flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-all border shadow-sm ${isRoot ? 'bg-fuchsia-500/5 border-fuchsia-500/20 hover:bg-fuchsia-500/10' : 'bg-[#111] border-gray-800 hover:bg-gray-800/80'}`}
+                    >
+                      {isCollapsed ? <ChevronRight size={16} className="text-gray-500 shrink-0" /> : <ChevronDown size={16} className={isRoot ? "text-fuchsia-400 shrink-0" : "text-blue-400 shrink-0"} />}
+                      {isRoot ? <FolderOpen size={16} className="text-fuchsia-500 shrink-0" /> : <Folder size={16} className="text-blue-500 shrink-0" />}
+                      <span className={`text-xs font-bold uppercase tracking-wider truncate ${isRoot ? 'text-fuchsia-100' : 'text-gray-200'}`}>{folder}</span>
+                      <span className="text-[10px] text-gray-500 font-mono ml-auto bg-black/50 px-2 py-0.5 rounded shrink-0">{groups[folder].length} files</span>
                     </div>
-                    {isExpanded && <div className="p-4 bg-[#050505] overflow-x-auto"><pre className="text-xs font-mono text-gray-400 whitespace-pre-wrap"><code>{mem.content}</code></pre></div>}
+
+                    {/* Files in Shelf */}
+                    {!isCollapsed && (
+                      <div className="space-y-1.5 pl-3 md:pl-6 border-l-2 border-gray-800/30 ml-2 md:ml-4 mt-1.5 pt-1.5">
+                        {groups[folder].map((mem: any) => {
+                          const isSelected = selectedForAI.includes(mem.id)
+                          const isExpanded = expandedFileId === mem.id
+                          // Only show the actual filename, without the long path prefix
+                          const displayFileName = isRoot ? mem.file_name : mem.file_name.split('/').pop()
+
+                          return (
+                            <div key={mem.id} className={`bg-[#0a0a0a] border rounded-lg overflow-hidden transition-colors shadow-sm group ${isSelected ? 'border-blue-500/50 bg-blue-950/10 shadow-[0_0_15px_rgba(37,99,235,0.1)]' : isRoot ? 'border-gray-700 hover:border-gray-500' : 'border-gray-800 hover:border-gray-600'}`}>
+                              <div onClick={() => setExpandedFileId(prev => prev === mem.id ? null : mem.id)} className={`flex justify-between items-center px-4 py-2.5 cursor-pointer transition-colors ${isSelected ? 'bg-blue-900/10' : 'bg-[#111] hover:bg-gray-800/50'} ${isExpanded ? 'border-b border-gray-800/50' : ''}`}>
+                                <div className="flex items-center gap-3 overflow-hidden flex-1">
+                                  <div onClick={(e) => toggleFileSelection(e, mem.id)} className="p-1 -ml-1 cursor-pointer text-gray-500 hover:text-white transition-colors">
+                                    {isSelected ? <CheckSquare size={16} className="text-blue-500"/> : <Square size={16}/>}
+                                  </div>
+                                  <FileCode className="text-blue-500 flex-shrink-0" size={16} />
+                                  <h3 className={`text-sm font-medium truncate ${isSelected ? 'text-blue-100' : isRoot ? 'text-white font-semibold' : 'text-gray-400'}`}>
+                                    {displayFileName}
+                                  </h3>
+                                </div>
+                                <div className="flex items-center gap-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                  <button onClick={(e) => handleDownloadFile(e, mem.file_name, mem.content)} className="p-1.5 text-gray-400 hover:text-blue-400 rounded-md hover:bg-blue-500/10 transition-colors bg-[#050505] border border-gray-800"><Download size={14} /></button>
+                                  <button onClick={(e) => copyIndividualBlock(e, mem.content, mem.id)} className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-gray-700 transition-colors bg-[#050505] border border-gray-800">{individualCopiedId === mem.id ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}</button>
+                                  <button onClick={(e) => { e.stopPropagation(); setFileToDelete({ id: mem.id, name: mem.file_name }) }} className="p-1.5 text-gray-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition-colors bg-[#050505] border border-gray-800"><Trash2 size={14}/></button>
+                                </div>
+                              </div>
+                              {isExpanded && <div className="p-4 bg-[#050505] overflow-x-auto"><pre className="text-xs font-mono text-gray-400 whitespace-pre-wrap"><code>{mem.content}</code></pre></div>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )
               })
@@ -456,28 +534,11 @@ export default function ProjectDocPage() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-medium text-gray-400 uppercase mb-2 block">Repository Name (e.g., owner/repo)</label>
-                <input value={repoName} onChange={(e) => setRepoName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSyncTrigger()} placeholder="username/repository" className="w-full bg-[#111] border border-gray-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all" />
-              </div>
-              {/* Private repo toggle */}
-              <div
-                onClick={() => setIsPrivateRepo(prev => !prev)}
-                className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
-                  isPrivateRepo
-                    ? 'bg-blue-500/10 border-blue-500/30'
-                    : 'bg-[#111] border-gray-800 hover:border-gray-600'
-                }`}
-              >
-                <div>
-                  <p className={`text-xs font-bold ${isPrivateRepo ? 'text-blue-300' : 'text-gray-300'}`}>Private Repository</p>
-                  <p className="text-[10px] text-gray-600 mt-0.5">Uses your stored access token</p>
-                </div>
-                <div className={`w-9 h-5 rounded-full transition-all relative ${isPrivateRepo ? 'bg-blue-500' : 'bg-gray-700'}`}>
-                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${isPrivateRepo ? 'left-4' : 'left-0.5'}`} />
-                </div>
+                <input value={repoName} onChange={(e) => setRepoName(e.target.value)} placeholder="username/repository" className="w-full bg-[#111] border border-gray-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all" />
               </div>
             </div>
             <div className="p-6 bg-[#050505] border-t border-gray-800 flex justify-end gap-3">
-              <button onClick={() => { setIsSyncModalOpen(false); setIsPrivateRepo(false) }} className="px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-800 text-gray-300 transition-colors">Cancel</button>
+              <button onClick={() => setIsSyncModalOpen(false)} className="px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-800 text-gray-300 transition-colors">Cancel</button>
               <button onClick={handleSyncTrigger} disabled={!repoName.trim() || isSyncing} className="px-5 py-2.5 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center gap-2 disabled:opacity-50">
                 {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} Sync Now
               </button>
