@@ -36,6 +36,7 @@ export default function ProjectDocPage() {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [repoName, setRepoName] = useState('')
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isPrivateRepo, setIsPrivateRepo] = useState(false)
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
   const [selectedForAI, setSelectedForAI] = useState<string[]>([])
 
@@ -134,6 +135,7 @@ export default function ProjectDocPage() {
         await loadData()
         setIsSyncModalOpen(false)
         setRepoName('')
+        setIsPrivateRepo(false)
       } else if (result.upgrade) {
         showToast('error', result.error || 'Upgrade your plan to sync more files.')
       } else {
@@ -454,11 +456,28 @@ export default function ProjectDocPage() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-medium text-gray-400 uppercase mb-2 block">Repository Name (e.g., owner/repo)</label>
-                <input value={repoName} onChange={(e) => setRepoName(e.target.value)} placeholder="username/repository" className="w-full bg-[#111] border border-gray-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all" />
+                <input value={repoName} onChange={(e) => setRepoName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSyncTrigger()} placeholder="username/repository" className="w-full bg-[#111] border border-gray-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-blue-500 transition-all" />
+              </div>
+              {/* Private repo toggle */}
+              <div
+                onClick={() => setIsPrivateRepo(prev => !prev)}
+                className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                  isPrivateRepo
+                    ? 'bg-blue-500/10 border-blue-500/30'
+                    : 'bg-[#111] border-gray-800 hover:border-gray-600'
+                }`}
+              >
+                <div>
+                  <p className={`text-xs font-bold ${isPrivateRepo ? 'text-blue-300' : 'text-gray-300'}`}>Private Repository</p>
+                  <p className="text-[10px] text-gray-600 mt-0.5">Uses your stored access token</p>
+                </div>
+                <div className={`w-9 h-5 rounded-full transition-all relative ${isPrivateRepo ? 'bg-blue-500' : 'bg-gray-700'}`}>
+                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${isPrivateRepo ? 'left-4' : 'left-0.5'}`} />
+                </div>
               </div>
             </div>
             <div className="p-6 bg-[#050505] border-t border-gray-800 flex justify-end gap-3">
-              <button onClick={() => setIsSyncModalOpen(false)} className="px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-800 text-gray-300 transition-colors">Cancel</button>
+              <button onClick={() => { setIsSyncModalOpen(false); setIsPrivateRepo(false) }} className="px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-800 text-gray-300 transition-colors">Cancel</button>
               <button onClick={handleSyncTrigger} disabled={!repoName.trim() || isSyncing} className="px-5 py-2.5 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center gap-2 disabled:opacity-50">
                 {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} Sync Now
               </button>
