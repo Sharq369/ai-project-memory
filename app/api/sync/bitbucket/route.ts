@@ -58,7 +58,8 @@ export async function POST(req: Request) {
     const FILE_LIMIT = limits.filesPerSync === Infinity ? 9999 : limits.filesPerSync
 
     const authHeaders: Record<string, string> = {}
-    if (limits.privateRepos && process.env.BITBUCKET_TOKEN) {
+    // Always add token if available — lets Bitbucket decide access
+    if (process.env.BITBUCKET_TOKEN) {
       authHeaders['Authorization'] = `Basic ${process.env.BITBUCKET_TOKEN}`
     }
 
