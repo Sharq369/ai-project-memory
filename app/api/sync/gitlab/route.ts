@@ -59,7 +59,8 @@ export async function POST(req: Request) {
     const encodedRepo = encodeURIComponent(repo)
 
     const authHeaders: Record<string, string> = {}
-    if (limits.privateRepos && process.env.GITLAB_TOKEN) {
+    // Always add token if available — lets GitLab decide access
+    if (process.env.GITLAB_TOKEN) {
       authHeaders['PRIVATE-TOKEN'] = process.env.GITLAB_TOKEN
     }
 
