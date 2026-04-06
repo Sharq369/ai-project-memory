@@ -48,7 +48,9 @@ export async function POST(req: Request) {
     const FILE_LIMIT = limits.filesPerSync === Infinity ? 9999 : limits.filesPerSync
 
     const authHeaders: Record<string, string> = {}
-    if (limits.privateRepos && process.env.GITHUB_TOKEN) {
+    // Always add token if available — lets GitHub decide access.
+    // Private repos need token on BOTH the API calls AND raw content fetch.
+    if (process.env.GITHUB_TOKEN) {
       authHeaders['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`
     }
 
@@ -79,8 +81,11 @@ export async function POST(req: Request) {
     const syncedPaths: string[] = []
 
     for (const file of files) {
+      // Auth headers required for private repos — raw.githubusercontent.com
+      // returns 404 without token even if tree fetch succeeded
       const fileRes = await fetch(
-        `https://raw.githubusercontent.com/${repo}/${default_branch}/${file.path}`
+        `https://raw.githubusercontent.com/${repo}/${default_branch}/${file.path}`,
+        { headers: authHeaders }
       )
       if (!fileRes.ok) continue
       const { error } = await supabase.from('code_memories').insert({
