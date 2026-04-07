@@ -43,15 +43,7 @@ function calculateMaturity(filePaths: string[]): number {
   return Math.min(100, score);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FIX 1: notify() — inserts into the notifications table.
-//
-// This was the core notification bug. NotificationContext listens to
-// postgres_changes on the notifications table. The webhook was updating
-// the projects table but NEVER inserting into notifications — so the
-// realtime listener had nothing to receive and no notification ever
-// appeared, even though the bell, panel, and context were all wired correctly.
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Notification Engine ────────────────────────────────────────────────────────
 async function notify(
   userId: string,
   type: 'success' | 'error' | 'info' | 'warning',
@@ -79,6 +71,7 @@ export async function POST(req: Request) {
   try {
     const bodyText  = await req.text();
     const signature = req.headers.get('x-hub-signature-256');
+    const githubEvent = req.headers.get('x-github-event'); // e.g., 'push', 'workflow_run'
 
     // 1. Security Gate ─────────────────────────────────────────────────────────
     if (!verifyGitHubSignature(bodyText, signature)) {
@@ -86,7 +79,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized Handshake' }, { status: 401 });
     }
 
-    const payload       = JSON.parse(bodyText);
+    const payload = JSON.parse(bodyText);
+
+    // ── NEW: CI/CD PIPELINE GATEKEEPER ────────────────────────────────────────
+    // If the webhook is sending a GitHub Actions workflow run
+    if (githubEvent === 'workflow_run') {
+      // If the workflow is still running, ignore it.
+      if (payload.action !== 'completed') {
+        console.log(`[Webhook] Workflow still running. Ignoring.`);
+        return NextResponse.json({ message: 'Workflow running, ignoring.' }, { status: 200 });
+      }
+      // If the workflow failed, aborted, or timed out, DO NOT SYNC.
+      if (payload.workflow_run.conclusion !== 'success') {
+        console.warn(`[Webhook] Commit failed CI/CD (${payload.workflow_run.conclusion}). Sync aborted to protect Memory Vault.`);
+        return NextResponse.json({ message: 'Commit failed tests. Sync aborted.' }, { status: 200 });
+      }
+      // Ensure we only sync if the successful run was on the default branch
+      if (payload.workflow_run.head_branch !== payload.repository?.default_branch) {
+         console.log(`[Webhook] Successful build, but not on default branch. Ignoring.`);
+         return NextResponse.json({ message: 'Not default branch. Ignoring.' }, { status: 200 });
+      }
+    } 
+    // GitLab pipeline check (if you use GitLab CI)
+    else if (payload.object_kind === 'pipeline') {
+       if (payload.object_attributes?.status !== 'success') {
+          console.warn(`[Webhook] GitLab pipeline failed. Sync aborted.`);
+          return NextResponse.json({ message: 'Pipeline failed. Sync aborted.' }, { status: 200 });
+       }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const repoName      = payload.repository?.name;
     const fullName      = payload.repository?.full_name;
     const defaultBranch = payload.repository?.default_branch || 'main';
@@ -95,38 +117,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: 'Invalid payload, ignoring.' }, { status: 200 });
     }
 
-    console.log(`[Webhook] Verified push from: ${fullName}`);
+    console.log(`[Webhook] Verified successful push from: ${fullName}`);
 
     // 2. Locate Target Node — three-pass lookup ───────────────────────────────
     let project: { id: string; user_id: string } | null = null;
     let autoSaveRepoName = false;
 
-    // Pass 1: exact repo_full_name match
     const { data: pass1 } = await supabase
       .from('projects')
       .select('id, user_id, repo_full_name')
       .eq('repo_full_name', fullName)
       .maybeSingle();
-    if (pass1) { project = pass1; console.log(`[Webhook] Pass 1 match`); }
+    if (pass1) { project = pass1; }
 
-    // Pass 2: repo_url contains fullName
     if (!project) {
       const { data: pass2 } = await supabase
         .from('projects')
         .select('id, user_id, repo_full_name')
         .ilike('repo_url', `%${fullName}%`)
         .maybeSingle();
-      if (pass2) { project = pass2; autoSaveRepoName = true; console.log(`[Webhook] Pass 2 match`); }
+      if (pass2) { project = pass2; autoSaveRepoName = true; }
     }
 
-    // Pass 3: project name matches repo name
     if (!project) {
       const { data: pass3 } = await supabase
         .from('projects')
         .select('id, user_id, repo_full_name')
         .ilike('name', repoName)
         .maybeSingle();
-      if (pass3) { project = pass3; autoSaveRepoName = true; console.log(`[Webhook] Pass 3 match`); }
+      if (pass3) { project = pass3; autoSaveRepoName = true; }
     }
 
     if (!project) {
@@ -134,7 +153,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: 'Node not found, ignoring.' }, { status: 200 });
     }
 
-    // Auto-save repo_full_name so next push hits Pass 1
     if (autoSaveRepoName) {
       await supabase
         .from('projects')
@@ -159,27 +177,13 @@ export async function POST(req: Request) {
 
     const limits = getLimits(plan);
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // FIX 2: Gate on webhookAutoSync from plans.ts — not hardcoded plan name.
-    // This reads directly from the plan definition so it stays in sync with
-    // any future plan changes made in plans.ts.
-    // ─────────────────────────────────────────────────────────────────────────
     if (!limits.webhookAutoSync) {
-      console.log(`[Webhook] Plan "${plan}" — webhookAutoSync disabled, skipping`);
       return NextResponse.json(
         { message: 'Auto-sync requires Pro or Platinum.' },
         { status: 200 }
       );
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // FIX 3: Cap FILE_LIMIT to prevent Vercel timeout.
-    //
-    // Platinum has filesPerSync: Infinity → was resolving to 9999.
-    // Downloading 9999 files takes 60-120s. Vercel Hobby = 10s timeout.
-    // The function was killed before writing anything to the DB.
-    // Capped at 150 — meaningful sync, safely within 10s limit.
-    // ─────────────────────────────────────────────────────────────────────────
     const SAFE_MAX   = 150;
     const FILE_LIMIT = limits.filesPerSync === Infinity
       ? SAFE_MAX
@@ -254,9 +258,7 @@ export async function POST(req: Request) {
       })
       .eq('id', project.id);
 
-    // 8. Send Notification — FIX 1 IN ACTION ──────────────────────────────────
-    // Inserting here triggers the realtime listener in NotificationContext,
-    // which updates the bell badge and shows the toast in the panel instantly.
+    // 8. Send Notification ─────────────────────────────────────────────────────
     await notify(
       userId,
       capped ? 'warning' : 'success',
@@ -266,8 +268,6 @@ export async function POST(req: Request) {
         : `${syncedCount} files synced from ${fullName}. Maturity: ${maturityScore}%.`,
       `/dashboard/projects/${project.id}/doc`
     );
-
-    console.log(`[Webhook] Done — ${syncedCount} files, maturity ${maturityScore}%, notification sent`);
 
     return NextResponse.json({
       status:         'Neural Sync Complete via Webhook',
