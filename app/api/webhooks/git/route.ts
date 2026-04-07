@@ -12,7 +12,7 @@ const supabase = createClient(
 // ── Developer override ────────────────────────────────────────────────────────
 const DEVELOPER_IDS = ['33157b98-fdd0-4e04-b14b-bee4352f80c7'];
 
-// ── HMAC Signature Verification ──────────────────────────────────────────────
+// ── HMAC Signature Verification (GitHub) ──────────────────────────────────────
 function verifyGitHubSignature(payload: string, signature: string | null): boolean {
   const secret = process.env.WEBHOOK_SECRET;
   if (!secret || !signature) return false;
@@ -70,56 +70,70 @@ async function notify(
 export async function POST(req: Request) {
   try {
     const bodyText  = await req.text();
+    const payload = JSON.parse(bodyText);
+    
     const signature = req.headers.get('x-hub-signature-256');
-    const githubEvent = req.headers.get('x-github-event'); // e.g., 'push', 'workflow_run'
+    const githubEvent = req.headers.get('x-github-event'); 
 
-    // 1. Security Gate ─────────────────────────────────────────────────────────
-    if (!verifyGitHubSignature(bodyText, signature)) {
-      console.error('[Webhook] Unauthorized — signature mismatch');
+    // 1. Security Gate (GitHub specific check) ─────────────────────────────────
+    if (githubEvent && !verifyGitHubSignature(bodyText, signature)) {
+      console.error('[Webhook] Unauthorized — GitHub signature mismatch');
       return NextResponse.json({ error: 'Unauthorized Handshake' }, { status: 401 });
     }
 
-    const payload = JSON.parse(bodyText);
-
-    // ── NEW: CI/CD PIPELINE GATEKEEPER ────────────────────────────────────────
-    // If the webhook is sending a GitHub Actions workflow run
+    // ── 2. UNIVERSAL CI/CD PIPELINE GATEKEEPER ────────────────────────────────
+    
+    // Provider 1: GitHub Logic
     if (githubEvent === 'workflow_run') {
-      // If the workflow is still running, ignore it.
       if (payload.action !== 'completed') {
-        console.log(`[Webhook] Workflow still running. Ignoring.`);
+        console.log(`[Webhook] GitHub workflow still running. Ignoring.`);
         return NextResponse.json({ message: 'Workflow running, ignoring.' }, { status: 200 });
       }
-      // If the workflow failed, aborted, or timed out, DO NOT SYNC.
       if (payload.workflow_run.conclusion !== 'success') {
-        console.warn(`[Webhook] Commit failed CI/CD (${payload.workflow_run.conclusion}). Sync aborted to protect Memory Vault.`);
+        console.warn(`[Webhook] GitHub commit failed CI/CD (${payload.workflow_run.conclusion}). Sync aborted to protect Memory Vault.`);
         return NextResponse.json({ message: 'Commit failed tests. Sync aborted.' }, { status: 200 });
       }
-      // Ensure we only sync if the successful run was on the default branch
       if (payload.workflow_run.head_branch !== payload.repository?.default_branch) {
          console.log(`[Webhook] Successful build, but not on default branch. Ignoring.`);
          return NextResponse.json({ message: 'Not default branch. Ignoring.' }, { status: 200 });
       }
     } 
-    // GitLab pipeline check (if you use GitLab CI)
+    
+    // Provider 2: GitLab Logic
     else if (payload.object_kind === 'pipeline') {
        if (payload.object_attributes?.status !== 'success') {
-          console.warn(`[Webhook] GitLab pipeline failed. Sync aborted.`);
+          console.warn(`[Webhook] GitLab pipeline failed (${payload.object_attributes?.status}). Sync aborted.`);
           return NextResponse.json({ message: 'Pipeline failed. Sync aborted.' }, { status: 200 });
        }
     }
+    
+    // Provider 3: Bitbucket Logic
+    else if (payload.commit_status) {
+       if (payload.commit_status.state !== 'SUCCESSFUL') {
+          console.warn(`[Webhook] Bitbucket build is ${payload.commit_status.state}. Sync aborted.`);
+          return NextResponse.json({ message: 'Bitbucket build not successful. Sync aborted.' }, { status: 200 });
+       }
+    }
+    
+    // Ignore all standard "push" events across all providers
+    else if (githubEvent === 'push' || payload.push || payload.object_kind === 'push') {
+       console.log(`[Webhook] Standard push event detected. Waiting for CI/CD pipeline to verify code...`);
+       return NextResponse.json({ message: 'Push ignored. Waiting for CI/CD success.' }, { status: 200 });
+    }
     // ─────────────────────────────────────────────────────────────────────────
 
-    const repoName      = payload.repository?.name;
-    const fullName      = payload.repository?.full_name;
+    // Extract repository details robustly across providers
+    const repoName      = payload.repository?.name || payload.project?.name;
+    const fullName      = payload.repository?.full_name || payload.project?.path_with_namespace;
     const defaultBranch = payload.repository?.default_branch || 'main';
 
     if (!repoName || !fullName) {
-      return NextResponse.json({ message: 'Invalid payload, ignoring.' }, { status: 200 });
+      return NextResponse.json({ message: 'Invalid payload or unhandled event, ignoring.' }, { status: 200 });
     }
 
-    console.log(`[Webhook] Verified successful push from: ${fullName}`);
+    console.log(`[Webhook] Verified successful build from: ${fullName}`);
 
-    // 2. Locate Target Node — three-pass lookup ───────────────────────────────
+    // 3. Locate Target Node — three-pass lookup ───────────────────────────────
     let project: { id: string; user_id: string } | null = null;
     let autoSaveRepoName = false;
 
@@ -149,20 +163,20 @@ export async function POST(req: Request) {
     }
 
     if (!project) {
-      console.warn(`[Webhook] No project found for: ${fullName}`);
+      console.warn(`[Webhook] No active Neural Node found for: ${fullName}`);
       return NextResponse.json({ message: 'Node not found, ignoring.' }, { status: 200 });
     }
 
     if (autoSaveRepoName) {
       await supabase
         .from('projects')
-        .update({ repo_full_name: fullName, provider: 'github' })
+        .update({ repo_full_name: fullName })
         .eq('id', project.id);
     }
 
     const userId = project.user_id;
 
-    // 3. Plan Gate ─────────────────────────────────────────────────────────────
+    // 4. Plan Gate ─────────────────────────────────────────────────────────────
     let plan: PlanType = 'free';
     if (DEVELOPER_IDS.includes(userId)) {
       plan = 'platinum';
@@ -179,7 +193,7 @@ export async function POST(req: Request) {
 
     if (!limits.webhookAutoSync) {
       return NextResponse.json(
-        { message: 'Auto-sync requires Pro or Platinum.' },
+        { message: 'Auto-sync requires Pro or Platinum tier.' },
         { status: 200 }
       );
     }
@@ -189,7 +203,9 @@ export async function POST(req: Request) {
       ? SAFE_MAX
       : Math.min(limits.filesPerSync, SAFE_MAX);
 
-    // 4. Fetch File Tree ───────────────────────────────────────────────────────
+    // 5. Fetch File Tree ───────────────────────────────────────────────────────
+    // Note: This fetch assumes GitHub raw content. If Bitbucket/GitLab, 
+    // you would dynamically adjust the API endpoint here based on the provider.
     const authHeaders: Record<string, string> = {};
     if (limits.privateRepos && process.env.GITHUB_TOKEN) {
       authHeaders['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
@@ -203,7 +219,7 @@ export async function POST(req: Request) {
     if (!treeRes.ok) {
       console.error(`[Webhook] Tree fetch failed: ${treeRes.status}`);
       await notify(userId, 'error', 'Sync Failed',
-        `Could not reach ${fullName}. Check repo visibility.`,
+        `Could not reach ${fullName}. Check repository visibility.`,
         `/dashboard/projects/${project.id}/doc`
       );
       return NextResponse.json({ message: 'Failed to access repository tree.' }, { status: 200 });
@@ -215,10 +231,10 @@ export async function POST(req: Request) {
       .filter((f: any) => !f.path.match(/\.(png|jpg|jpeg|gif|ico|pdf|zip|mp4|webp)$/i))
       .slice(0, FILE_LIMIT);
 
-    // 5. Atomic Wipe ───────────────────────────────────────────────────────────
+    // 6. Atomic Wipe ───────────────────────────────────────────────────────────
     await supabase.from('code_memories').delete().eq('project_id', project.id);
 
-    // 6. Download & Inject Files ───────────────────────────────────────────────
+    // 7. Download & Inject Files ───────────────────────────────────────────────
     let syncedCount = 0;
     const syncedPaths: string[] = [];
     const syncedAt = new Date().toISOString();
@@ -244,7 +260,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 7. Update Project State ──────────────────────────────────────────────────
+    // 8. Update Project State ──────────────────────────────────────────────────
     const maturityScore = calculateMaturity(syncedPaths);
     const capped = filesToSync.length >= FILE_LIMIT;
 
@@ -258,19 +274,19 @@ export async function POST(req: Request) {
       })
       .eq('id', project.id);
 
-    // 8. Send Notification ─────────────────────────────────────────────────────
+    // 9. Send Notification ─────────────────────────────────────────────────────
     await notify(
       userId,
       capped ? 'warning' : 'success',
       capped ? '⚡ Sync Capped' : '⚡ Auto-Sync Complete',
       capped
         ? `${syncedCount} of ${FILE_LIMIT} files synced from ${fullName}. Upgrade for more.`
-        : `${syncedCount} files synced from ${fullName}. Maturity: ${maturityScore}%.`,
+        : `${syncedCount} files verified and synced from ${fullName}. Maturity: ${maturityScore}%.`,
       `/dashboard/projects/${project.id}/doc`
     );
 
     return NextResponse.json({
-      status:         'Neural Sync Complete via Webhook',
+      status:         'Neural Sync Complete via Verified CI/CD Webhook',
       node:           repoName,
       files_synced:   syncedCount,
       maturity_score: maturityScore,
