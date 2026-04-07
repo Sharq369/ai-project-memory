@@ -259,6 +259,7 @@ export default function ProjectDocPage() {
   }
 
   const renderPremiumText = (text: string) => {
+    // Escaped regex syntax
     const segments = text.split(/(```[\s\S]*?```)/g)
     return segments.map((segment, index) => {
       if (segment.startsWith('```') && segment.endsWith('```')) {
@@ -346,7 +347,8 @@ export default function ProjectDocPage() {
 
               <div className="space-y-3">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Sync Source</p>
-                <div className=\"flex gap-3\">
+                {/* REMOVED ROGUE BACKSLASH HERE */}
+                <div className="flex gap-3">
                   <button onClick={() => { setActiveProvider('github'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-white/30 transition-all text-gray-400 hover:text-white"><Github size={18} /></button>
                   <button onClick={() => { setActiveProvider('gitlab'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-orange-500/50 transition-all text-gray-400 hover:text-orange-400"><Gitlab size={18} /></button>
                   <button onClick={() => { setActiveProvider('bitbucket'); setIsSyncModalOpen(true); }} className="p-2.5 bg-[#111] border border-gray-800 rounded-lg hover:border-blue-500/50 transition-all text-gray-400 hover:text-blue-400"><Cloud size={18} /></button>
