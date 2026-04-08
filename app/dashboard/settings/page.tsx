@@ -91,9 +91,12 @@ export default function SettingsPage() {
         aiToday: aiCount || 0, aiLimit: l.ai,
       })
 
-      // --- NEW: Fetch Token Statuses ---
+  // --- NEW: Fetch Token Statuses ---
       try {
-        const res = await fetch('/api/user/tokens')
+        const { data: { session } } = await supabase.auth.getSession(); // Get session
+        const res = await fetch('/api/user/tokens', {
+          headers: { 'Authorization': `Bearer ${session?.access_token}` } // Send header
+        })
         if (res.ok) {
           const data = await res.json()
           if (data.status) setTokenStatus(data.status)
@@ -182,11 +185,16 @@ export default function SettingsPage() {
     setSavingToken(provider)
     
     try {
+      const { data: { session } } = await supabase.auth.getSession(); // Get session
       const res = await fetch('/api/user/tokens', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}` // Send header
+        },
         body: JSON.stringify({ provider, token: tokens[provider] })
       })
+      // ... rest of the function stays exactly the same
       
       if (res.ok) {
         showToast(`${provider.charAt(0).toUpperCase() + provider.slice(1)} token secured!`, 'success')
@@ -201,13 +209,17 @@ export default function SettingsPage() {
       setSavingToken(null)
     }
   }
-
-  const handleRemoveToken = async (provider: 'github' | 'gitlab' | 'bitbucket') => {
+const handleRemoveToken = async (provider: 'github' | 'gitlab' | 'bitbucket') => {
     if (!confirm(`Are you sure you want to remove your ${provider} token? Private syncs will fail.`)) return
     
     setSavingToken(provider)
     try {
-      const res = await fetch(`/api/user/tokens?provider=${provider}`, { method: 'DELETE' })
+      const { data: { session } } = await supabase.auth.getSession(); // Get session
+      const res = await fetch(`/api/user/tokens?provider=${provider}`, { 
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${session?.access_token}` } // Send header
+      })
+      // ... rest of the function stays exactly the same
       if (res.ok) {
         showToast(`${provider.charAt(0).toUpperCase() + provider.slice(1)} token removed.`, 'success')
         setTokenStatus(prev => ({ ...prev, [provider]: false }))
