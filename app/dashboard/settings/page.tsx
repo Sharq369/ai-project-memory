@@ -1,10 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Settings, CreditCard, ShieldAlert, Check, Loader2, Zap, Download, Database, Brain, Folder, FileText, BarChart2 } from 'lucide-react'
+import { 
+  Settings, CreditCard, ShieldAlert, Check, Loader2, Zap, 
+  Download, Database, Brain, Folder, FileText, BarChart2,
+  Shield, Github, Gitlab, Cloud, Key, CheckCircle2, AlertCircle, Trash2 
+} from 'lucide-react'
 
 export default function SettingsPage() {
+  // --- ORIGINAL STATE ---
   const [activeTab, setActiveTab] = useState('general')
   const [loading, setLoading] = useState(true)
   const [isCheckingOut, setIsCheckingOut] = useState<string | null>(null)
@@ -20,15 +25,28 @@ export default function SettingsPage() {
     aiToday: 0, aiLimit: 10,
   })
 
+  // --- NEW INTEGRATION STATE ---
+  const [savingToken, setSavingToken] = useState<string | null>(null)
+  const [tokens, setTokens] = useState({ github: '', gitlab: '', bitbucket: '' })
+  const [tokenStatus, setTokenStatus] = useState({ github: false, gitlab: false, bitbucket: false })
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null)
+
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
+  // --- NEW TOAST HANDLER ---
+  const showToast = useCallback((message: string, type: 'success' | 'error') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 4000)
+  }, [])
+
   useEffect(() => {
     const loadData = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setLoading(false); return }
+  
       setUserEmail(user.email || '')
 
       // FIX 1: Read from profiles.plan_type not subscriptions
@@ -48,7 +66,8 @@ export default function SettingsPage() {
       }
       const l = limits[plan] || limits.free
 
-      const today = new Date(); today.setHours(0,0,0,0)
+      const today = new Date();
+      today.setHours(0,0,0,0)
 
       const [
         { count: projectCount },
@@ -72,10 +91,21 @@ export default function SettingsPage() {
         aiToday: aiCount || 0, aiLimit: l.ai,
       })
 
+      // --- NEW: Fetch Token Statuses ---
+      try {
+        const res = await fetch('/api/user/tokens')
+        if (res.ok) {
+          const data = await res.json()
+          if (data.status) setTokenStatus(data.status)
+        }
+      } catch (err) {
+        console.error('Failed to load token status', err)
+      }
+
       setLoading(false)
     }
     loadData()
-  }, [])
+  }, [supabase])
 
   // FIX 4: Export includes code_memories
   const handleExportData = async () => {
@@ -139,16 +169,60 @@ export default function SettingsPage() {
     try {
       const res = await fetch('/api/nuke', { method: 'POST' })
       const data = await res.json()
+      
       if (data.success) { alert('Vault successfully nuked.'); window.location.reload() }
       else alert(data.error || 'Failed to nuke vault.')
     } catch { alert('Network error.') }
     finally { setIsNuking(false) }
   }
 
+  // --- NEW: Token Handlers ---
+  const handleSaveToken = async (provider: 'github' | 'gitlab' | 'bitbucket') => {
+    if (!tokens[provider]) return
+    setSavingToken(provider)
+    
+    try {
+      const res = await fetch('/api/user/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, token: tokens[provider] })
+      })
+      
+      if (res.ok) {
+        showToast(`${provider.charAt(0).toUpperCase() + provider.slice(1)} token secured!`, 'success')
+        setTokenStatus(prev => ({ ...prev, [provider]: true }))
+        setTokens(prev => ({ ...prev, [provider]: '' }))
+      } else {
+        showToast(`Failed to save ${provider} token.`, 'error')
+      }
+    } catch {
+      showToast('Network error', 'error')
+    } finally {
+      setSavingToken(null)
+    }
+  }
+
+  const handleRemoveToken = async (provider: 'github' | 'gitlab' | 'bitbucket') => {
+    if (!confirm(`Are you sure you want to remove your ${provider} token? Private syncs will fail.`)) return
+    
+    setSavingToken(provider)
+    try {
+      const res = await fetch(`/api/user/tokens?provider=${provider}`, { method: 'DELETE' })
+      if (res.ok) {
+        showToast(`${provider.charAt(0).toUpperCase() + provider.slice(1)} token removed.`, 'success')
+        setTokenStatus(prev => ({ ...prev, [provider]: false }))
+      }
+    } finally {
+      setSavingToken(null)
+    }
+  }
+
+  // --- ORIGINAL UI ARRAYS (UPDATED WITH INTEGRATIONS TAB) ---
   const tabs = [
-    { id: 'general',  label: 'General',        icon: Settings    },
-    { id: 'billing',  label: 'Billing & Plans', icon: CreditCard  },
-    { id: 'danger',   label: 'Danger Zone',     icon: ShieldAlert },
+    { id: 'general',      label: 'General',            icon: Settings    },
+    { id: 'billing',      label: 'Billing & Plans',    icon: CreditCard  },
+    { id: 'integrations', label: 'Vault Integrations', icon: Shield      }, // <-- NEW TAB INJECTED HERE
+    { id: 'danger',       label: 'Danger Zone',        icon: ShieldAlert },
   ]
 
   // FIX 3: Plan name matches ID — Platinum not Ultra
@@ -183,7 +257,16 @@ export default function SettingsPage() {
   )
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white p-6 md:p-12 font-sans selection:bg-blue-500/30">
+    <div className="min-h-screen bg-[#050505] text-white p-6 md:p-12 font-sans selection:bg-blue-500/30 relative">
+      
+      {/* NEW: Toast Notification System */}
+      <div className={`fixed top-10 left-1/2 -translate-x-1/2 z-[500] transition-all duration-300 pointer-events-none ${toast ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-95'}`}>
+        <div className={`flex items-center gap-3 px-6 py-3 rounded-full shadow-2xl border backdrop-blur-md pointer-events-auto ${toast?.type === 'success' ? 'bg-green-950/80 border-green-500/30 text-green-200' : 'bg-red-950/80 border-red-500/30 text-red-200'}`}>
+          {toast?.type === 'success' ? <CheckCircle2 size={18} className="text-green-500" /> : <AlertCircle size={18} className="text-red-500" />}
+          <span className="text-sm font-medium">{toast?.message}</span>
+        </div>
+      </div>
+
       <div className="max-w-5xl mx-auto">
 
         <div className="mb-12 border-b border-gray-800 pb-8">
@@ -213,6 +296,7 @@ export default function SettingsPage() {
 
           <div className="flex-1 space-y-6">
 
+            {/* ORIGINAL: General Tab */}
             {activeTab === 'general' && (
               <div className="space-y-6">
                 <div className="p-6 md:p-8 rounded-2xl border border-gray-800 bg-[#0A0A0A] shadow-lg">
@@ -246,6 +330,80 @@ export default function SettingsPage() {
               </div>
             )}
 
+            {/* NEW INJECTED: Integrations Tab */}
+            {activeTab === 'integrations' && (
+              <div className="space-y-6 animate-in fade-in duration-300">
+                <div>
+                  <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                    <Shield className="text-blue-500" size={20} /> Vault Integrations
+                  </h2>
+                  <p className="text-gray-400 text-sm">
+                    Connect your Personal Access Tokens to allow Neural Node to synchronize your private repositories. Tokens are encrypted at rest.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  {[
+                    { id: 'github', name: 'GitHub', icon: Github, color: 'text-white' },
+                    { id: 'gitlab', name: 'GitLab', icon: Gitlab, color: 'text-orange-500' },
+                    { id: 'bitbucket', name: 'Bitbucket', icon: Cloud, color: 'text-blue-500' }
+                  ].map((prov) => {
+                    const isConnected = tokenStatus[prov.id as keyof typeof tokenStatus]
+                    const Icon = prov.icon
+                    
+                    return (
+                      <div key={prov.id} className="bg-[#0A0A0A] border border-gray-800 rounded-2xl p-6 shadow-lg">
+                        <div className="flex justify-between items-start mb-5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-[#111] border border-gray-800 flex items-center justify-center">
+                              <Icon className={prov.color} size={20} />
+                            </div>
+                            <div>
+                              <h3 className="text-md font-bold text-white">{prov.name}</h3>
+                              {isConnected ? (
+                                <span className="text-[11px] font-bold text-green-400 uppercase tracking-wider flex items-center gap-1 mt-0.5"><CheckCircle2 size={12}/> Vault Connected</span>
+                              ) : (
+                                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1 mt-0.5"><AlertCircle size={12}/> Not Connected</span>
+                              )}
+                            </div>
+                          </div>
+                          {isConnected && (
+                            <button onClick={() => handleRemoveToken(prov.id as any)} disabled={savingToken === prov.id} className="text-gray-500 hover:text-red-400 p-1.5 transition-colors">
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-center gap-3">
+                          <div className="relative flex-1 w-full">
+                            <Key size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                            <input 
+                              type="password" 
+                              placeholder={isConnected ? "•••••••••••••••••••• (Encrypted)" : `Enter ${prov.name} Access Token...`}
+                              value={tokens[prov.id as keyof typeof tokens]}
+                              onChange={(e) => setTokens(prev => ({ ...prev, [prov.id]: e.target.value }))}
+                              disabled={isConnected}
+                              className="w-full bg-[#111] border border-gray-800 rounded-xl py-2.5 pl-9 pr-4 text-sm text-gray-300 focus:border-blue-500 outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            />
+                          </div>
+                          {!isConnected && (
+                            <button 
+                              onClick={() => handleSaveToken(prov.id as any)}
+                              disabled={!tokens[prov.id as keyof typeof tokens] || savingToken === prov.id}
+                              className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-500 disabled:opacity-50 disabled:bg-gray-800 disabled:text-gray-500 transition-all flex items-center justify-center gap-2"
+                            >
+                              {savingToken === prov.id ? <Loader2 size={16} className="animate-spin" /> : 'Secure Token'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ORIGINAL: Billing Tab */}
             {activeTab === 'billing' && (
               <div className="space-y-6">
                 <div className="p-6 md:p-8 rounded-2xl border border-gray-800 bg-[#0A0A0A] shadow-lg">
@@ -322,6 +480,7 @@ export default function SettingsPage() {
               </div>
             )}
 
+            {/* ORIGINAL: Danger Zone Tab */}
             {activeTab === 'danger' && (
               <div className="p-6 md:p-8 rounded-2xl border border-red-900/30 bg-[#1a0505] shadow-lg">
                 <div className="flex items-center gap-3 mb-2">
