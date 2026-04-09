@@ -66,7 +66,21 @@ async function notify(
   }
 }
 
+// ── THE GATEKEEPER SHIELD ─────────────────────────────────────────────────────
+const IGNORED_PATTERNS = [
+  'node_modules', '.git', '.next', 'dist', 'build', 'out',
+  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+  '.DS_Store', 'Thumbs.db',
+  '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp',
+  '.mp4', '.mov', '.mp3', '.pdf', '.zip', '.tar.gz'
+];
+
+function isJunk(path: string): boolean {
+  if (!path) return true;
+  return IGNORED_PATTERNS.some(p => path.toLowerCase().includes(p.toLowerCase()));
+}
 // ─────────────────────────────────────────────────────────────────────────────
+
 export async function POST(req: Request) {
   try {
     const bodyText  = await req.text();
@@ -204,8 +218,6 @@ export async function POST(req: Request) {
       : Math.min(limits.filesPerSync, SAFE_MAX);
 
     // 5. Fetch File Tree ───────────────────────────────────────────────────────
-    // Note: This fetch assumes GitHub raw content. If Bitbucket/GitLab, 
-    // you would dynamically adjust the API endpoint here based on the provider.
     const authHeaders: Record<string, string> = {};
     if (limits.privateRepos && process.env.GITHUB_TOKEN) {
       authHeaders['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
@@ -226,9 +238,11 @@ export async function POST(req: Request) {
     }
 
     const { tree } = await treeRes.json();
+    
+    // NEW GATEKEEPER LOGIC HERE:
     const filesToSync = tree
       .filter((f: any) => f.type === 'blob')
-      .filter((f: any) => !f.path.match(/\.(png|jpg|jpeg|gif|ico|pdf|zip|mp4|webp)$/i))
+      .filter((f: any) => !isJunk(f.path)) // Drops all the heavy folders and lockfiles instantly
       .slice(0, FILE_LIMIT);
 
     // 6. Atomic Wipe ───────────────────────────────────────────────────────────
