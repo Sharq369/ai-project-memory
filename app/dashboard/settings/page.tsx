@@ -93,10 +93,7 @@ export default function SettingsPage() {
 
   // --- NEW: Fetch Token Statuses ---
       try {
-        const { data: { session } } = await supabase.auth.getSession(); // Get session
-        const res = await fetch('/api/user/tokens', {
-          headers: { 'Authorization': `Bearer ${session?.access_token}` } // Send header
-        })
+        const res = await fetch('/api/user/tokens')
         if (res.ok) {
           const data = await res.json()
           if (data.status) setTokenStatus(data.status)
@@ -185,13 +182,9 @@ export default function SettingsPage() {
     setSavingToken(provider)
     
     try {
-      const { data: { session } } = await supabase.auth.getSession(); // Get session
       const res = await fetch('/api/user/tokens', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}` // Send header
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, token: tokens[provider] })
       })
       // ... rest of the function stays exactly the same
@@ -214,10 +207,8 @@ const handleRemoveToken = async (provider: 'github' | 'gitlab' | 'bitbucket') =>
     
     setSavingToken(provider)
     try {
-      const { data: { session } } = await supabase.auth.getSession(); // Get session
-      const res = await fetch(`/api/user/tokens?provider=${provider}`, { 
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${session?.access_token}` } // Send header
+      const res = await fetch(`/api/user/tokens?provider=${provider}`, {
+        method: 'DELETE'
       })
       // ... rest of the function stays exactly the same
       if (res.ok) {
