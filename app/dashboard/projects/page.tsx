@@ -6,7 +6,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import {
   Plus, FolderGit2, Trash2, ArrowRight, Loader2,
   AlertTriangle, Activity, RefreshCw, Github, Gitlab,
-  Cloud, Zap, X, CheckCircle2, AlertCircle, Info, Database
+  Cloud, Zap, X, CheckCircle2, AlertCircle, Info, Database, Link, Webhook
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +59,11 @@ export default function ProjectsDashboard() {
     type: 'success' | 'error' | 'info'
     message: string
   }>({ visible: false, type: 'info', message: '' })
+
+  // ── New Project Modal state ───────────────────────────────────────────────
+  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
+  const [newProjectRepoUrl, setNewProjectRepoUrl] = useState('')
+  const [webhookStatus, setWebhookStatus] = useState<null | { registered: boolean; skipped: boolean; message: string }>(null)
 
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false)
   const [syncingProjectId, setSyncingProjectId] = useState<string | null>(null)
@@ -242,7 +247,15 @@ export default function ProjectsDashboard() {
     }
   }, [])
 
-  const handleCreateProject = async () => {
+  // Open the new project modal — enforce check happens on confirm
+  const handleCreateProject = () => {
+    setNewProjectRepoUrl('')
+    setWebhookStatus(null)
+    setIsNewProjectModalOpen(true)
+  }
+
+  // Called when user confirms from the new project modal
+  const handleConfirmCreateProject = async () => {
     setCreating(true)
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -255,33 +268,55 @@ export default function ProjectsDashboard() {
         return
       }
 
+      // Plan gate check
       const check = await fetch('/api/enforce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, action: 'create_project' })
       })
-
       if (!check.ok) throw new Error('Failed to reach Node limits API.')
-      const result = await check.json()
+      const enforceResult = await check.json()
 
-      if (!result.allowed) {
-        showToast('error', result.reason)
+      if (!enforceResult.allowed) {
+        showToast('error', enforceResult.reason)
         setCreating(false)
         return
       }
 
-      const { data, error } = await supabase
-        .from('projects')
-        .insert({ name: 'New Neural Node', user_id: userId })
-        .select()
-        .single()
+      // Create project + fire webhook registration
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoUrl: newProjectRepoUrl || undefined })
+      })
+      const result = await res.json()
 
-      if (error) {
-        showToast('error', `Security Blocked: ${error.message}`)
+      if (!res.ok || !result.success) {
+        showToast('error', result.error || 'Failed to create project.')
         setCreating(false)
-      } else if (data) {
-        router.push(`/dashboard/projects/${data.id}/doc`)
+        return
       }
+
+      // Show webhook status if repo URL was provided
+      if (result.webhook) {
+        setWebhookStatus(result.webhook)
+        if (result.webhook.registered) {
+          showToast('success', `Node created — webhook registered automatically.`)
+        } else if (result.webhook.skipped) {
+          showToast('info', `Node created. Add a PAT in Settings to enable auto-sync.`)
+        } else {
+          showToast('info', `Node created. Webhook registration failed — check your token.`)
+        }
+        // Wait a moment so user can see the webhook status before redirect
+        setTimeout(() => {
+          setIsNewProjectModalOpen(false)
+          router.push(`/dashboard/projects/${result.project.id}/doc`)
+        }, 2000)
+      } else {
+        setIsNewProjectModalOpen(false)
+        router.push(`/dashboard/projects/${result.project.id}/doc`)
+      }
+
     } catch (err: any) {
       console.error('Vault Creation Error:', err)
       showToast('error', err.message || 'An unexpected error occurred.')
@@ -577,6 +612,83 @@ export default function ProjectsDashboard() {
           )}
         </div>
       </div>
+
+
+      {/* ── New Project Modal ────────────────────────────────────────────────── */}
+      {isNewProjectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !creating && setIsNewProjectModalOpen(false)} />
+          <div className="relative bg-[#0d1117] border border-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-6 border-b border-gray-800/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg"><FolderGit2 size={20} /></div>
+                <h2 className="text-xl font-bold text-white">Initialize Neural Node</h2>
+              </div>
+              <button onClick={() => setIsNewProjectModalOpen(false)} disabled={creating} className="text-gray-500 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
+                  Repository URL <span className="text-gray-600 font-normal normal-case">(optional)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={newProjectRepoUrl}
+                    onChange={e => setNewProjectRepoUrl(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleConfirmCreateProject()}
+                    placeholder="https://github.com/owner/repo  or  owner/repo"
+                    className="w-full bg-[#111] border border-gray-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm font-mono"
+                  />
+                  <Link className="absolute left-3 top-3.5 text-gray-500" size={15} />
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1.5 font-mono">
+                  If you have a PAT saved in Settings → Integrations, the webhook will be auto-registered.
+                </p>
+              </div>
+
+              {/* Webhook registration status — shown after creation attempt */}
+              {webhookStatus && (
+                <div className={`flex items-start gap-3 p-3 rounded-xl border text-xs ${
+                  webhookStatus.registered
+                    ? 'bg-emerald-950/50 border-emerald-500/30 text-emerald-300'
+                    : webhookStatus.skipped
+                    ? 'bg-blue-950/50 border-blue-500/30 text-blue-300'
+                    : 'bg-amber-950/50 border-amber-500/30 text-amber-300'
+                }`}>
+                  <Webhook size={14} className="shrink-0 mt-0.5" />
+                  <span>{webhookStatus.message}</span>
+                </div>
+              )}
+
+              <div className="bg-[#0a0a0f] border border-white/5 rounded-xl p-3">
+                <p className="text-[10px] uppercase font-bold tracking-widest text-gray-600 mb-1.5">What happens next</p>
+                <ul className="space-y-1 text-[11px] text-gray-500">
+                  <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-blue-500" /> Project node created in your vault</li>
+                  <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-blue-500" /> Webhook auto-registered if PAT is stored</li>
+                  <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-blue-500" /> Redirect to node for manual sync</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="p-6 bg-black/20 border-t border-gray-800/50">
+              <button
+                onClick={handleConfirmCreateProject}
+                disabled={creating}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-white text-black font-semibold rounded-xl hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {creating
+                  ? <><Loader2 size={18} className="animate-spin text-black" /><span>Initializing...</span></>
+                  : <><Plus size={18} /><span>Initialize Node</span></>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Delete Modal ────────────────────────────────────────────────────── */}
       {nodeToDelete && (
