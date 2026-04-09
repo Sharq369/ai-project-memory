@@ -3,10 +3,12 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
+import JSZip from 'jszip'
+import { saveAs } from 'file-saver'
 import {
   Plus, FolderGit2, Trash2, ArrowRight, Loader2,
   AlertTriangle, Activity, RefreshCw, Github, Gitlab,
-  Cloud, Zap, X, CheckCircle2, AlertCircle, Info, Database, Link, Webhook
+  Cloud, Zap, X, CheckCircle2, AlertCircle, Info, Database, Link, Webhook, Download
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,10 +29,7 @@ const getRelativeTime = (dateString: string | null) => {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX 1: Lazy Supabase singleton — avoids env var timing issues with Turbopack.
-// The client is still created only once (cached in the variable after first
-// call), but we defer reading process.env until the first actual render cycle,
-// by which point Next.js guarantees env vars are injected.
+// FIX 1: Lazy Supabase singleton
 // ─────────────────────────────────────────────────────────────────────────────
 let _supabaseClient: ReturnType<typeof createBrowserClient> | null = null
 const getSupabase = () => {
@@ -45,7 +44,6 @@ const getSupabase = () => {
 
 export default function ProjectsDashboard() {
   const router = useRouter()
-  // Resolve once — stable reference for the component lifetime
   const supabase = getSupabase()
 
   const [projects, setProjects] = useState<any[]>([])
@@ -60,7 +58,6 @@ export default function ProjectsDashboard() {
     message: string
   }>({ visible: false, type: 'info', message: '' })
 
-  // ── New Project Modal state ───────────────────────────────────────────────
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
   const [newProjectRepoUrl, setNewProjectRepoUrl] = useState('')
   const [webhookStatus, setWebhookStatus] = useState<null | { registered: boolean; skipped: boolean; message: string }>(null)
@@ -70,6 +67,9 @@ export default function ProjectsDashboard() {
   const [repoName, setRepoName] = useState('')
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
   const [isSyncing, setIsSyncing] = useState(false)
+  
+  // New State for Neural Extract
+  const [downloadingProjectId, setDownloadingProjectId] = useState<string | null>(null)
 
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -97,10 +97,7 @@ export default function ProjectsDashboard() {
   }, [])
 
   // ─────────────────────────────────────────────────────────────────────────
-  // FIX 2: loadNodes no longer sets loading=true when called from realtime.
-  // A separate `silent` flag skips the full-page spinner for background
-  // refreshes triggered by INSERT/DELETE events, preventing the jarring
-  // loading flash the original code caused on every realtime update.
+  // FIX 2: loadNodes
   // ─────────────────────────────────────────────────────────────────────────
   const loadNodes = useCallback(async (silent = false) => {
     try {
@@ -139,27 +136,15 @@ export default function ProjectsDashboard() {
   }, [supabase, showToast])
 
   // ─────────────────────────────────────────────────────────────────────────
-  // FIX 3: Realtime subscription — three issues resolved:
-  //
-  // a) async removeChannel: we now await channel removal before subscribing
-  //    again, preventing duplicate channel conflicts on rapid re-subscribes.
-  //
-  // b) Debounced visibilitychange: a 300ms debounce prevents mobile from
-  //    spawning multiple channels during rapid tab focus/blur cycles.
-  //
-  // c) try/catch in payload handler: malformed payloads no longer silently
-  //    break state — errors are logged and a toast is shown instead.
+  // FIX 3: Realtime subscription
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-    // Generate a unique channel name per subscription instance to avoid
-    // Supabase rejecting a re-subscription on the same named channel.
     const getChannelName = () => `projects-realtime-${Date.now()}`
 
     const subscribe = async () => {
-      // FIX 3a: await removal before creating a new channel
       if (channel) {
         await supabase.removeChannel(channel)
         channel = null
@@ -171,7 +156,6 @@ export default function ProjectsDashboard() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'projects' },
           (payload) => {
-            // FIX 3c: wrap handler in try/catch
             try {
               console.log('[Realtime] projects change received:', payload)
 
@@ -185,7 +169,6 @@ export default function ProjectsDashboard() {
                 showToast('success', `⚡ Neural sync complete — "${updated.name}" updated.`)
 
               } else if (payload.eventType === 'INSERT') {
-                // FIX 2 in action: silent=true skips spinner
                 loadNodes(true)
                 showToast('info', 'New node detected in the vault.')
 
@@ -215,7 +198,6 @@ export default function ProjectsDashboard() {
 
     subscribe()
 
-    // FIX 3b: debounced visibility handler
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         if (debounceTimer) clearTimeout(debounceTimer)
@@ -235,26 +217,22 @@ export default function ProjectsDashboard() {
     }
   }, [supabase, loadNodes, showToast])
 
-  // Initial data load
   useEffect(() => {
     loadNodes()
   }, [loadNodes])
 
-  // Cleanup toast timer on unmount
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }
   }, [])
 
-  // Open the new project modal — enforce check happens on confirm
   const handleCreateProject = () => {
     setNewProjectRepoUrl('')
     setWebhookStatus(null)
     setIsNewProjectModalOpen(true)
   }
 
-  // Called when user confirms from the new project modal
   const handleConfirmCreateProject = async () => {
     setCreating(true)
     try {
@@ -268,7 +246,6 @@ export default function ProjectsDashboard() {
         return
       }
 
-      // Plan gate check
       const check = await fetch('/api/enforce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -283,7 +260,6 @@ export default function ProjectsDashboard() {
         return
       }
 
-      // Create project + fire webhook registration
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -297,7 +273,6 @@ export default function ProjectsDashboard() {
         return
       }
 
-      // Show webhook status if repo URL was provided
       if (result.webhook) {
         setWebhookStatus(result.webhook)
         if (result.webhook.registered) {
@@ -307,7 +282,6 @@ export default function ProjectsDashboard() {
         } else {
           showToast('info', `Node created. Webhook registration failed — check your token.`)
         }
-        // Wait a moment so user can see the webhook status before redirect
         setTimeout(() => {
           setIsNewProjectModalOpen(false)
           router.push(`/dashboard/projects/${result.project.id}/doc`)
@@ -325,10 +299,7 @@ export default function ProjectsDashboard() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // FIX 4: Use functional state updater in confirmDecommission.
-  // The original used the `projects` variable directly from the closure, which
-  // could be stale if the list changed between when the modal opened and when
-  // the user confirmed. Functional updater always operates on the latest state.
+  // FIX 4: confirmDecommission
   // ─────────────────────────────────────────────────────────────────────────
   const confirmDecommission = async () => {
     if (!nodeToDelete) return
@@ -336,7 +307,6 @@ export default function ProjectsDashboard() {
     try {
       const { error } = await supabase.from('projects').delete().eq('id', nodeToDelete.id)
       if (error) throw error
-      // FIX 4: functional updater — no stale closure
       setProjects(prev => prev.filter(p => p.id !== nodeToDelete.id))
       showToast('success', `Node "${nodeToDelete.name}" successfully decommissioned.`)
       setNodeToDelete(null)
@@ -348,10 +318,7 @@ export default function ProjectsDashboard() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // FIX 5: Clear syncingProjectId after sync modal closes.
-  // The original left the stale project ID in state after a successful sync,
-  // meaning a subsequent modal open could accidentally target the wrong project
-  // if the user didn't explicitly click a new sync button first.
+  // FIX 5: handleSyncTrigger
   // ─────────────────────────────────────────────────────────────────────────
   const handleSyncTrigger = async () => {
     if (!repoName.trim() || !syncingProjectId) return
@@ -390,7 +357,7 @@ export default function ProjectsDashboard() {
         await loadNodes()
         setIsSyncModalOpen(false)
         setRepoName('')
-        setSyncingProjectId(null) // FIX 5: clear stale project ID
+        setSyncingProjectId(null)
       } else {
         showToast('error', `Sync Error: ${result.error}`)
       }
@@ -400,6 +367,56 @@ export default function ProjectsDashboard() {
       setIsSyncing(false)
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // THE NEURAL EXTRACT ENGINE (Download to ZIP)
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleDownloadProject = async (projectId: string, projectName: string) => {
+    try {
+      setDownloadingProjectId(projectId);
+      showToast('info', 'Preparing Neural Extract...');
+      
+      const { data: files, error } = await supabase
+        .from('code_memories')
+        .select('file_path, file_name, content')
+        .eq('project_id', projectId);
+
+      if (error) throw error;
+      if (!files || files.length === 0) {
+        showToast('error', "No memory files found. Try syncing the node first.");
+        return;
+      }
+
+      const zip = new JSZip();
+      let addedCount = 0;
+      
+      // Frontend Gatekeeper: Strips junk so the browser doesn't freeze
+      files.forEach((file) => {
+        const path = file.file_path || file.file_name || ''; 
+        if (path.includes('node_modules/') || path.includes('.git/') || path.includes('package-lock.json')) {
+          return; 
+        }
+        zip.file(path, file.content || '');
+        addedCount++;
+      });
+
+      if (addedCount === 0) {
+        showToast('error', "No valid source files found after filtering.");
+        return;
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `${projectName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-neural-extract.zip`);
+      showToast('success', `Neural Extract downloaded securely.`);
+
+    } catch (err) {
+      console.error('[Download Error]:', err);
+      showToast('error', "Failed to generate the Neural Extract.");
+    } finally {
+      setDownloadingProjectId(null);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -585,6 +602,21 @@ export default function ProjectsDashboard() {
                     >
                       <RefreshCw size={14} />
                     </button>
+                    
+                    {/* NEW: NEURAL EXTRACT DOWNLOAD BUTTON */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDownloadProject(project.id, project.name) }}
+                      disabled={downloadingProjectId === project.id || isGrounded}
+                      className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-emerald-400 hover:border-emerald-500/50 hover:bg-emerald-500/10 transition-all disabled:opacity-50"
+                      title="Download Neural Extract"
+                    >
+                      {downloadingProjectId === project.id ? (
+                        <Loader2 size={14} className="animate-spin text-emerald-500" />
+                      ) : (
+                        <Download size={14} />
+                      )}
+                    </button>
+
                     <button
                       onClick={(e) => { e.stopPropagation(); setNodeToDelete({ id: project.id, name: project.name }) }}
                       className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-red-400 hover:border-red-500/50 hover:bg-red-500/10 transition-all"
@@ -612,7 +644,6 @@ export default function ProjectsDashboard() {
           )}
         </div>
       </div>
-
 
       {/* ── New Project Modal ────────────────────────────────────────────────── */}
       {isNewProjectModalOpen && (
@@ -650,7 +681,7 @@ export default function ProjectsDashboard() {
                 </p>
               </div>
 
-              {/* Webhook registration status — shown after creation attempt */}
+              {/* Webhook registration status */}
               {webhookStatus && (
                 <div className={`flex items-start gap-3 p-3 rounded-xl border text-xs ${
                   webhookStatus.registered
