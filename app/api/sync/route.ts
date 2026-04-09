@@ -7,7 +7,7 @@ const supabase = createClient(
 )
 
 // ─── THE GATEKEEPER SHIELD ──────────────────────────────────────────────
-// Blocks heavy folders, lock files, and binaries from entering the vault
+// The Block-List: Folders, lock files, and binaries we DO NOT want.
 const IGNORED_PATTERNS = [
   'node_modules', '.git', '.next', 'dist', 'build', 'out',
   'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
@@ -16,10 +16,11 @@ const IGNORED_PATTERNS = [
   '.mp4', '.mov', '.mp3', '.pdf', '.zip', '.tar.gz'
 ];
 
-function shouldIgnore(path: string): boolean {
-  if (!path) return false;
+// Checks the full path to prevent "Path Blindness"
+function shouldIgnore(filePath: string): boolean {
+  if (!filePath) return false;
   return IGNORED_PATTERNS.some(pattern => 
-    path.toLowerCase().includes(pattern.toLowerCase())
+    filePath.toLowerCase().includes(pattern.toLowerCase())
   );
 }
 // ────────────────────────────────────────────────────────────────────────
@@ -43,6 +44,8 @@ export async function POST(req: Request) {
     if (!owner || !repo) throw new Error("Invalid GitHub URL format.")
 
     // 2. Fetch from GitHub API
+    // Note: If you want to sync deep folders in the future, this endpoint 
+    // will need to be upgraded to the Git Trees API, but this handles the current structure.
     const githubRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents`, {
       headers: { 'Accept': 'application/vnd.github.v3+json' }
     })
@@ -50,41 +53,45 @@ export async function POST(req: Request) {
     if (!githubRes.ok) throw new Error("Could not reach GitHub. Check if the repo is public.")
     const files = await githubRes.json()
 
-    // 3. Process Files (Filtering for code + Gatekeeper Shield)
+    // 3. Process Files (The New Filter)
     const validFiles = files.filter((f: any) => {
-      // Rule 1: Must be a file
+      // Rule 1: Must be a file, not a directory wrapper
       if (f.type !== 'file') return false;
       
-      // Rule 2: GATEKEEPER CHECK - Is it in our ignore list?
-      if (shouldIgnore(f.path || f.name)) return false;
+      // Rule 2: THE GATEKEEPER - Drops node_modules and lock-files instantly
+      if (shouldIgnore(f.path || f.name)) {
+        console.log(`[Gatekeeper] Blocked: ${f.path || f.name}`);
+        return false;
+      }
       
-      // Rule 3: Must be a readable code extension
-      if (!f.name.match(/\.(ts|tsx|js|jsx|json|md)$/)) return false;
+      // Rule 3: The Allow-list - Only grab valid source code
+      if (!f.name.match(/\.(ts|tsx|js|jsx|json|md|py|html|css)$/)) return false;
       
       return true;
     });
 
+    if (validFiles.length === 0) throw new Error("No compatible source code files found after filtering.")
+
+    // 4. Download Content for Valid Files
     const memories = await Promise.all(
       validFiles.map(async (file: any) => {
         const rawRes = await fetch(file.download_url)
         const rawContent = await rawRes.text()
         return {
           project_id: projectId,
-          file_name: file.name, // Matches your DB column
-          name: file.name,      // Matches the 'Vault' display column
+          file_name: file.name, 
+          name: file.name,      
           content: redactSecrets(rawContent).substring(0, 10000), 
         }
       })
     )
 
-    if (memories.length === 0) throw new Error("No compatible code files found in this repo.")
-
-    // 4. Update Database
+    // 5. Update Database securely
     await supabase.from('code_memories').delete().eq('project_id', projectId)
     const { error: memError } = await supabase.from('code_memories').insert(memories)
     if (memError) throw memError
 
-    // 5. Update Sync Timestamp
+    // 6. Update Sync Timestamp
     await supabase.from('projects').update({ last_sync: new Date().toISOString() }).eq('id', projectId)
 
     return NextResponse.json({ success: true, count: memories.length })
