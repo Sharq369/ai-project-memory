@@ -69,12 +69,13 @@ async function notify(
 // ── THE GATEKEEPER SHIELD ─────────────────────────────────────────────────────
 const SKIP_EXT = /\.(png|jpg|jpeg|gif|ico|bmp|webp|svg|avif|pdf|zip|tar|gz|rar|7z|mp4|mp3|wav|mov|woff|woff2|ttf|eot|otf|exe|dll|so|dylib|bin|lock|sum|snap)$/i;
 const SKIP_PATH = /(^node_modules\/|^\.next\/|^dist\/|^build\/|^out\/|^\.git\/|^coverage\/|^__pycache__\/|^\.cache\/|^\.turbo\/|^\.vercel\/|\.min\.js$|\.min\.css$|\.map$|\.d\.ts$)/i;
+const SKIP_NAME = /^(package-lock\.json|pnpm-lock\.yaml|poetry\.lock|Pipfile\.lock|Gemfile\.lock|composer\.lock|packages\.lock\.json)$/i;
 
-// FIX: old version used includes() which matched 'out' inside 'route.ts'
-// filtering ALL API routes from auto-sync. Now uses proper regex anchors.
+// FIX: was using includes() — 'out' matched inside 'route.ts' filtering ALL API routes
 function isJunk(path: string): boolean {
   if (!path) return true;
-  return SKIP_EXT.test(path) || SKIP_PATH.test(path);
+  const filename = path.split('/').pop() || '';
+  return SKIP_EXT.test(path) || SKIP_PATH.test(path) || SKIP_NAME.test(filename);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -126,10 +127,22 @@ export async function POST(req: Request) {
        }
     }
     
-    // Ignore all standard "push" events across all providers
-    else if (githubEvent === 'push' || payload.push || payload.object_kind === 'push') {
-       console.log(`[Webhook] Standard push event detected. Waiting for CI/CD pipeline to verify code...`);
-       return NextResponse.json({ message: 'Push ignored. Waiting for CI/CD success.' }, { status: 200 });
+    // Push event fallback — fires when repo has NO CI/CD workflow
+    // If repo has CI/CD, workflow_run handles it above and push is ignored
+    // If repo has NO CI/CD, accept push to default branch directly
+    else if (githubEvent === 'push' || payload.object_kind === 'push') {
+      const pushedBranch = payload.ref?.replace('refs/heads/', '') || 
+                           payload.commits?.[0]?.branch ||
+                           payload.push?.changes?.[0]?.new?.name;
+      const repoDefault = payload.repository?.default_branch || 
+                          payload.project?.default_branch || 'main';
+      
+      if (pushedBranch && pushedBranch !== repoDefault) {
+        console.log(`[Webhook] Push to non-default branch (${pushedBranch}). Ignoring.`);
+        return NextResponse.json({ message: 'Not default branch. Ignoring.' }, { status: 200 });
+      }
+      // Falls through to sync below — no CI/CD repo, trust the push
+      console.log(`[Webhook] Push to default branch with no CI/CD. Proceeding with sync.`);
     }
     // ─────────────────────────────────────────────────────────────────────────
 
