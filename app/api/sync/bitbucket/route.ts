@@ -84,8 +84,12 @@ export async function POST(req: Request) {
       nextUrl = data.next || null
     }
 
+    const SKIP_EXT = /\.(png|jpg|jpeg|gif|ico|bmp|webp|svg|avif|pdf|zip|tar|gz|rar|7z|mp4|mp3|wav|mov|woff|woff2|ttf|eot|otf|exe|dll|so|dylib|bin|lock|sum|snap)$/i
+    const SKIP_PATH = /(^node_modules\/|^\.next\/|^dist\/|^build\/|^out\/|^\.git\/|^coverage\/|^__pycache__\/|^\.cache\/|^\.turbo\/|^\.vercel\/|\.min\.js$|\.min\.css$|\.map$|\.d\.ts$)/i
+
     allFiles = allFiles
-      .filter((f: any) => !f.path.match(/\.(png|jpg|jpeg|gif|ico|pdf|zip|mp4|webp)$/i))
+      .filter((f: any) => !SKIP_EXT.test(f.path))
+      .filter((f: any) => !SKIP_PATH.test(f.path))
       .slice(0, FILE_LIMIT)
 
     await supabase.from('code_memories').delete().eq('project_id', projectId)
