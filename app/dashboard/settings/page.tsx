@@ -114,11 +114,21 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
-      const [{ data: projects }, { data: memories }, { data: codeMemories }] = await Promise.all([
+      const [{ data: projects }, { data: memories }] = await Promise.all([
         supabase.from('projects').select('*').eq('user_id', user.id),
         supabase.from('memories').select('*').eq('user_id', user.id),
-        supabase.from('code_memories').select('*'),
       ])
+
+      // Filter code_memories by user's project IDs — fixes RLS ownership issue
+      let codeMemories: any[] = []
+      if (projects && projects.length > 0) {
+        const projectIds = projects.map((p: any) => p.id)
+        const { data: cm } = await supabase
+          .from('code_memories')
+          .select('project_id, file_name, content')
+          .in('project_id', projectIds)
+        codeMemories = cm || []
+      }
 
       const exportData = {
         exportedAt: new Date().toISOString(),
