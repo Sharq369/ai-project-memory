@@ -11,7 +11,7 @@ import {
   Users, Brain, Folder, FileText, Zap, Activity,
   Crown, Shield, Search, ChevronUp, ChevronDown,
   RefreshCw, Loader2, AlertCircle, BarChart2,
-  TrendingUp, User, Check, X, MessageSquare, Arrowleft
+  TrendingUp, User, Check, X, MessageSquare, ArrowLeft
 } from 'lucide-react'
 
 const ADMIN_IDS = ['33157b98-fdd0-4e04-b14b-bee4352f80c7']
