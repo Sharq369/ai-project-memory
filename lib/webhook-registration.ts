@@ -19,14 +19,16 @@ const getAdminSupabase = () =>
   )
 
 // ── Decryption — mirrors encrypt() in app/api/user/tokens/route.ts ───────────
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default_32_character_fallback_key!'
+const RAW_DECRYPT_KEY = process.env.ENCRYPTION_KEY || 'NeuralNodeDefaultKey_MustChange!!'
+const ENCRYPTION_KEY = Buffer.alloc(32)
+Buffer.from(RAW_DECRYPT_KEY).copy(ENCRYPTION_KEY)
 
 function decrypt(encryptedText: string): string {
   const [ivHex, encryptedHex] = encryptedText.split(':')
   if (!ivHex || !encryptedHex) throw new Error('Invalid encrypted token format')
   const iv = Buffer.from(ivHex, 'hex')
   const encrypted = Buffer.from(encryptedHex, 'hex')
-  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv)
+  const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv)
   let decrypted = decipher.update(encrypted)
   decrypted = Buffer.concat([decrypted, decipher.final()])
   return decrypted.toString()
