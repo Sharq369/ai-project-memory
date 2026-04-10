@@ -76,12 +76,14 @@ export async function POST(req: Request) {
     const tree = await treeRes.json()
 
     const SKIP_EXT = /\.(png|jpg|jpeg|gif|ico|bmp|webp|svg|avif|pdf|zip|tar|gz|rar|7z|mp4|mp3|wav|mov|woff|woff2|ttf|eot|otf|exe|dll|so|dylib|bin|lock|sum|snap)$/i
+    const SKIP_NAME = /^(package-lock\.json|pnpm-lock\.yaml|poetry\.lock|Pipfile\.lock|Gemfile\.lock|composer\.lock|packages\.lock\.json)$/i;
     const SKIP_PATH = /(^node_modules\/|^\.next\/|^dist\/|^build\/|^out\/|^\.git\/|^coverage\/|^__pycache__\/|^\.cache\/|^\.turbo\/|^\.vercel\/|\.min\.js$|\.min\.css$|\.map$|\.d\.ts$)/i
 
     const files = tree
       .filter((f: any) => f.type === 'blob')
       .filter((f: any) => !SKIP_EXT.test(f.path))
       .filter((f: any) => !SKIP_PATH.test(f.path))
+      .filter((f: any) => !SKIP_NAME.test(f.path.split('/').pop() || ''))
       .filter((f: any) => !f.size || f.size < 500000)
       .slice(0, FILE_LIMIT)
 
