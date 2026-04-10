@@ -376,13 +376,13 @@ export default function ProjectsDashboard() {
       setDownloadingProjectId(projectId);
       showToast('info', 'Preparing Neural Extract...');
       
-      const { data: files, error } = await supabase
+      const { data: memFiles, error } = await supabase
         .from('code_memories')
-        .select('file_path, file_name, content')
+        .select('file_name, content')
         .eq('project_id', projectId);
 
       if (error) throw error;
-      if (!files || files.length === 0) {
+      if (!memFiles || memFiles.length === 0) {
         showToast('error', "No memory files found. Try syncing the node first.");
         return;
       }
@@ -391,8 +391,8 @@ export default function ProjectsDashboard() {
       let addedCount = 0;
       
       // Frontend Gatekeeper: Strips junk so the browser doesn't freeze
-      files.forEach((file) => {
-        const path = file.file_path || file.file_name || ''; 
+      memFiles.forEach((file) => {
+        const path = file.file_name || ''; 
         if (path.includes('node_modules/') || path.includes('.git/') || path.includes('package-lock.json')) {
           return; 
         }
@@ -405,9 +405,9 @@ export default function ProjectsDashboard() {
         return;
       }
 
-      const content = await zip.generateAsync({ type: "blob" });
-      saveAs(content, `${projectName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-neural-extract.zip`);
-      showToast('success', `Neural Extract downloaded securely.`);
+      const blob = await zip.generateAsync({ type: 'blob' });
+      saveAs(blob, `${projectName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-neural-extract.zip`);
+      showToast('success', `Downloaded ${addedCount} files successfully.`);
 
     } catch (err) {
       console.error('[Download Error]:', err);
