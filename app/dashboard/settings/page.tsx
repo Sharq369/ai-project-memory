@@ -114,31 +114,100 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
-      const [{ data: projects }, { data: memories }] = await Promise.all([
-        supabase.from('projects').select('*').eq('user_id', user.id),
-        supabase.from('memories').select('*').eq('user_id', user.id),
+      // ── Fetch all tables in parallel ──────────────────────────────────────
+      const [
+        { data: projects },
+        { data: memories },
+        { data: profile },
+      ] = await Promise.all([
+        supabase.from('projects').select('*').eq('user_id', user.id).order('created_at', { ascending: true }),
+        supabase.from('memories').select('*').eq('user_id', user.id).order('created_at', { ascending: true }),
+        supabase.from('profiles').select('plan_type, display_name, avatar_url, updated_at').eq('id', user.id).single(),
       ])
 
-      // Filter code_memories by user's project IDs — fixes RLS ownership issue
+      // ── Fetch code_memories filtered by user's own projects ───────────────
       let codeMemories: any[] = []
       if (projects && projects.length > 0) {
         const projectIds = projects.map((p: any) => p.id)
         const { data: cm } = await supabase
           .from('code_memories')
-          .select('project_id, file_name, content')
+          .select('id, project_id, file_name, content, created_at')
           .in('project_id', projectIds)
+          .order('file_name', { ascending: true })
         codeMemories = cm || []
       }
 
+      // ── Build migration-ready export structure ─────────────────────────────
       const exportData = {
+        // ── Meta ──────────────────────────────────────────────────────────────
         exportedAt: new Date().toISOString(),
-        user: user.email,
+        exportVersion: '2.0',
+        schema: {
+          projects: 'id, user_id, name, repo_full_name, provider, maturity_score, deployment_status, last_sync, webhook_registered, created_at, updated_at',
+          memories: 'id, user_id, project_id, content, tag, created_at',
+          code_memories: 'id, project_id, file_name, content, created_at',
+          profile: 'plan_type, display_name, avatar_url',
+        },
+
+        // ── User ──────────────────────────────────────────────────────────────
+        user: {
+          id: user.id,
+          email: user.email,
+          plan: profile?.plan_type || 'free',
+          display_name: profile?.display_name || null,
+        },
+
+        // ── Stats ─────────────────────────────────────────────────────────────
+        stats: {
+          totalProjects: projects?.length || 0,
+          totalMemories: memories?.length || 0,
+          totalCodeFiles: codeMemories?.length || 0,
+          globalMemories: memories?.filter(m => !m.project_id).length || 0,
+        },
+
+        // ── Full workspace — projects with all associated data ─────────────
         workspace: projects?.map(p => ({
-          ...p,
-          memories: memories?.filter(m => m.project_id === p.id) || [],
-          files: codeMemories?.filter(m => m.project_id === p.id) || [],
-        })),
-        globalMemories: memories?.filter(m => !m.project_id) || [],
+          // Project metadata
+          id: p.id,
+          name: p.name,
+          repo_full_name: p.repo_full_name || null,
+          provider: p.provider || null,
+          maturity_score: p.maturity_score || 0,
+          deployment_status: p.deployment_status || null,
+          webhook_registered: p.webhook_registered || false,
+          last_sync: p.last_sync || null,
+          created_at: p.created_at,
+          updated_at: p.updated_at,
+
+          // Knowledge memories for this project
+          memories: memories
+            ?.filter(m => m.project_id === p.id)
+            ?.map(m => ({
+              id: m.id,
+              content: m.content,
+              tag: m.tag || null,
+              created_at: m.created_at,
+            })) || [],
+
+          // Synced source code files
+          files: codeMemories
+            ?.filter(m => m.project_id === p.id)
+            ?.map(m => ({
+              id: m.id,
+              file_name: m.file_name,
+              content: m.content,
+            })) || [],
+        })) || [],
+
+        // ── Global memories (not tied to any project) ──────────────────────
+        globalMemories: memories
+          ?.filter(m => !m.project_id)
+          ?.map(m => ({
+            id: m.id,
+            content: m.content,
+            tag: m.tag || null,
+            created_at: m.created_at,
+          })) || [],
       }
 
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
@@ -148,8 +217,8 @@ export default function SettingsPage() {
       a.download = `neural_node_backup_${new Date().getTime()}.json`
       a.click()
       window.URL.revokeObjectURL(url)
-    } catch (error) {
-      alert('Failed to export data.')
+    } catch (error: any) {
+      alert(error.message || 'Failed to export data.')
     } finally {
       setIsExporting(false)
     }
