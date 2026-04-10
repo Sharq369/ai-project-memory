@@ -67,17 +67,14 @@ async function notify(
 }
 
 // ── THE GATEKEEPER SHIELD ─────────────────────────────────────────────────────
-const IGNORED_PATTERNS = [
-  'node_modules', '.git', '.next', 'dist', 'build', 'out',
-  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
-  '.DS_Store', 'Thumbs.db',
-  '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp',
-  '.mp4', '.mov', '.mp3', '.pdf', '.zip', '.tar.gz'
-];
+const SKIP_EXT = /\.(png|jpg|jpeg|gif|ico|bmp|webp|svg|avif|pdf|zip|tar|gz|rar|7z|mp4|mp3|wav|mov|woff|woff2|ttf|eot|otf|exe|dll|so|dylib|bin|lock|sum|snap)$/i;
+const SKIP_PATH = /(^node_modules\/|^\.next\/|^dist\/|^build\/|^out\/|^\.git\/|^coverage\/|^__pycache__\/|^\.cache\/|^\.turbo\/|^\.vercel\/|\.min\.js$|\.min\.css$|\.map$|\.d\.ts$)/i;
 
+// FIX: old version used includes() which matched 'out' inside 'route.ts'
+// filtering ALL API routes from auto-sync. Now uses proper regex anchors.
 function isJunk(path: string): boolean {
   if (!path) return true;
-  return IGNORED_PATTERNS.some(p => path.toLowerCase().includes(p.toLowerCase()));
+  return SKIP_EXT.test(path) || SKIP_PATH.test(path);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
