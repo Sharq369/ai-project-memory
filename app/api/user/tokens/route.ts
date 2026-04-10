@@ -16,13 +16,15 @@ const adminSupabase = createClient(
 );
 
 // ── Encryption ────────────────────────────────────────────────────────────────
-// ENCRYPTION_KEY must be exactly 32 characters in your .env
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default_32_character_fallback_key!';
+// Key is padded/sliced to exactly 32 bytes — AES-256 requirement
+const RAW_KEY = process.env.ENCRYPTION_KEY || 'NeuralNodeDefaultKey_MustChange!!';
+const ENCRYPTION_KEY = Buffer.alloc(32);
+Buffer.from(RAW_KEY).copy(ENCRYPTION_KEY);
 const IV_LENGTH = 16;
 
 function encrypt(text: string): string {
   const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+  const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
   let encrypted = cipher.update(text);
   encrypted = Buffer.concat([encrypted, cipher.final()]);
   return iv.toString('hex') + ':' + encrypted.toString('hex');
@@ -71,7 +73,7 @@ export async function GET() {
 
   } catch (err: any) {
     console.error('[Tokens GET] Error:', err);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
   }
 }
 
@@ -110,7 +112,7 @@ export async function POST(req: Request) {
 
   } catch (err: any) {
     console.error('[Tokens POST] Error:', err);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
   }
 }
 
