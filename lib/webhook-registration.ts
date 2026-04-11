@@ -148,7 +148,7 @@ async function registerGitHubWebhook(
     body: JSON.stringify({
       name: 'web',
       active: true,
-      events: ['workflow_run'], // CI/CD gatekeeper — only fires on pipeline completion
+      events: ['workflow_run', 'push'], // workflow_run for CI/CD repos, push as fallback for repos without CI/CD
       config: {
         url: webhookUrl,
         content_type: 'json',
