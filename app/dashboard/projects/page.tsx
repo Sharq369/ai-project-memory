@@ -70,6 +70,7 @@ export default function ProjectsDashboard() {
   
   // New State for Neural Extract
   const [downloadingProjectId, setDownloadingProjectId] = useState<string | null>(null)
+  const [registeringWebhookId, setRegisteringWebhookId] = useState<string | null>(null)
 
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -418,7 +419,39 @@ export default function ProjectsDashboard() {
   };
 
 
-  if (loading) {
+  // ── Manually register webhook for existing project cards ─────────────────────
+  const handleRegisterWebhook = async (e: React.MouseEvent, project: any) => {
+    e.stopPropagation()
+    if (!project.repo_full_name) {
+      showToast('error', 'No repo linked. Sync a repo first to register webhook.')
+      return
+    }
+    setRegisteringWebhookId(project.id)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const res = await fetch('/api/projects/register-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, repoUrl: project.repo_full_name })
+      })
+      const result = await res.json()
+      if (result.registered) {
+        showToast('success', `Webhook registered for ${project.repo_full_name}`)
+        await loadNodes(true)
+      } else if (result.skipped) {
+        showToast('info', 'Add a PAT in Settings → Integrations to enable auto-registration.')
+      } else {
+        showToast('error', result.message || 'Webhook registration failed.')
+      }
+    } catch {
+      showToast('error', 'Network error during webhook registration.')
+    } finally {
+      setRegisteringWebhookId(null)
+    }
+  }
+
+    if (loading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center min-h-[80vh] bg-[#050505]">
         <div className="relative">
@@ -617,6 +650,17 @@ export default function ProjectsDashboard() {
                       )}
                     </button>
 
+                    <button
+                      onClick={(e) => handleRegisterWebhook(e, project)}
+                      disabled={registeringWebhookId === project.id || isGrounded}
+                      className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-violet-400 hover:border-violet-500/50 hover:bg-violet-500/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={isGrounded ? 'Sync a repo first' : project.webhook_registered ? 'Webhook active' : 'Register webhook for auto-sync'}
+                    >
+                      {registeringWebhookId === project.id
+                        ? <Loader2 size={14} className="animate-spin" />
+                        : <Webhook size={14} className={project.webhook_registered ? 'text-green-400' : ''} />
+                      }
+                    </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setNodeToDelete({ id: project.id, name: project.name }) }}
                       className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-red-400 hover:border-red-500/50 hover:bg-red-500/10 transition-all"
