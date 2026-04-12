@@ -49,30 +49,36 @@ export interface ParsedRepo {
 }
 
 export function parseRepoUrl(url: string): ParsedRepo | null {
-  const trimmed = url.trim().replace(/\.git$/, '')
+  const trimmed = url.trim().replace(/\.git$/, '').replace(/\/$/, '')
 
+  // Full URL — GitHub
   if (trimmed.includes('github.com')) {
-    const match = trimmed.match(/github\.com[/:]([\\w.-]+)\/([\\w.-]+)/)
+    const match = trimmed.match(/github\.com[\/:]([\w.-]+)\/([\w.-]+)/)
     if (!match) return null
     return { provider: 'github', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
   }
 
+  // Full URL — GitLab (supports nested groups)
   if (trimmed.includes('gitlab.com')) {
-    const match = trimmed.match(/gitlab\.com[/:]([\\w.-]+(?:\/[\\w.-]+)*)\/([\\w.-]+)/)
+    const match = trimmed.match(/gitlab\.com[\/:]([\w.-]+(?:\/[\w.-]+)*)\/([\w.-]+)/)
     if (!match) return null
     return { provider: 'gitlab', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
   }
 
+  // Full URL — Bitbucket
   if (trimmed.includes('bitbucket.org')) {
-    const match = trimmed.match(/bitbucket\.org[/:]([\\w.-]+)\/([\\w.-]+)/)
+    const match = trimmed.match(/bitbucket\.org[\/:]([\w.-]+)\/([\w.-]+)/)
     if (!match) return null
     return { provider: 'bitbucket', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
   }
 
-  // Shorthand "owner/repo" — default to GitHub
-  const shorthand = trimmed.match(/^([\\w.-]+)\/([\\w.-]+)$/)
-  if (shorthand) {
-    return { provider: 'github', owner: shorthand[1], repo: shorthand[2], fullName: trimmed }
+  // Shorthand "owner/repo" — no domain, default to GitHub
+  // Matches: Sharq369/devboard, my-org/my-repo.js, etc.
+  const parts = trimmed.split('/')
+  if (parts.length === 2 && parts[0].length > 0 && parts[1].length > 0) {
+    const owner = parts[0]
+    const repo = parts[1]
+    return { provider: 'github', owner, repo, fullName: `${owner}/${repo}` }
   }
 
   return null
