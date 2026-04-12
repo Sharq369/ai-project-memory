@@ -1,8 +1,12 @@
 // lib/webhook-registration.ts
 // ─────────────────────────────────────────────────────────────────────────────
-// The "Flare Gun" — fires when a project is created.
-// Parses the repo URL, fetches + decrypts the user's PAT, then hits the
-// provider API to register a webhook pointing at /api/webhooks/git.
+// The "Flare Gun" — fires when a project is created OR when manually triggered.
+//
+// FIX: After registering a webhook, we now also stamp repo_full_name on the
+// project row immediately. Previously this was only saved during a manual sync,
+// meaning projects created before a sync would fail the 3-pass webhook lookup
+// (Pass 1 checks repo_full_name — if null, GitHub deliveries returned
+// "Node not found, ignoring." and auto-sync never fired).
 //
 // Supports: GitHub, GitLab, Bitbucket
 // Encryption: AES-256-CBC (matches app/api/user/tokens/route.ts)
@@ -35,10 +39,6 @@ function decrypt(encryptedText: string): string {
 }
 
 // ── Repo URL Parser ───────────────────────────────────────────────────────────
-// Accepts any of these formats:
-//   https://github.com/owner/repo
-//   https://github.com/owner/repo.git
-//   owner/repo  (shorthand)
 export type Provider = 'github' | 'gitlab' | 'bitbucket'
 
 export interface ParsedRepo {
@@ -51,27 +51,26 @@ export interface ParsedRepo {
 export function parseRepoUrl(url: string): ParsedRepo | null {
   const trimmed = url.trim().replace(/\.git$/, '')
 
-  // Detect provider from full URL
   if (trimmed.includes('github.com')) {
-    const match = trimmed.match(/github\.com[/:]([\w.-]+)\/([\w.-]+)/)
+    const match = trimmed.match(/github\.com[/:]([\\w.-]+)\/([\\w.-]+)/)
     if (!match) return null
     return { provider: 'github', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
   }
 
   if (trimmed.includes('gitlab.com')) {
-    const match = trimmed.match(/gitlab\.com[/:]([\w.-]+(?:\/[\w.-]+)*)\/([\w.-]+)/)
+    const match = trimmed.match(/gitlab\.com[/:]([\\w.-]+(?:\/[\\w.-]+)*)\/([\\w.-]+)/)
     if (!match) return null
     return { provider: 'gitlab', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
   }
 
   if (trimmed.includes('bitbucket.org')) {
-    const match = trimmed.match(/bitbucket\.org[/:]([\w.-]+)\/([\w.-]+)/)
+    const match = trimmed.match(/bitbucket\.org[/:]([\\w.-]+)\/([\\w.-]+)/)
     if (!match) return null
     return { provider: 'bitbucket', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
   }
 
   // Shorthand "owner/repo" — default to GitHub
-  const shorthand = trimmed.match(/^([\w.-]+)\/([\w.-]+)$/)
+  const shorthand = trimmed.match(/^([\\w.-]+)\/([\\w.-]+)$/)
   if (shorthand) {
     return { provider: 'github', owner: shorthand[1], repo: shorthand[2], fullName: trimmed }
   }
@@ -109,7 +108,7 @@ export interface RegistrationResult {
   provider: Provider
   hookId?: string | number
   message: string
-  skipped?: boolean // true if no token — not an error, just not possible
+  skipped?: boolean
 }
 
 // ── GitHub Webhook Registration ───────────────────────────────────────────────
@@ -148,7 +147,7 @@ async function registerGitHubWebhook(
     body: JSON.stringify({
       name: 'web',
       active: true,
-      events: ['workflow_run', 'push'], // workflow_run for CI/CD repos, push as fallback for repos without CI/CD
+      events: ['workflow_run', 'push'],
       config: {
         url: webhookUrl,
         content_type: 'json',
@@ -178,7 +177,6 @@ async function registerGitLabWebhook(
 ): Promise<RegistrationResult> {
   const encodedRepo = encodeURIComponent(parsed.fullName)
 
-  // Check for existing hook
   const listRes = await fetch(
     `https://gitlab.com/api/v4/projects/${encodedRepo}/hooks`,
     { headers: { 'PRIVATE-TOKEN': token } }
@@ -201,7 +199,7 @@ async function registerGitLabWebhook(
     body: JSON.stringify({
       url: webhookUrl,
       token: secret,
-      pipeline_events: true, // CI/CD gatekeeper — fires on pipeline events
+      pipeline_events: true,
       push_events: false,
       enable_ssl_verification: true,
     }),
@@ -210,7 +208,6 @@ async function registerGitLabWebhook(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     const msg = err?.message || `HTTP ${res.status}`
-    console.error(`[WebhookReg] GitLab hook creation failed: ${msg}`)
     return { success: false, provider: 'gitlab', message: `GitLab: ${msg}` }
   }
 
@@ -218,17 +215,14 @@ async function registerGitLabWebhook(
   return { success: true, provider: 'gitlab', hookId: hook.id, message: 'GitLab webhook registered.' }
 }
 
-// ── Bitbucket Webhook Registration ───────────────────────────────────────────
-// Bitbucket token column stores "username:app_password" Base64 encoded
+// ── Bitbucket Webhook Registration ────────────────────────────────────────────
 async function registerBitbucketWebhook(
   parsed: ParsedRepo,
   token: string,
   webhookUrl: string,
 ): Promise<RegistrationResult> {
-  // token is stored as "username:app_password" — use as Basic auth
   const authHeader = `Basic ${Buffer.from(token).toString('base64')}`
 
-  // Check for existing hook
   const listRes = await fetch(
     `https://api.bitbucket.org/2.0/repositories/${parsed.fullName}/hooks`,
     { headers: { Authorization: authHeader } }
@@ -254,7 +248,7 @@ async function registerBitbucketWebhook(
         description: 'Neural Node CI/CD Sync',
         url: webhookUrl,
         active: true,
-        events: ['repo:build_status_created'], // CI/CD gatekeeper
+        events: ['repo:build_status_created'],
       }),
     }
   )
@@ -262,7 +256,6 @@ async function registerBitbucketWebhook(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     const msg = err?.error?.message || `HTTP ${res.status}`
-    console.error(`[WebhookReg] Bitbucket hook creation failed: ${msg}`)
     return { success: false, provider: 'bitbucket', message: `Bitbucket: ${msg}` }
   }
 
@@ -271,21 +264,20 @@ async function registerBitbucketWebhook(
 }
 
 // ── Main Export: fireFlareGun ─────────────────────────────────────────────────
-// Call this after a project row is created in Supabase.
-// It will:
-//   1. Parse the repo URL to get provider + owner/repo
-//   2. Fetch + decrypt the user's PAT for that provider
-//   3. Register the webhook on the provider
-//   4. Return a result (never throws — errors are logged and returned)
-//
-// If the user has no token for the detected provider, it returns
-// { skipped: true } — this is NOT an error, just informational.
+// FIX: Now accepts an optional projectId. When provided, it stamps repo_full_name
+// AND provider onto the project row immediately after successful registration.
+// This ensures the 3-pass webhook lookup in /api/webhooks/git/route.ts always
+// finds the project on Pass 1 (exact repo_full_name match), preventing the
+// silent "Node not found, ignoring." failure that blocked auto-sync.
 
 export async function fireFlareGun(
   userId: string,
-  repoUrl: string
+  repoUrl: string,
+  projectId?: string  // ← NEW: optional, stamp repo_full_name if provided
 ): Promise<RegistrationResult> {
-  const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+  const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_URL
+    ? process.env.NEXT_PUBLIC_APP_URL
+    : process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
     : 'https://ai-project-memory.vercel.app'
 
@@ -305,7 +297,7 @@ export async function fireFlareGun(
   // Step 2: Fetch decrypted token
   const token = await getDecryptedToken(userId, parsed.provider)
   if (!token) {
-    console.log(`[WebhookReg] No ${parsed.provider} token for user ${userId} — skipping auto-registration.`)
+    console.log(`[WebhookReg] No ${parsed.provider} token for user ${userId} — skipping.`)
     return {
       success: false,
       provider: parsed.provider,
@@ -314,17 +306,22 @@ export async function fireFlareGun(
     }
   }
 
-  // Step 3: Register webhook
+  // Step 3: Register webhook on provider
   console.log(`[WebhookReg] Firing flare gun for ${parsed.fullName} via ${parsed.provider}`)
+
+  let result: RegistrationResult
 
   try {
     switch (parsed.provider) {
       case 'github':
-        return await registerGitHubWebhook(parsed, token, webhookUrl, webhookSecret)
+        result = await registerGitHubWebhook(parsed, token, webhookUrl, webhookSecret)
+        break
       case 'gitlab':
-        return await registerGitLabWebhook(parsed, token, webhookUrl, webhookSecret)
+        result = await registerGitLabWebhook(parsed, token, webhookUrl, webhookSecret)
+        break
       case 'bitbucket':
-        return await registerBitbucketWebhook(parsed, token, webhookUrl)
+        result = await registerBitbucketWebhook(parsed, token, webhookUrl)
+        break
       default:
         return { success: false, provider: parsed.provider, message: 'Unknown provider.' }
     }
@@ -336,4 +333,29 @@ export async function fireFlareGun(
       message: e.message || 'Unexpected error during webhook registration.',
     }
   }
+
+  // ── FIX: Stamp repo_full_name + provider on the project row ──────────────
+  // This is the critical fix. Previously only webhook_registered was saved here.
+  // Without repo_full_name, the webhook lookup in /api/webhooks/git/route.ts
+  // would fail Pass 1 and the auto-sync would never fire for that project.
+  if (result.success && projectId) {
+    const supabase = getAdminSupabase()
+    const { error: stampError } = await supabase
+      .from('projects')
+      .update({
+        webhook_registered: true,
+        repo_full_name: parsed.fullName,   // ← THE FIX
+        provider: parsed.provider,          // ← also stamp provider for sync routing
+      })
+      .eq('id', projectId)
+
+    if (stampError) {
+      console.error(`[WebhookReg] Failed to stamp repo_full_name on project ${projectId}:`, stampError.message)
+      // Don't fail the result — webhook was registered, just log the stamp error
+    } else {
+      console.log(`[WebhookReg] Stamped repo_full_name="${parsed.fullName}" on project ${projectId}`)
+    }
+  }
+
+  return result
 }
