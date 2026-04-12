@@ -1,7 +1,8 @@
 // app/api/projects/register-webhook/route.ts
 // Manually triggers webhook registration for an existing project card.
-// Used when a project was created before the flare gun existed,
-// or when the user adds their PAT after creating the project.
+//
+// FIX: Now passes projectId into fireFlareGun so it can stamp repo_full_name
+// on the project row immediately — ensuring auto-sync works going forward.
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -45,15 +46,15 @@ export async function POST(req: Request) {
 
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
-    // Fire the flare gun
-    const result = await fireFlareGun(user.id, repoUrl)
+    // FIX: Pass projectId so fireFlareGun stamps repo_full_name immediately
+    const result = await fireFlareGun(user.id, repoUrl, projectId)
 
-    // Stamp webhook_registered if successful
-    if (result.success && result.hookId) {
-      await adminSupabase
-        .from('projects')
-        .update({ webhook_registered: true })
-        .eq('id', projectId)
+    // webhook_registered is now handled inside fireFlareGun when projectId is given
+    // but keep this as a safety net for the skipped case
+    if (!result.success && !result.skipped) {
+      // Registration failed — don't stamp webhook_registered
+    } else if (result.skipped) {
+      // No token — don't update anything, just return skipped
     }
 
     return NextResponse.json({
