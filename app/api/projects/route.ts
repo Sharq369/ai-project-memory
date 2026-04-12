@@ -1,11 +1,10 @@
 // app/api/projects/route.ts
 // ─────────────────────────────────────────────────────────────────────────────
 // Handles project creation server-side so we can fire the webhook flare gun
-// immediately after the row is inserted, using the user's encrypted PAT.
+// immediately after the row is inserted.
 //
-// POST body: { repoUrl?: string }
-//   - repoUrl is optional. If provided, webhook auto-registration fires.
-//   - If not provided, project is created with a default name (user renames later).
+// FIX: Now passes the new project.id into fireFlareGun so repo_full_name
+// gets stamped on the row at creation time — not only after the first sync.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse } from 'next/server'
@@ -38,7 +37,6 @@ async function getAuthUser() {
 
 export async function POST(req: Request) {
   try {
-    // 1. Auth ──────────────────────────────────────────────────────────────────
     const user = await getAuthUser()
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -47,7 +45,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}))
     const repoUrl: string | undefined = body.repoUrl?.trim() || undefined
 
-    // 2. Derive project name from repo URL if provided ─────────────────────────
+    // Derive project name + metadata from repo URL if provided
     let projectName = 'New Neural Node'
     let repoFullName: string | undefined
     let provider: string | undefined
@@ -63,13 +61,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Insert project row ────────────────────────────────────────────────────
+    // Insert project row — include repo_full_name from the start if we can parse it
     const { data: project, error: insertError } = await adminSupabase
       .from('projects')
       .insert({
         name: projectName,
         user_id: user.id,
-        ...(repoFullName && { repo_full_name: repoFullName }),
+        ...(repoFullName && { repo_full_name: repoFullName }),  // ← stamp immediately
         ...(repoUrl && { repo_url: repoUrl }),
         ...(provider && { provider }),
       })
@@ -86,24 +84,13 @@ export async function POST(req: Request) {
 
     console.log(`[ProjectCreate] Created project ${project.id} for user ${user.id}`)
 
-    // 4. Fire the flare gun — async, non-blocking ──────────────────────────────
-    // We don't await this — project creation succeeds regardless of webhook result.
-    // The result is included in the response for the UI to show a status indicator.
+    // Fire the flare gun — FIX: pass project.id so fireFlareGun stamps
+    // repo_full_name even if the URL parse succeeded above (idempotent)
     let webhookResult = null
 
     if (repoUrl) {
-      // Fire and collect result — we do await here so the response includes status
-      // but project creation is already committed regardless of outcome
-      webhookResult = await fireFlareGun(user.id, repoUrl)
+      webhookResult = await fireFlareGun(user.id, repoUrl, project.id)
       console.log(`[ProjectCreate] Flare gun result:`, webhookResult)
-
-      // If registration succeeded, stamp webhook_registered on the project row
-      if (webhookResult.success && webhookResult.hookId) {
-        await adminSupabase
-          .from('projects')
-          .update({ webhook_registered: true })
-          .eq('id', project.id)
-      }
     }
 
     return NextResponse.json({
