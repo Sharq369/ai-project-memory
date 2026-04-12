@@ -8,7 +8,8 @@ import { saveAs } from 'file-saver'
 import {
   Plus, FolderGit2, Trash2, ArrowRight, Loader2,
   AlertTriangle, Activity, RefreshCw, Github, Gitlab,
-  Cloud, Zap, X, CheckCircle2, AlertCircle, Info, Database, Link, Webhook, Download
+  Cloud, Zap, X, CheckCircle2, AlertCircle, Info, Database, Link, Webhook, Download,
+  ShieldCheck, ShieldAlert, ShieldOff, WifiOff
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,7 +30,75 @@ const getRelativeTime = (dateString: string | null) => {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX 1: Lazy Supabase singleton
+// WEBHOOK STATUS TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+type WebhookStatus =
+  | 'active'        // registered + repo_full_name present = auto-sync ready
+  | 'missing_repo'  // registered flag true but repo_full_name null = broken
+  | 'not_registered' // webhook_registered false
+  | 'no_repo'       // no repo linked at all — can't register
+
+function getWebhookStatus(project: any): WebhookStatus {
+  if (!project.repo_full_name) return 'no_repo'
+  if (!project.webhook_registered) return 'not_registered'
+  // registered=true but repo_full_name exists — healthy
+  return 'active'
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WEBHOOK STATUS BADGE COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+function WebhookStatusBadge({ status }: { status: WebhookStatus }) {
+  const config = {
+    active: {
+      icon: ShieldCheck,
+      label: 'Auto-Sync Active',
+      className: 'bg-green-500/10 text-green-400 border-green-500/25',
+      iconClass: 'text-green-400',
+      pulse: true,
+    },
+    missing_repo: {
+      icon: ShieldAlert,
+      label: 'Hook Broken',
+      className: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+      iconClass: 'text-amber-400',
+      pulse: false,
+    },
+    not_registered: {
+      icon: ShieldOff,
+      label: 'No Webhook',
+      className: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
+      iconClass: 'text-slate-500',
+      pulse: false,
+    },
+    no_repo: {
+      icon: WifiOff,
+      label: 'No Repo Linked',
+      className: 'bg-slate-700/20 text-slate-600 border-slate-700/20',
+      iconClass: 'text-slate-600',
+      pulse: false,
+    },
+  }
+
+  const c = config[status]
+  const Icon = c.icon
+
+  return (
+    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[9px] font-black uppercase tracking-widest ${c.className}`}>
+      {c.pulse && (
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+        </span>
+      )}
+      <Icon size={9} className={c.iconClass} />
+      {c.label}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LAZY SUPABASE SINGLETON
 // ─────────────────────────────────────────────────────────────────────────────
 let _supabaseClient: ReturnType<typeof createBrowserClient> | null = null
 const getSupabase = () => {
@@ -42,6 +111,140 @@ const getSupabase = () => {
   return _supabaseClient
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WEBHOOK FIX MODAL
+// Shown when user clicks "Fix Webhook" on a broken/missing webhook card.
+// Asks for the repo name (pre-filled if repo_full_name exists) then calls
+// /api/projects/register-webhook which now stamps repo_full_name via fireFlareGun.
+// ─────────────────────────────────────────────────────────────────────────────
+function WebhookFixModal({
+  project,
+  onClose,
+  onFixed,
+  showToast,
+}: {
+  project: any
+  onClose: () => void
+  onFixed: () => void
+  showToast: (type: 'success' | 'error' | 'info', msg: string) => void
+}) {
+  const [repoInput, setRepoInput] = useState(project.repo_full_name || '')
+  const [isFixing, setIsFixing] = useState(false)
+
+  const handleFix = async () => {
+    if (!repoInput.trim()) return
+    setIsFixing(true)
+    try {
+      const res = await fetch('/api/projects/register-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, repoUrl: repoInput.trim() }),
+      })
+      const result = await res.json()
+
+      if (result.registered) {
+        showToast('success', `Webhook registered for ${repoInput.trim()} — auto-sync is now active.`)
+        onFixed()
+        onClose()
+      } else if (result.skipped) {
+        showToast('info', 'No PAT found in Settings → Integrations. Add your GitHub token first.')
+        onClose()
+      } else {
+        showToast('error', result.message || 'Webhook registration failed.')
+        onClose()
+      }
+    } catch {
+      showToast('error', 'Network error during webhook registration.')
+      onClose()
+    } finally {
+      setIsFixing(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-[#0d1117] border border-violet-500/30 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+
+        {/* Top accent line */}
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-violet-500 to-transparent" />
+
+        <div className="flex items-center justify-between p-6 border-b border-gray-800/50">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-violet-500/10 text-violet-400 rounded-lg border border-violet-500/20">
+              <Webhook size={18} />
+            </div>
+            <div>
+              <p className="text-[9px] text-violet-400 font-black uppercase tracking-[0.2em]">Webhook Repair</p>
+              <h2 className="text-base font-black text-white uppercase tracking-tight">{project.name}</h2>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {/* Status explanation */}
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
+            <ShieldAlert size={14} className="text-amber-400 mt-0.5 shrink-0" />
+            <p className="text-[11px] text-amber-300 leading-relaxed">
+              {!project.repo_full_name
+                ? 'No repository is linked to this project. Enter the repo below to register the webhook and enable auto-sync.'
+                : 'The webhook was registered but the repo reference is missing. Re-registering will fix auto-sync.'}
+            </p>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-2">
+              Repository <span className="text-slate-600 font-normal normal-case">(owner/repo or full URL)</span>
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                value={repoInput}
+                onChange={e => setRepoInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleFix()}
+                placeholder="e.g. Sharq369/my-project"
+                className="w-full bg-[#111] border border-gray-700 rounded-xl py-3 pl-4 pr-4 text-white placeholder-gray-600 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all text-sm font-mono"
+              />
+            </div>
+            <p className="text-[10px] text-gray-600 mt-1.5 font-mono">
+              Your GitHub PAT must be saved in Settings → Integrations
+            </p>
+          </div>
+
+          {/* What this does */}
+          <div className="bg-[#0a0a0f] border border-white/5 rounded-xl p-3">
+            <p className="text-[10px] uppercase font-black tracking-widest text-gray-600 mb-1.5">What this does</p>
+            <ul className="space-y-1 text-[11px] text-gray-500">
+              <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-violet-500" /> Registers webhook on GitHub using your encrypted PAT</li>
+              <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-violet-500" /> Stamps repo_full_name on this project for lookup</li>
+              <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-violet-500" /> Enables auto-sync on every push / CI pass</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="p-6 bg-black/20 border-t border-gray-800/50">
+          <button
+            onClick={handleFix}
+            disabled={isFixing || !repoInput.trim()}
+            className="w-full flex items-center justify-center gap-2 py-3 bg-violet-600 hover:bg-violet-500 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(139,92,246,0.3)]"
+          >
+            {isFixing
+              ? <><Loader2 size={16} className="animate-spin" /><span>Registering...</span></>
+              : <><ShieldCheck size={16} /><span>Register & Fix Webhook</span></>
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN PROJECTS DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
 export default function ProjectsDashboard() {
   const router = useRouter()
   const supabase = getSupabase()
@@ -67,10 +270,12 @@ export default function ProjectsDashboard() {
   const [repoName, setRepoName] = useState('')
   const [activeProvider, setActiveProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
   const [isSyncing, setIsSyncing] = useState(false)
-  
-  // New State for Neural Extract
+
   const [downloadingProjectId, setDownloadingProjectId] = useState<string | null>(null)
   const [registeringWebhookId, setRegisteringWebhookId] = useState<string | null>(null)
+
+  // ── Webhook Fix Modal state ────────────────────────────────────────────────
+  const [webhookFixProject, setWebhookFixProject] = useState<any | null>(null)
 
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -97,9 +302,7 @@ export default function ProjectsDashboard() {
     })
   }, [])
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // FIX 2: loadNodes
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Load nodes ────────────────────────────────────────────────────────────
   const loadNodes = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true)
@@ -136,14 +339,10 @@ export default function ProjectsDashboard() {
     }
   }, [supabase, showToast])
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // FIX 3: Realtime subscription
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Realtime subscription ─────────────────────────────────────────────────
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
-
-    const getChannelName = () => `projects-realtime-${Date.now()}`
 
     const subscribe = async () => {
       if (channel) {
@@ -152,27 +351,22 @@ export default function ProjectsDashboard() {
       }
 
       channel = supabase
-        .channel(getChannelName())
+        .channel(`projects-realtime-${Date.now()}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'projects' },
           (payload) => {
             try {
-              console.log('[Realtime] projects change received:', payload)
-
               if (payload.eventType === 'UPDATE') {
                 const updated = payload.new as any
                 if (!updated?.id) throw new Error('UPDATE payload missing id')
-
                 setProjects(prev =>
                   prev.map(p => (p.id === updated.id ? { ...p, ...updated } : p))
                 )
                 showToast('success', `⚡ Neural sync complete — "${updated.name}" updated.`)
-
               } else if (payload.eventType === 'INSERT') {
                 loadNodes(true)
                 showToast('info', 'New node detected in the vault.')
-
               } else if (payload.eventType === 'DELETE') {
                 const deleted = payload.old as any
                 if (deleted?.id) {
@@ -180,21 +374,14 @@ export default function ProjectsDashboard() {
                 } else {
                   loadNodes(true)
                 }
-                showToast('info', 'A node was removed from the vault.')
               }
             } catch (err) {
               console.error('[Realtime] Error handling payload:', err)
-              showToast('error', 'Realtime sync error — refreshing data.')
               loadNodes(true)
             }
           }
         )
-        .subscribe((status, err) => {
-          console.log('[Realtime] subscription status:', status, err ?? '')
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.warn('[Realtime] ⚠️ Channel issue detected')
-          }
-        })
+        .subscribe()
     }
 
     subscribe()
@@ -202,10 +389,7 @@ export default function ProjectsDashboard() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         if (debounceTimer) clearTimeout(debounceTimer)
-        debounceTimer = setTimeout(() => {
-          console.log('[Realtime] Tab visible — re-subscribing')
-          subscribe()
-        }, 300)
+        debounceTimer = setTimeout(() => subscribe(), 300)
       }
     }
 
@@ -218,16 +402,12 @@ export default function ProjectsDashboard() {
     }
   }, [supabase, loadNodes, showToast])
 
+  useEffect(() => { loadNodes() }, [loadNodes])
   useEffect(() => {
-    loadNodes()
-  }, [loadNodes])
-
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    }
+    return () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current) }
   }, [])
 
+  // ── Create project ────────────────────────────────────────────────────────
   const handleCreateProject = () => {
     setNewProjectRepoUrl('')
     setWebhookStatus(null)
@@ -277,7 +457,7 @@ export default function ProjectsDashboard() {
       if (result.webhook) {
         setWebhookStatus(result.webhook)
         if (result.webhook.registered) {
-          showToast('success', `Node created — webhook registered automatically.`)
+          showToast('success', `Node created — webhook registered & auto-sync enabled.`)
         } else if (result.webhook.skipped) {
           showToast('info', `Node created. Add a PAT in Settings to enable auto-sync.`)
         } else {
@@ -299,9 +479,7 @@ export default function ProjectsDashboard() {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // FIX 4: confirmDecommission
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Delete node ───────────────────────────────────────────────────────────
   const confirmDecommission = async () => {
     if (!nodeToDelete) return
     setIsDeleting(true)
@@ -318,9 +496,7 @@ export default function ProjectsDashboard() {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // FIX 5: handleSyncTrigger
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Manual sync ───────────────────────────────────────────────────────────
   const handleSyncTrigger = async () => {
     if (!repoName.trim() || !syncingProjectId) return
     setIsSyncing(true)
@@ -362,96 +538,73 @@ export default function ProjectsDashboard() {
       } else {
         showToast('error', `Sync Error: ${result.error}`)
       }
-    } catch (err) {
+    } catch {
       showToast('error', 'Network Error: Could not reach sync API.')
     } finally {
       setIsSyncing(false)
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // THE NEURAL EXTRACT ENGINE (Download to ZIP)
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Download project ──────────────────────────────────────────────────────
   const handleDownloadProject = async (projectId: string, projectName: string) => {
     try {
-      setDownloadingProjectId(projectId);
-      showToast('info', 'Preparing Neural Extract...');
-      
+      setDownloadingProjectId(projectId)
+      showToast('info', 'Preparing Neural Extract...')
+
       const { data: memFiles, error } = await supabase
         .from('code_memories')
         .select('file_name, content')
-        .eq('project_id', projectId);
+        .eq('project_id', projectId)
 
-      if (error) throw error;
+      if (error) throw error
       if (!memFiles || memFiles.length === 0) {
-        showToast('error', "No memory files found. Try syncing the node first.");
-        return;
+        showToast('error', 'No memory files found. Try syncing the node first.')
+        return
       }
 
-      const zip = new JSZip();
-      let addedCount = 0;
-      
-      // Frontend Gatekeeper: Strips junk so the browser doesn't freeze
+      const zip = new JSZip()
+      let addedCount = 0
+
       memFiles.forEach((file) => {
-        const path = file.file_name || ''; 
-        if (path.includes('node_modules/') || path.includes('.git/') || path.includes('package-lock.json')) {
-          return; 
-        }
-        zip.file(path, file.content || '');
-        addedCount++;
-      });
+        const path = file.file_name || ''
+        if (path.includes('node_modules/') || path.includes('.git/') || path.includes('package-lock.json')) return
+        zip.file(path, file.content || '')
+        addedCount++
+      })
 
       if (addedCount === 0) {
-        showToast('error', "No valid source files found after filtering.");
-        return;
+        showToast('error', 'No valid source files found after filtering.')
+        return
       }
 
-      const blob = await zip.generateAsync({ type: 'blob' });
-      saveAs(blob, `${projectName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-neural-extract.zip`);
-      showToast('success', `Downloaded ${addedCount} files successfully.`);
+      const blob = await zip.generateAsync({ type: 'blob' })
+      saveAs(blob, `${projectName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-neural-extract.zip`)
+      showToast('success', `Downloaded ${addedCount} files successfully.`)
 
     } catch (err) {
-      console.error('[Download Error]:', err);
-      showToast('error', "Failed to generate the Neural Extract.");
+      console.error('[Download Error]:', err)
+      showToast('error', 'Failed to generate the Neural Extract.')
     } finally {
-      setDownloadingProjectId(null);
-    }
-  };
-
-
-  // ── Manually register webhook for existing project cards ─────────────────────
-  const handleRegisterWebhook = async (e: React.MouseEvent, project: any) => {
-    e.stopPropagation()
-    if (!project.repo_full_name) {
-      showToast('error', 'No repo linked. Sync a repo first to register webhook.')
-      return
-    }
-    setRegisteringWebhookId(project.id)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const res = await fetch('/api/projects/register-webhook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, repoUrl: project.repo_full_name })
-      })
-      const result = await res.json()
-      if (result.registered) {
-        showToast('success', `Webhook registered for ${project.repo_full_name}`)
-        await loadNodes(true)
-      } else if (result.skipped) {
-        showToast('info', 'Add a PAT in Settings → Integrations to enable auto-registration.')
-      } else {
-        showToast('error', result.message || 'Webhook registration failed.')
-      }
-    } catch {
-      showToast('error', 'Network error during webhook registration.')
-    } finally {
-      setRegisteringWebhookId(null)
+      setDownloadingProjectId(null)
     }
   }
 
-    if (loading) {
+  // ── Register webhook (from card button — legacy, kept for non-broken cards) ─
+  const handleRegisterWebhook = async (e: React.MouseEvent, project: any) => {
+    e.stopPropagation()
+
+    // If no repo linked or webhook broken, open the fix modal instead
+    const status = getWebhookStatus(project)
+    if (status === 'no_repo' || status === 'missing_repo' || status === 'not_registered') {
+      setWebhookFixProject(project)
+      return
+    }
+
+    // Already active — show info
+    showToast('info', `Webhook already active for ${project.repo_full_name}`)
+  }
+
+  if (loading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center min-h-[80vh] bg-[#050505]">
         <div className="relative">
@@ -482,6 +635,16 @@ export default function ProjectsDashboard() {
         </div>
       </div>
 
+      {/* Webhook Fix Modal */}
+      {webhookFixProject && (
+        <WebhookFixModal
+          project={webhookFixProject}
+          onClose={() => setWebhookFixProject(null)}
+          onFixed={() => loadNodes(true)}
+          showToast={showToast}
+        />
+      )}
+
       <div className="max-w-6xl mx-auto p-6 md:p-8 lg:p-12">
 
         {/* Header */}
@@ -501,9 +664,8 @@ export default function ProjectsDashboard() {
           <button
             onClick={handleCreateProject}
             disabled={creating}
-            className="group relative flex items-center gap-2 px-6 py-3 bg-white text-black font-semibold rounded-xl hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)]"
+            className="group relative flex items-center gap-2 px-6 py-3 bg-white text-black font-semibold rounded-xl hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden shadow-[0_0_20px_rgba(255,255,255,0.1)]"
           >
-            <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-black/5 to-transparent -translate-x-full group-hover:animate-shimmer" />
             {creating ? <Loader2 className="animate-spin text-black" size={20} /> : <Plus size={20} className="transition-transform group-hover:rotate-90" />}
             <span>Initialize New Node</span>
           </button>
@@ -554,6 +716,8 @@ export default function ProjectsDashboard() {
               const fileCount = project.fileCount || 0
               const isGrounded = fileCount === 0
               const codebaseMaturity = isGrounded ? 0 : (project.maturity_score || 0)
+              const whStatus = getWebhookStatus(project)
+              const needsFix = whStatus === 'missing_repo' || whStatus === 'not_registered' || whStatus === 'no_repo'
 
               return (
                 <div
@@ -563,15 +727,15 @@ export default function ProjectsDashboard() {
                   }`}
                   onClick={() => router.push(`/dashboard/projects/${project.id}/doc`)}
                 >
+                  {/* Top accent line */}
                   <div className={`absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r transition-all duration-500 ${
                     isGrounded
                       ? 'from-transparent via-gray-600 to-transparent opacity-20 group-hover:opacity-50'
-                      : 'from-transparent via-blue-500 to-transparent opacity-70 group-hover:opacity-100 group-hover:shadow-[0_0_15px_rgba(59,130,246,1)]'
+                      : 'from-transparent via-blue-500 to-transparent opacity-70 group-hover:opacity-100'
                   }`} />
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-white/[0.02] via-transparent to-transparent pointer-events-none" />
 
                   {/* Card Header */}
-                  <div className="relative z-10 flex justify-between items-start mb-5">
+                  <div className="relative z-10 flex justify-between items-start mb-4">
                     <div className="flex items-center gap-3">
                       <div className="p-3 bg-[#111] border border-gray-800/80 rounded-xl group-hover:border-blue-500/30 group-hover:bg-blue-500/10 transition-colors">
                         <FolderGit2 className="text-blue-500" size={20} />
@@ -590,6 +754,11 @@ export default function ProjectsDashboard() {
                     </span>
                   </div>
 
+                  {/* ── WEBHOOK STATUS BADGE ─────────────────────────────── */}
+                  <div className="relative z-10 mb-3" onClick={e => e.stopPropagation()}>
+                    <WebhookStatusBadge status={whStatus} />
+                  </div>
+
                   {/* Meta chips */}
                   <div className="relative z-10 flex flex-wrap items-center gap-2 mb-5">
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#111] border border-gray-800/80 rounded-md">
@@ -602,12 +771,18 @@ export default function ProjectsDashboard() {
                         {fileCount} {fileCount === 1 ? 'File' : 'Files'}
                       </span>
                     </div>
+                    {project.repo_full_name && (
+                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#111] border border-gray-800/80 rounded-md max-w-[150px]">
+                        <Github size={10} className="text-gray-500 shrink-0" />
+                        <span className="text-[10px] font-mono text-gray-400 truncate">{project.repo_full_name}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Codebase Maturity */}
-                  <div className="relative z-10 mb-6 group/progress">
+                  <div className="relative z-10 mb-5 group/progress">
                     <div className="flex justify-between items-end mb-1.5">
-                      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider group-hover/progress:text-gray-400 transition-colors">
+                      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
                         Codebase Maturity
                       </span>
                       <span className={`text-[10px] font-mono font-bold ${isGrounded ? 'text-gray-600' : 'text-cyan-400 drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]'}`}>
@@ -618,16 +793,13 @@ export default function ProjectsDashboard() {
                       <div
                         className={`h-1.5 rounded-full relative transition-all duration-1000 ease-out ${isGrounded ? 'bg-gray-700' : 'bg-gradient-to-r from-blue-600 to-cyan-400'}`}
                         style={{ width: `${codebaseMaturity > 0 ? codebaseMaturity : 0}%`, minWidth: '2px' }}
-                      >
-                        {!isGrounded && (
-                          <div className="absolute top-0 right-0 bottom-0 w-3 bg-white/40 blur-[2px] animate-[shimmer_2s_infinite]" />
-                        )}
-                      </div>
+                      />
                     </div>
                   </div>
 
                   {/* Action buttons */}
                   <div className="relative z-10 flex items-center gap-2 mb-5">
+                    {/* Sync */}
                     <button
                       onClick={(e) => { e.stopPropagation(); setSyncingProjectId(project.id); setIsSyncModalOpen(true) }}
                       className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-blue-400 hover:border-blue-500/50 hover:bg-blue-500/10 transition-all"
@@ -635,32 +807,48 @@ export default function ProjectsDashboard() {
                     >
                       <RefreshCw size={14} />
                     </button>
-                    
-                    {/* NEW: NEURAL EXTRACT DOWNLOAD BUTTON */}
+
+                    {/* Download */}
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDownloadProject(project.id, project.name) }}
                       disabled={downloadingProjectId === project.id || isGrounded}
                       className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-emerald-400 hover:border-emerald-500/50 hover:bg-emerald-500/10 transition-all disabled:opacity-50"
                       title="Download Neural Extract"
                     >
-                      {downloadingProjectId === project.id ? (
-                        <Loader2 size={14} className="animate-spin text-emerald-500" />
-                      ) : (
-                        <Download size={14} />
-                      )}
+                      {downloadingProjectId === project.id
+                        ? <Loader2 size={14} className="animate-spin text-emerald-500" />
+                        : <Download size={14} />
+                      }
                     </button>
 
+                    {/* ── WEBHOOK BUTTON — context-aware ──────────────────── */}
                     <button
-                      onClick={(e) => handleRegisterWebhook(e, project)}
-                      disabled={registeringWebhookId === project.id || isGrounded}
-                      className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-violet-400 hover:border-violet-500/50 hover:bg-violet-500/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={isGrounded ? 'Sync a repo first' : project.webhook_registered ? 'Webhook active' : 'Register webhook for auto-sync'}
+                      onClick={(e) => { e.stopPropagation(); handleRegisterWebhook(e, project) }}
+                      disabled={registeringWebhookId === project.id}
+                      className={`p-2 bg-[#111] border rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                        whStatus === 'active'
+                          ? 'border-green-500/30 text-green-400 hover:border-green-400/60 hover:bg-green-500/10'
+                          : needsFix
+                          ? 'border-amber-500/40 text-amber-400 hover:border-amber-400/60 hover:bg-amber-500/10 animate-pulse'
+                          : 'border-gray-800 text-gray-400 hover:text-violet-400 hover:border-violet-500/50 hover:bg-violet-500/10'
+                      }`}
+                      title={
+                        whStatus === 'active' ? 'Auto-sync active' :
+                        whStatus === 'no_repo' ? 'Link a repo to enable auto-sync' :
+                        'Fix webhook to enable auto-sync'
+                      }
                     >
                       {registeringWebhookId === project.id
                         ? <Loader2 size={14} className="animate-spin" />
-                        : <Webhook size={14} className={project.webhook_registered ? 'text-green-400' : ''} />
+                        : whStatus === 'active'
+                        ? <ShieldCheck size={14} />
+                        : needsFix
+                        ? <ShieldAlert size={14} />
+                        : <Webhook size={14} />
                       }
                     </button>
+
+                    {/* Delete */}
                     <button
                       onClick={(e) => { e.stopPropagation(); setNodeToDelete({ id: project.id, name: project.name }) }}
                       className="p-2 bg-[#111] border border-gray-800 rounded-lg text-gray-400 hover:text-red-400 hover:border-red-500/50 hover:bg-red-500/10 transition-all"
@@ -669,6 +857,24 @@ export default function ProjectsDashboard() {
                       <Trash2 size={14} />
                     </button>
                   </div>
+
+                  {/* ── FIX WEBHOOK BANNER — shown when webhook needs attention ── */}
+                  {needsFix && (
+                    <div
+                      className="relative z-10 mb-4 flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 cursor-pointer hover:bg-amber-500/10 transition-all"
+                      onClick={(e) => { e.stopPropagation(); setWebhookFixProject(project) }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <ShieldAlert size={12} className="text-amber-400 shrink-0" />
+                        <p className="text-[10px] text-amber-300 font-bold uppercase tracking-wider">
+                          {whStatus === 'no_repo' ? 'Link repo to enable auto-sync' : 'Auto-sync needs repair'}
+                        </p>
+                      </div>
+                      <span className="text-[9px] text-amber-400 font-black uppercase tracking-widest shrink-0 border border-amber-500/30 rounded-md px-1.5 py-0.5 hover:bg-amber-500/20 transition-colors">
+                        Fix →
+                      </span>
+                    </div>
+                  )}
 
                   {/* Telemetry footer */}
                   <div className="relative z-10 mt-auto pt-4 flex items-center justify-between border-t border-gray-800/50">
@@ -721,11 +927,10 @@ export default function ProjectsDashboard() {
                   <Link className="absolute left-3 top-3.5 text-gray-500" size={15} />
                 </div>
                 <p className="text-[11px] text-gray-600 mt-1.5 font-mono">
-                  If you have a PAT saved in Settings → Integrations, the webhook will be auto-registered.
+                  PAT saved in Settings → Integrations? Webhook auto-registers instantly.
                 </p>
               </div>
 
-              {/* Webhook registration status */}
               {webhookStatus && (
                 <div className={`flex items-start gap-3 p-3 rounded-xl border text-xs ${
                   webhookStatus.registered
@@ -743,8 +948,8 @@ export default function ProjectsDashboard() {
                 <p className="text-[10px] uppercase font-bold tracking-widest text-gray-600 mb-1.5">What happens next</p>
                 <ul className="space-y-1 text-[11px] text-gray-500">
                   <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-blue-500" /> Project node created in your vault</li>
+                  <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-blue-500" /> repo_full_name stamped immediately (fixes auto-sync)</li>
                   <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-blue-500" /> Webhook auto-registered if PAT is stored</li>
-                  <li className="flex items-center gap-2"><div className="w-1 h-1 rounded-full bg-blue-500" /> Redirect to node for manual sync</li>
                 </ul>
               </div>
             </div>
@@ -765,7 +970,7 @@ export default function ProjectsDashboard() {
         </div>
       )}
 
-      {/* ── Delete Modal ────────────────────────────────────────────────────── */}
+      {/* ── Delete Modal ─────────────────────────────────────────────────────── */}
       {nodeToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isDeleting && setNodeToDelete(null)} />
@@ -779,14 +984,14 @@ export default function ProjectsDashboard() {
                 You are about to permanently delete <strong className="text-gray-200">"{nodeToDelete.name}"</strong>.
               </p>
               <p className="text-sm text-gray-400">
-                This will destroy all synced memory files associated with it. This action cannot be undone.
+                This will destroy all synced memory files. This action cannot be undone.
               </p>
             </div>
             <div className="flex gap-3 px-6 md:px-8 pb-6 md:pb-8">
               <button onClick={() => setNodeToDelete(null)} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-[#161b22] hover:bg-gray-800 text-gray-300 transition-colors">
                 Cancel
               </button>
-              <button onClick={confirmDecommission} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/20 transition-colors flex items-center justify-center gap-2">
+              <button onClick={confirmDecommission} disabled={isDeleting} className="flex-1 py-3 rounded-xl text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center justify-center gap-2">
                 {isDeleting ? <Loader2 size={16} className="animate-spin" /> : 'Confirm Deletion'}
               </button>
             </div>
@@ -794,7 +999,7 @@ export default function ProjectsDashboard() {
         </div>
       )}
 
-      {/* ── Sync Modal ──────────────────────────────────────────────────────── */}
+      {/* ── Sync Modal ───────────────────────────────────────────────────────── */}
       {isSyncModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isSyncing && setIsSyncModalOpen(false)} />
@@ -812,9 +1017,9 @@ export default function ProjectsDashboard() {
               <p className="text-sm text-gray-400 mb-6">Connect a remote repository to inject its codebase into this node's memory banks.</p>
               <div className="grid grid-cols-3 gap-3 mb-6">
                 {[
-                  { id: 'github',    icon: Github, label: 'GitHub',    activeColor: 'border-white text-white bg-white/10 shadow-[0_0_15px_rgba(255,255,255,0.15)]' },
-                  { id: 'gitlab',    icon: Gitlab, label: 'GitLab',    activeColor: 'border-orange-500 text-orange-400 bg-orange-500/10 shadow-[0_0_15px_rgba(249,115,22,0.2)]' },
-                  { id: 'bitbucket', icon: Cloud,  label: 'Bitbucket', activeColor: 'border-blue-500 text-blue-400 bg-blue-500/10 shadow-[0_0_15px_rgba(59,130,246,0.2)]' }
+                  { id: 'github',    icon: Github, label: 'GitHub',    activeColor: 'border-white text-white bg-white/10' },
+                  { id: 'gitlab',    icon: Gitlab, label: 'GitLab',    activeColor: 'border-orange-500 text-orange-400 bg-orange-500/10' },
+                  { id: 'bitbucket', icon: Cloud,  label: 'Bitbucket', activeColor: 'border-blue-500 text-blue-400 bg-blue-500/10' }
                 ].map((provider) => (
                   <button
                     key={provider.id}
