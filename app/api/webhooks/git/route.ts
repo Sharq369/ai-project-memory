@@ -15,7 +15,10 @@ const DEVELOPER_IDS = ['33157b98-fdd0-4e04-b14b-bee4352f80c7'];
 // ── HMAC Signature Verification (GitHub) ──────────────────────────────────────
 function verifyGitHubSignature(payload: string, signature: string | null): boolean {
   const secret = process.env.WEBHOOK_SECRET;
-  if (!secret || !signature) return false;
+  // If no secret configured in env, skip verification (allows initial setup)
+  // Once WEBHOOK_SECRET is set, it is strictly enforced
+  if (!secret) return true;
+  if (!signature) return false;
   const hmac = crypto.createHmac('sha256', secret);
   const digest = 'sha256=' + hmac.update(payload).digest('hex');
   try {
@@ -215,7 +218,8 @@ export async function POST(req: Request) {
 
     const limits = getLimits(plan);
 
-    if (!limits.webhookAutoSync) {
+    // DEVELOPER_IDS always bypass the auto-sync gate regardless of plan
+    if (!limits.webhookAutoSync && !DEVELOPER_IDS.includes(userId)) {
       return NextResponse.json(
         { message: 'Auto-sync requires Pro or Platinum tier.' },
         { status: 200 }
@@ -229,7 +233,9 @@ export async function POST(req: Request) {
 
     // 5. Fetch File Tree ───────────────────────────────────────────────────────
     const authHeaders: Record<string, string> = {};
-    if (limits.privateRepos && process.env.GITHUB_TOKEN) {
+    // Always attach token if available — lets GitHub decide access for private repos
+    // Public repos ignore the token; private repos require it
+    if (process.env.GITHUB_TOKEN) {
       authHeaders['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
     }
 
