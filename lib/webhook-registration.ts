@@ -49,36 +49,30 @@ export interface ParsedRepo {
 }
 
 export function parseRepoUrl(url: string): ParsedRepo | null {
-  const trimmed = url.trim().replace(/\.git$/, '').replace(/\/$/, '')
+  const trimmed = url.trim().replace(/\.git$/, '')
 
-  // Full URL — GitHub
   if (trimmed.includes('github.com')) {
-    const match = trimmed.match(/github\.com[\/:]([\w.-]+)\/([\w.-]+)/)
+    const match = trimmed.match(/github\.com[/:]([\\w.-]+)\/([\\w.-]+)/)
     if (!match) return null
     return { provider: 'github', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
   }
 
-  // Full URL — GitLab (supports nested groups)
   if (trimmed.includes('gitlab.com')) {
-    const match = trimmed.match(/gitlab\.com[\/:]([\w.-]+(?:\/[\w.-]+)*)\/([\w.-]+)/)
+    const match = trimmed.match(/gitlab\.com[/:]([\\w.-]+(?:\/[\\w.-]+)*)\/([\\w.-]+)/)
     if (!match) return null
     return { provider: 'gitlab', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
   }
 
-  // Full URL — Bitbucket
   if (trimmed.includes('bitbucket.org')) {
-    const match = trimmed.match(/bitbucket\.org[\/:]([\w.-]+)\/([\w.-]+)/)
+    const match = trimmed.match(/bitbucket\.org[/:]([\\w.-]+)\/([\\w.-]+)/)
     if (!match) return null
     return { provider: 'bitbucket', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
   }
 
-  // Shorthand "owner/repo" — no domain, default to GitHub
-  // Matches: Sharq369/devboard, my-org/my-repo.js, etc.
-  const parts = trimmed.split('/')
-  if (parts.length === 2 && parts[0].length > 0 && parts[1].length > 0) {
-    const owner = parts[0]
-    const repo = parts[1]
-    return { provider: 'github', owner, repo, fullName: `${owner}/${repo}` }
+  // Shorthand "owner/repo" — default to GitHub
+  const shorthand = trimmed.match(/^([\\w.-]+)\/([\\w.-]+)$/)
+  if (shorthand) {
+    return { provider: 'github', owner: shorthand[1], repo: shorthand[2], fullName: trimmed }
   }
 
   return null
@@ -137,8 +131,25 @@ async function registerGitHubWebhook(
 
   if (listRes.ok) {
     const hooks = await listRes.json()
-    const existing = hooks.find((h: any) => h.config?.url === webhookUrl)
+    // Match by base URL (ignore query params) to catch old registrations without bypass token
+    const existing = hooks.find((h: any) => {
+      const hookBase = (h.config?.url || '').split('?')[0]
+      const targetBase = webhookUrl.split('?')[0]
+      return hookBase === targetBase
+    })
     if (existing) {
+      // If URL has changed (bypass token added/changed), update the webhook
+      if (existing.config?.url !== webhookUrl) {
+        await fetch(
+          `https://api.github.com/repos/${parsed.fullName}/hooks/${existing.id}`,
+          {
+            method: 'PATCH',
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: { url: webhookUrl, content_type: 'json', secret: secret, insecure_ssl: '0' } })
+          }
+        )
+        return { success: true, provider: 'github', hookId: existing.id, message: 'Webhook URL updated with bypass token.' }
+      }
       return { success: true, provider: 'github', hookId: existing.id, message: 'Webhook already registered.' }
     }
   }
@@ -190,8 +201,23 @@ async function registerGitLabWebhook(
 
   if (listRes.ok) {
     const hooks = await listRes.json()
-    const existing = hooks.find((h: any) => h.url === webhookUrl)
+    const existing = hooks.find((h: any) => {
+      const hookBase = (h.url || '').split('?')[0]
+      const targetBase = webhookUrl.split('?')[0]
+      return hookBase === targetBase
+    })
     if (existing) {
+      if (existing.url !== webhookUrl) {
+        await fetch(
+          `https://gitlab.com/api/v4/projects/${encodeURIComponent(parsed.fullName)}/hooks/${existing.id}`,
+          {
+            method: 'PUT',
+            headers: { 'PRIVATE-TOKEN': token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: webhookUrl, push_events: true, pipeline_events: true, token: secret })
+          }
+        )
+        return { success: true, provider: 'gitlab', hookId: existing.id, message: 'Webhook URL updated with bypass token.' }
+      }
       return { success: true, provider: 'gitlab', hookId: existing.id, message: 'Webhook already registered.' }
     }
   }
@@ -287,7 +313,15 @@ export async function fireFlareGun(
     ? `https://${process.env.VERCEL_URL}`
     : 'https://ai-project-memory.vercel.app'
 
-  const webhookUrl = `${APP_DOMAIN}/api/webhooks/git`
+  // Vercel Deployment Protection bypass — required for GitHub/GitLab/Bitbucket
+  // webhooks since they cannot set custom headers. Uses query parameter approach
+  // as recommended by Vercel docs for third-party webhook services.
+  // VERCEL_AUTOMATION_BYPASS_SECRET is auto-set by Vercel when you create the secret
+  // in Settings → Deployment Protection → Protection Bypass for Automation.
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+  const webhookUrl = bypassSecret
+    ? `${APP_DOMAIN}/api/webhooks/git?x-vercel-protection-bypass=${bypassSecret}`
+    : `${APP_DOMAIN}/api/webhooks/git`
   const webhookSecret = process.env.WEBHOOK_SECRET || ''
 
   // Step 1: Parse repo URL
