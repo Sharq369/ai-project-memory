@@ -49,30 +49,34 @@ export interface ParsedRepo {
 }
 
 export function parseRepoUrl(url: string): ParsedRepo | null {
-  const trimmed = url.trim().replace(/\.git$/, '')
+  const trimmed = url.trim().replace(/\.git$/, '').replace(/\/$/, '')
 
+  // Full URL — GitHub
   if (trimmed.includes('github.com')) {
-    const match = trimmed.match(/github\.com[/:]([\\w.-]+)\/([\\w.-]+)/)
-    if (!match) return null
-    return { provider: 'github', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
+    const parts = trimmed.split('github.com').pop()?.replace(/^[\/:]/, '').split('/') || []
+    if (parts.length >= 2) return { provider: 'github', owner: parts[0], repo: parts[1], fullName: `${parts[0]}/${parts[1]}` }
+    return null
   }
 
+  // Full URL — GitLab (supports nested groups)
   if (trimmed.includes('gitlab.com')) {
-    const match = trimmed.match(/gitlab\.com[/:]([\\w.-]+(?:\/[\\w.-]+)*)\/([\\w.-]+)/)
-    if (!match) return null
-    return { provider: 'gitlab', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
+    const parts = trimmed.split('gitlab.com').pop()?.replace(/^[\/:]/, '').split('/') || []
+    if (parts.length >= 2) return { provider: 'gitlab', owner: parts[0], repo: parts[parts.length-1], fullName: parts.slice(0, parts.length).join('/') }
+    return null
   }
 
+  // Full URL — Bitbucket
   if (trimmed.includes('bitbucket.org')) {
-    const match = trimmed.match(/bitbucket\.org[/:]([\\w.-]+)\/([\\w.-]+)/)
-    if (!match) return null
-    return { provider: 'bitbucket', owner: match[1], repo: match[2], fullName: `${match[1]}/${match[2]}` }
+    const parts = trimmed.split('bitbucket.org').pop()?.replace(/^[\/:]/, '').split('/') || []
+    if (parts.length >= 2) return { provider: 'bitbucket', owner: parts[0], repo: parts[1], fullName: `${parts[0]}/${parts[1]}` }
+    return null
   }
 
-  // Shorthand "owner/repo" — default to GitHub
-  const shorthand = trimmed.match(/^([\\w.-]+)\/([\\w.-]+)$/)
-  if (shorthand) {
-    return { provider: 'github', owner: shorthand[1], repo: shorthand[2], fullName: trimmed }
+  // Shorthand "owner/repo" — no domain, defaults to GitHub
+  // Uses split() not regex — avoids double-escape issues entirely
+  const parts = trimmed.split('/')
+  if (parts.length === 2 && parts[0].length > 0 && parts[1].length > 0) {
+    return { provider: 'github', owner: parts[0], repo: parts[1], fullName: trimmed }
   }
 
   return null
