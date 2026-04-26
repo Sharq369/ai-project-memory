@@ -131,21 +131,67 @@ export async function POST(req: Request) {
     }
     
     // Push event fallback — fires when repo has NO CI/CD workflow
-    // If repo has CI/CD, workflow_run handles it above and push is ignored
-    // If repo has NO CI/CD, accept push to default branch directly
+    // Verifies the pushed commit has no failing checks before syncing
     else if (githubEvent === 'push' || payload.object_kind === 'push') {
-      const pushedBranch = payload.ref?.replace('refs/heads/', '') || 
+      const pushedBranch = payload.ref?.replace('refs/heads/', '') ||
                            payload.commits?.[0]?.branch ||
                            payload.push?.changes?.[0]?.new?.name;
-      const repoDefault = payload.repository?.default_branch || 
+      const repoDefault = payload.repository?.default_branch ||
                           payload.project?.default_branch || 'main';
-      
+
+      // Ignore non-default branch pushes
       if (pushedBranch && pushedBranch !== repoDefault) {
         console.log(`[Webhook] Push to non-default branch (${pushedBranch}). Ignoring.`);
         return NextResponse.json({ message: 'Not default branch. Ignoring.' }, { status: 200 });
       }
-      // Falls through to sync below — no CI/CD repo, trust the push
-      console.log(`[Webhook] Push to default branch with no CI/CD. Proceeding with sync.`);
+
+      // For GitHub: verify commit status before syncing
+      // This catches repos that have status checks (e.g. external CI) but no workflow_run
+      if (githubEvent === 'push') {
+        const headSha = payload.after || payload.head_commit?.id;
+        const pushFullName = payload.repository?.full_name;
+
+        if (headSha && pushFullName) {
+          const pushAuthHeaders: Record<string, string> = { Accept: 'application/vnd.github+json' };
+          if (process.env.GITHUB_TOKEN) pushAuthHeaders['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
+
+          // Check combined commit status (external CI tools like CircleCI, Travis etc.)
+          const statusRes = await fetch(
+            `https://api.github.com/repos/${pushFullName}/commits/${headSha}/status`,
+            { headers: pushAuthHeaders }
+          );
+
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            // 'failure' or 'error' = bad commit — abort sync
+            if (statusData.state === 'failure' || statusData.state === 'error') {
+              console.warn(`[Webhook] Push commit ${headSha.slice(0,7)} has failing status checks (${statusData.state}). Sync aborted.`);
+              return NextResponse.json({ message: 'Commit has failing checks. Sync aborted.' }, { status: 200 });
+            }
+          }
+
+          // Also check GitHub check runs (Actions-based checks without workflow_run event)
+          const checksRes = await fetch(
+            `https://api.github.com/repos/${pushFullName}/commits/${headSha}/check-runs`,
+            { headers: pushAuthHeaders }
+          );
+
+          if (checksRes.ok) {
+            const checksData = await checksRes.json();
+            const runs = checksData.check_runs || [];
+            const hasFailure = runs.some((r: any) =>
+              r.status === 'completed' && (r.conclusion === 'failure' || r.conclusion === 'cancelled' || r.conclusion === 'timed_out')
+            );
+            if (hasFailure) {
+              console.warn(`[Webhook] Push commit ${headSha.slice(0,7)} has failed check runs. Sync aborted.`);
+              return NextResponse.json({ message: 'Commit has failed checks. Sync aborted.' }, { status: 200 });
+            }
+          }
+        }
+      }
+
+      // Passed all checks — safe to sync
+      console.log(`[Webhook] Push to default branch verified. Proceeding with sync.`);
     }
     // ─────────────────────────────────────────────────────────────────────────
 
